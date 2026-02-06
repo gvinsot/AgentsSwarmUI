@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Radio, Send, Loader2, FolderOpen, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import api from '../api';
+import { api } from '../api';
 
 export default function BroadcastPanel({ agents, projects = [], socket, onClose }) {
   const [message, setMessage] = useState('');
