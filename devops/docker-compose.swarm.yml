@@ -1,3 +1,6 @@
+version: '3.8'
+services:
+  server:
     image: registry.methodinfo.fr/agentswarm-server:latest
     build:
       context: ..
