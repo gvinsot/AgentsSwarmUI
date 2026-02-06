@@ -6,21 +6,38 @@ const router = express.Router();
 
 // In-memory users store (in production, use a database)
 const users = new Map();
+let usersInitialized = false;
 
-// Initialize default admin user
-const initUsers = async () => {
-  const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'swarm2026', 10);
-  users.set(process.env.ADMIN_USERNAME || 'admin', {
-    username: process.env.ADMIN_USERNAME || 'admin',
+// Initialize default admin user (lazy, called on first auth request)
+const ensureUsersInitialized = async () => {
+  if (usersInitialized) return;
+  usersInitialized = true;
+  
+  const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'swarm2026';
+  const hash = await bcrypt.hash(adminPassword, 10);
+  users.set(adminUsername, {
+    username: adminUsername,
     password: hash,
     role: 'admin'
   });
+  console.log(`✅ Admin user initialized: ${adminUsername}`);
 };
-initUsers();
+
+// Helper to get JWT secret at runtime
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is not set');
+  }
+  return secret;
+};
 
 // Login
 router.post('/login', async (req, res) => {
   try {
+    await ensureUsersInitialized();
+    
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
@@ -38,12 +55,13 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign(
       { username: user.username, role: user.role },
-      process.env.JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '24h' }
     );
 
     res.json({ token, username: user.username, role: user.role });
   } catch (err) {
+    console.error('Login error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -55,7 +73,7 @@ router.get('/verify', (req, res) => {
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     res.json({ valid: true, user: decoded });
   } catch (err) {
     res.status(401).json({ error: 'Invalid token' });
@@ -69,7 +87,7 @@ export function authenticateToken(req, res, next) {
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = decoded;
     next();
   } catch (err) {
