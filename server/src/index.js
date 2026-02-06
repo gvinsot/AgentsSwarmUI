@@ -9,6 +9,7 @@ import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
+import { initDatabase } from './services/database.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -69,8 +70,20 @@ io.use((socket, next) => {
 setupSocketHandlers(io, agentManager);
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
-  console.log(`\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
-  console.log(`   WebSocket ready for connections`);
-  console.log(`   Default login: admin / swarm2026\n`);
+
+// Initialize database and start server
+async function start() {
+  await initDatabase();
+  await agentManager.loadFromDatabase();
+  
+  httpServer.listen(PORT, () => {
+    console.log(`\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
+    console.log(`   WebSocket ready for connections`);
+    console.log(`   Default login: admin / swarm2026\n`);
+  });
+}
+
+start().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });

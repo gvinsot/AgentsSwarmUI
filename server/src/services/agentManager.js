@@ -1,10 +1,26 @@
 import { v4 as uuidv4 } from 'uuid';
 import { createProvider } from './llmProviders.js';
+import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
 
 export class AgentManager {
   constructor(io) {
     this.agents = new Map();
     this.io = io;
+  }
+
+  async loadFromDatabase() {
+    try {
+      const agents = await getAllAgents();
+      for (const agent of agents) {
+        // Reset runtime state
+        agent.status = 'idle';
+        agent.currentThinking = '';
+        this.agents.set(agent.id, agent);
+      }
+      console.log(`📂 Loaded ${agents.length} agents from database`);
+    } catch (err) {
+      console.error('Failed to load agents from database:', err.message);
+    }
   }
 
   create(config) {
@@ -43,6 +59,7 @@ export class AgentManager {
     };
 
     this.agents.set(id, agent);
+    saveAgent(agent); // Persist to database
     this._emit('agent:created', this._sanitize(agent));
     return this._sanitize(agent);
   }
@@ -74,6 +91,7 @@ export class AgentManager {
     }
     agent.updatedAt = new Date().toISOString();
 
+    saveAgent(agent); // Persist to database
     this._emit('agent:updated', this._sanitize(agent));
     return this._sanitize(agent);
   }
@@ -82,6 +100,7 @@ export class AgentManager {
     const agent = this.agents.get(id);
     if (!agent) return false;
     this.agents.delete(id);
+    deleteAgentFromDb(id); // Remove from database
     this._emit('agent:deleted', { id });
     return true;
   }
@@ -173,12 +192,14 @@ export class AgentManager {
       agent.metrics.lastActiveAt = new Date().toISOString();
       agent.currentThinking = '';
       this.setStatus(id, 'idle');
+      saveAgent(agent); // Persist conversation and metrics
 
       return fullResponse;
     } catch (err) {
       agent.metrics.errors += 1;
       agent.currentThinking = '';
       this.setStatus(id, 'error');
+      saveAgent(agent); // Persist error count
       throw err;
     }
   }
@@ -230,6 +251,7 @@ export class AgentManager {
     if (!agent) return null;
     const todo = { id: uuidv4(), text, done: false, createdAt: new Date().toISOString() };
     agent.todoList.push(todo);
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return todo;
   }
@@ -240,6 +262,7 @@ export class AgentManager {
     const todo = agent.todoList.find(t => t.id === todoId);
     if (!todo) return null;
     todo.done = !todo.done;
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return todo;
   }
@@ -248,6 +271,7 @@ export class AgentManager {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.todoList = agent.todoList.filter(t => t.id !== todoId);
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
   }
@@ -258,6 +282,7 @@ export class AgentManager {
     if (!agent) return null;
     const doc = { id: uuidv4(), name, content, addedAt: new Date().toISOString() };
     agent.ragDocuments.push(doc);
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return doc;
   }
@@ -266,6 +291,7 @@ export class AgentManager {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.ragDocuments = agent.ragDocuments.filter(d => d.id !== docId);
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
   }
@@ -276,6 +302,7 @@ export class AgentManager {
     if (!agent) return false;
     agent.conversationHistory = [];
     agent.currentThinking = '';
+    saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
   }
