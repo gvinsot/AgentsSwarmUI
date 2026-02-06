@@ -38,10 +38,11 @@ services:
         - "traefik.http.services.agentswarm-server.loadbalancer.server.port=3001"
 
         # HTTPS Router — API + WebSocket (/api and /socket.io)
+        # Using realtime-global (no WAF) to avoid blocking AI chat content with code patterns
         - "traefik.http.routers.agentswarm-api.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
         - "traefik.http.routers.agentswarm-api.entrypoints=websecure"
         - "traefik.http.routers.agentswarm-api.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.agentswarm-api.middlewares=global@file"
+        - "traefik.http.routers.agentswarm-api.middlewares=realtime-global@file"
         - "traefik.http.routers.agentswarm-api.service=agentswarm-server"
         - "traefik.http.routers.agentswarm-api.priority=100"
 
