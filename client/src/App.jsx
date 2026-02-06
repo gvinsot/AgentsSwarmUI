@@ -3,6 +3,7 @@ import { connectSocket, disconnectSocket, getSocket } from './socket';
 import { api } from './api';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
+import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -12,6 +13,21 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [thinkingMap, setThinkingMap] = useState({});
   const [streamBuffers, setStreamBuffers] = useState({});
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = useCallback((message, type = 'error', duration = 5000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, duration);
+    }
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   // Check existing token on mount
   useEffect(() => {
@@ -100,6 +116,7 @@ export default function App() {
 
     sock.on('agent:stream:error', ({ agentId, error }) => {
       console.error(`Stream error for ${agentId}:`, error);
+      showToast(error || 'An error occurred while streaming response', 'error');
       setStreamBuffers(prev => {
         const copy = { ...prev };
         delete copy[agentId];
@@ -143,16 +160,44 @@ export default function App() {
   }
 
   return (
-    <Dashboard
-      user={user}
-      agents={agents}
-      templates={templates}
-      projects={projects}
-      thinkingMap={thinkingMap}
-      streamBuffers={streamBuffers}
-      onLogout={handleLogout}
-      onRefresh={loadData}
-      socket={getSocket()}
-    />
+    <>
+      <Dashboard
+        user={user}
+        agents={agents}
+        templates={templates}
+        projects={projects}
+        thinkingMap={thinkingMap}
+        streamBuffers={streamBuffers}
+        onLogout={handleLogout}
+        onRefresh={loadData}
+        socket={getSocket()}
+        showToast={showToast}
+      />
+      
+      {/* Toast Container */}
+      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-md">
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            className={`flex items-start gap-3 p-4 rounded-lg shadow-lg border backdrop-blur-sm animate-slide-in-right ${
+              toast.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+              toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+              'bg-blue-500/10 border-blue-500/30 text-blue-400'
+            }`}
+          >
+            {toast.type === 'error' ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> :
+             toast.type === 'success' ? <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> :
+             <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <p className="text-sm flex-1">{toast.message}</p>
+            <button
+              onClick={() => dismissToast(toast.id)}
+              className="opacity-60 hover:opacity-100 transition-opacity"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

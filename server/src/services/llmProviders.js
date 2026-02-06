@@ -229,13 +229,27 @@ export class ClaudeProvider {
 }
 
 // ─── OpenAI Provider ────────────────────────────────────────────────────────
+// Completion-only models (legacy, use /v1/completions endpoint)
+const OPENAI_COMPLETION_MODELS = [
+  'gpt-3.5-turbo-instruct', 'davinci-002', 'babbage-002',
+  'text-davinci-003', 'text-davinci-002', 'text-curie-001', 'text-babbage-001', 'text-ada-001'
+];
+
 export class OpenAIProvider {
   constructor(apiKey, model) {
     this.client = new OpenAI({ apiKey });
     this.model = model || 'gpt-4o';
+    this.isCompletionModel = OPENAI_COMPLETION_MODELS.some(m => this.model.startsWith(m));
   }
 
   async chat(messages, options = {}) {
+    if (this.isCompletionModel) {
+      return this._completionChat(messages, options);
+    }
+    return this._chatCompletion(messages, options);
+  }
+
+  async _chatCompletion(messages, options = {}) {
     const params = {
       model: this.model,
       messages: messages.map(m => ({
@@ -243,7 +257,7 @@ export class OpenAIProvider {
         content: m.content
       })),
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens || 4096,
+      max_completion_tokens: options.maxTokens || 4096,
     };
 
     const response = await this.client.chat.completions.create(params);
@@ -259,7 +273,41 @@ export class OpenAIProvider {
     };
   }
 
+  async _completionChat(messages, options = {}) {
+    // Convert messages to a single prompt for completion models
+    const prompt = messages.map(m => {
+      if (m.role === 'system') return `System: ${m.content}`;
+      if (m.role === 'user') return `Human: ${m.content}`;
+      return `Assistant: ${m.content}`;
+    }).join('\n\n') + '\n\nAssistant:';
+
+    const response = await this.client.completions.create({
+      model: this.model,
+      prompt,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+    });
+
+    return {
+      content: response.choices[0]?.text?.trim() || '',
+      model: this.model,
+      provider: 'openai',
+      usage: {
+        inputTokens: response.usage?.prompt_tokens || 0,
+        outputTokens: response.usage?.completion_tokens || 0
+      }
+    };
+  }
+
   async *chatStream(messages, options = {}) {
+    if (this.isCompletionModel) {
+      yield* this._completionStream(messages, options);
+    } else {
+      yield* this._chatCompletionStream(messages, options);
+    }
+  }
+
+  async *_chatCompletionStream(messages, options = {}) {
     const params = {
       model: this.model,
       messages: messages.map(m => ({
@@ -267,7 +315,7 @@ export class OpenAIProvider {
         content: m.content
       })),
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens || 4096,
+      max_completion_tokens: options.maxTokens || 4096,
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -293,11 +341,50 @@ export class OpenAIProvider {
     }
   }
 
+  async *_completionStream(messages, options = {}) {
+    // Convert messages to a single prompt for completion models
+    const prompt = messages.map(m => {
+      if (m.role === 'system') return `System: ${m.content}`;
+      if (m.role === 'user') return `Human: ${m.content}`;
+      return `Assistant: ${m.content}`;
+    }).join('\n\n') + '\n\nAssistant:';
+
+    const stream = await this.client.completions.create({
+      model: this.model,
+      prompt,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+      stream: true,
+    });
+
+    let totalTokens = 0;
+    for await (const chunk of stream) {
+      const text = chunk.choices[0]?.text;
+      if (text) {
+        yield { type: 'text', text };
+        totalTokens++;
+      }
+    }
+
+    yield {
+      type: 'done',
+      usage: { inputTokens: 0, outputTokens: totalTokens }
+    };
+  }
+
   async ping() {
     try {
+      if (this.isCompletionModel) {
+        const response = await this.client.completions.create({
+          model: this.model,
+          prompt: 'ping',
+          max_tokens: 5,
+        });
+        return !!response;
+      }
       const response = await this.client.chat.completions.create({
         model: this.model,
-        max_tokens: 5,
+        max_completion_tokens: 5,
         messages: [{ role: 'user', content: 'ping' }]
       });
       return !!response;

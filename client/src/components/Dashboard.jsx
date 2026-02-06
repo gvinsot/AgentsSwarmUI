@@ -11,7 +11,7 @@ import SwarmOverview from './SwarmOverview';
 
 export default function Dashboard({
   user, agents, templates, projects, thinkingMap, streamBuffers,
-  onLogout, onRefresh, socket
+  onLogout, onRefresh, socket, showToast
 }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
