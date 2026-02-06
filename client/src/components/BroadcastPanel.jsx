@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Radio, Send, Loader2 } from 'lucide-react';
+import { X, Radio, Send, Loader2, FolderOpen, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import api from '../api';
 
-export default function BroadcastPanel({ agents, socket, onClose }) {
+export default function BroadcastPanel({ agents, projects = [], socket, onClose }) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [responses, setResponses] = useState([]);
   const [history, setHistory] = useState([]);
+  const [changingProject, setChangingProject] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -48,6 +50,20 @@ export default function BroadcastPanel({ agents, socket, onClose }) {
     socket.emit('broadcast:message', { message: msg });
   };
 
+  const handleProjectChange = async (project) => {
+    setChangingProject(true);
+    try {
+      await api.updateAllProjects(project);
+    } catch (err) {
+      console.error('Failed to update projects:', err);
+    } finally {
+      setChangingProject(false);
+    }
+  };
+
+  // Get current project (from first agent or null)
+  const currentProject = agents.length > 0 ? agents[0].project : null;
+
   return (
     <div className="border-b border-dark-700 bg-dark-900/50 animate-fadeIn">
       <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-4">
@@ -57,9 +73,32 @@ export default function BroadcastPanel({ agents, socket, onClose }) {
             <h3 className="font-semibold text-dark-100 text-sm">Global Broadcast</h3>
             <span className="text-xs text-dark-400">(tmux-style — sends to all {agents.length} agents)</span>
           </div>
-          <button onClick={onClose} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Project selector */}
+            <div className="relative">
+              <div className="flex items-center gap-1 text-xs text-dark-400">
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Project:</span>
+              </div>
+            </div>
+            <div className="relative">
+              <select
+                value={currentProject || ''}
+                onChange={(e) => handleProjectChange(e.target.value || null)}
+                disabled={changingProject || agents.length === 0}
+                className="appearance-none bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 pr-7 text-sm text-dark-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer"
+              >
+                <option value="">No project</option>
+                {projects.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400 pointer-events-none" />
+            </div>
+            <button onClick={onClose} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Input area */}

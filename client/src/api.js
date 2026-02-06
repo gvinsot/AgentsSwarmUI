@@ -83,6 +83,13 @@ export const api = {
       body: JSON.stringify({ message })
     }).then(handleResponse),
 
+  updateAllProjects: (project) =>
+    fetch(`${API_BASE}/agents/project/all`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ project })
+    }).then(handleResponse),
+
   // Todos
   addTodo: (agentId, text) =>
     fetch(`${API_BASE}/agents/${agentId}/todos`, {

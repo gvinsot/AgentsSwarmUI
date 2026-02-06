@@ -105,6 +105,18 @@ export class AgentManager {
     return true;
   }
 
+  updateAllProjects(project) {
+    const updated = [];
+    for (const agent of this.agents.values()) {
+      agent.project = project;
+      agent.updatedAt = new Date().toISOString();
+      saveAgent(agent);
+      updated.push(this._sanitize(agent));
+      this._emit('agent:updated', this._sanitize(agent));
+    }
+    return updated;
+  }
+
   setStatus(id, status) {
     const agent = this.agents.get(id);
     if (!agent) return;

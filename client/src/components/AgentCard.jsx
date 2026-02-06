@@ -1,4 +1,4 @@
-import { MessageSquare, Clock, Cpu, Zap } from 'lucide-react';
+import { MessageSquare, Clock, Cpu, Zap, FolderOpen } from 'lucide-react';
 
 const STATUS_STYLES = {
   idle: { dot: 'bg-emerald-500', label: 'Idle', textColor: 'text-emerald-400' },
@@ -27,6 +27,12 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${status.dot}`} />
           </div>
           <p className="text-xs text-dark-400 truncate">{agent.role} · {agent.provider}/{agent.model}</p>
+          {agent.project && (
+            <p className="text-xs text-indigo-400 truncate flex items-center gap-1">
+              <FolderOpen className="w-3 h-3" />
+              {agent.project}
+            </p>
+          )}
         </div>
         {thinking && (
           <div className="hidden sm:block text-xs text-dark-400 truncate max-w-[200px] font-mono">
@@ -81,6 +87,12 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
             {agent.provider}
           </span>
           <span className="text-dark-400 truncate font-mono text-[11px]">{agent.model}</span>
+          {agent.project && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 truncate">
+              <FolderOpen className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{agent.project}</span>
+            </span>
+          )}
         </div>
 
         {/* Thinking/streaming indicator */}

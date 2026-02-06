@@ -93,6 +93,18 @@ export function agentRoutes(agentManager) {
     }
   });
 
+  // Update project for all agents
+  router.put('/project/all', (req, res) => {
+    try {
+      const { project } = req.body;
+      if (project === undefined) return res.status(400).json({ error: 'Project required' });
+      const updated = agentManager.updateAllProjects(project);
+      res.json({ success: true, count: updated.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Todo endpoints ──────────────────────────────────────────────────
   router.post('/:id/todos', (req, res) => {
     const { text } = req.body;

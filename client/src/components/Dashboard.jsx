@@ -100,6 +100,7 @@ export default function Dashboard({
         {showBroadcast && (
           <BroadcastPanel
             agents={agents}
+            projects={projects}
             socket={socket}
             onClose={() => setShowBroadcast(false)}
           />
