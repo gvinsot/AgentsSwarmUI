@@ -90,7 +90,7 @@ export default function BroadcastPanel({ agents, projects = [], socket, onClose 
               >
                 <option value="">No project</option>
                 {projects.map(p => (
-                  <option key={p} value={p}>{p}</option>
+                  <option key={p.name} value={p.name}>{p.name}</option>
                 ))}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400 pointer-events-none" />
