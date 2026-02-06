@@ -96,5 +96,5 @@ services:
 networks:
   proxy:
     external: true
-  databases:
+  postgresqlcluster_internal:
     external: true
