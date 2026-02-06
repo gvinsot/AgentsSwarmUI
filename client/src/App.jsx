@@ -50,14 +50,31 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [agentsData, templatesData, projectsData] = await Promise.all([
+      // Load each resource independently to prevent one failure from blocking others
+      const [agentsResult, templatesResult, projectsResult] = await Promise.allSettled([
         api.getAgents(),
         api.getTemplates(),
         api.getProjects()
       ]);
-      setAgents(agentsData);
-      setTemplates(templatesData);
-      setProjects(projectsData);
+      
+      if (agentsResult.status === 'fulfilled') {
+        setAgents(agentsResult.value);
+      } else {
+        console.error('Failed to load agents:', agentsResult.reason);
+      }
+      
+      if (templatesResult.status === 'fulfilled') {
+        setTemplates(templatesResult.value);
+      } else {
+        console.error('Failed to load templates:', templatesResult.reason);
+      }
+      
+      if (projectsResult.status === 'fulfilled') {
+        setProjects(projectsResult.value);
+      } else {
+        console.error('Failed to load projects:', projectsResult.reason);
+        setProjects([]); // Default to empty array
+      }
     } catch (err) {
       console.error('Failed to load data:', err);
     }

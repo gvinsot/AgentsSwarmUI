@@ -1,6 +1,7 @@
 import express from 'express';
-import { readdir } from 'fs/promises';
+import { readdir, access } from 'fs/promises';
 import { join } from 'path';
+import { constants } from 'fs';
 
 export function projectRoutes() {
   const router = express.Router();
@@ -8,10 +9,25 @@ export function projectRoutes() {
   // List all project directories from HOST_CODE_PATH
   router.get('/', async (req, res) => {
     try {
-      // In Docker, projects are mounted at /projects; locally use HOST_CODE_PATH
-      const basePath = process.env.HOST_CODE_PATH 
-        ? (process.env.NODE_ENV === 'production' ? '/projects' : process.env.HOST_CODE_PATH)
-        : '/projects';
+      // Try /projects first (Docker mount), then HOST_CODE_PATH, then return empty
+      let basePath = '/projects';
+      
+      try {
+        await access(basePath, constants.R_OK);
+      } catch {
+        basePath = process.env.HOST_CODE_PATH;
+        if (basePath) {
+          try {
+            await access(basePath, constants.R_OK);
+          } catch {
+            // Neither path accessible, return empty list
+            return res.json([]);
+          }
+        } else {
+          // No path configured, return empty list
+          return res.json([]);
+        }
+      }
       
       const entries = await readdir(basePath, { withFileTypes: true });
       const projects = entries
@@ -26,7 +42,8 @@ export function projectRoutes() {
       res.json(projects);
     } catch (err) {
       console.error('Failed to list projects:', err);
-      res.status(500).json({ error: 'Failed to list projects', details: err.message });
+      // Return empty list instead of error to not break the UI
+      res.json([]);
     }
   });
 
