@@ -1,0 +1,89 @@
+    image: registry.methodinfo.fr/agentswarm-server:latest
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      - PORT=${PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - ${HOST_CODE_PATH}/AgentsSwarmUI/server/src:/app/src
+    networks:
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == server-b
+      restart_policy:
+        condition: on-failure
+      labels:
+        # Enable Traefik
+        - "traefik.enable=true"
+
+        # Service port
+        - "traefik.http.services.agentswarm-server.loadbalancer.server.port=3001"
+
+        # HTTPS Router — API + WebSocket (/api and /socket.io)
+        - "traefik.http.routers.agentswarm-api.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.agentswarm-api.entrypoints=websecure"
+        - "traefik.http.routers.agentswarm-api.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.agentswarm-api.middlewares=global@file"
+        - "traefik.http.routers.agentswarm-api.service=agentswarm-server"
+        - "traefik.http.routers.agentswarm-api.priority=100"
+
+        # HTTP redirect
+        - "traefik.http.routers.agentswarm-api-http.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.agentswarm-api-http.entrypoints=web"
+        - "traefik.http.routers.agentswarm-api-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.agentswarm-api-http.service=noop@internal"
+
+  client:
+    image: registry.methodinfo.fr/agentswarm-client:latest
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+    volumes:
+      - ${HOST_CODE_PATH}/AgentsSwarmUI/client/dist:/usr/share/nginx/html
+    networks:
+      - proxy
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == server-b
+      restart_policy:
+        condition: on-failure
+      labels:
+        # Enable Traefik
+        - "traefik.enable=true"
+
+        # Service port
+        - "traefik.http.services.agentswarm-client.loadbalancer.server.port=80"
+
+        # HTTPS Router — Frontend (catch-all for swarm.methodinfo.fr)
+        - "traefik.http.routers.agentswarm-frontend.rule=Host(`swarm.methodinfo.fr`)"
+        - "traefik.http.routers.agentswarm-frontend.entrypoints=websecure"
+        - "traefik.http.routers.agentswarm-frontend.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.agentswarm-frontend.middlewares=global@file"
+        - "traefik.http.routers.agentswarm-frontend.service=agentswarm-client"
+        - "traefik.http.routers.agentswarm-frontend.priority=1"
+
+        # HTTP redirect
+        - "traefik.http.routers.agentswarm-frontend-http.rule=Host(`swarm.methodinfo.fr`)"
+        - "traefik.http.routers.agentswarm-frontend-http.entrypoints=web"
+        - "traefik.http.routers.agentswarm-frontend-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.agentswarm-frontend-http.service=noop@internal"
+
+networks:
+  proxy:
+    external: true

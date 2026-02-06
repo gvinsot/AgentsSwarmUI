@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #010409;
+  color: #e2e8f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+.glow-pulse {
+  animation: pulseGlow 2s infinite;
+}
+
+/* Markdown content styling */
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  color: #f1f5f9;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.markdown-content p {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.markdown-content ul, .markdown-content ol {
+  margin-left: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-content code {
+  background: #1e293b;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: #a5b4fc;
+}
+
+.markdown-content pre {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid #6366f1;
+  padding-left: 1rem;
+  color: #94a3b8;
+  margin: 0.75rem 0;
+}
+
+/* Status indicator glow */
+.status-idle { @apply bg-emerald-500; }
+.status-busy { @apply bg-amber-500; animation: pulseGlow 1.5s infinite; }
+.status-error { @apply bg-red-500; }
+.status-offline { @apply bg-gray-500; }
+
+/* Glass effect */
+.glass {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+/* Gradient border */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
