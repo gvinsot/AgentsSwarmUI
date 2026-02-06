@@ -120,4 +120,8 @@ export const api = {
   // Templates
   getTemplates: () =>
     fetch(`${API_BASE}/templates`, { headers: getHeaders() }).then(handleResponse),
+
+  // Projects
+  getProjects: () =>
+    fetch(`${API_BASE}/projects`, { headers: getHeaders() }).then(handleResponse),
 };

@@ -14,8 +14,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - CORS_ORIGINS=${CORS_ORIGINS}
+      - HOST_CODE_PATH=${HOST_CODE_PATH}
     volumes:
       - ${HOST_CODE_PATH}/AgentsSwarmUI/server/src:/app/src
+      - ${HOST_CODE_PATH}:/projects:ro
     networks:
       - proxy
     healthcheck:

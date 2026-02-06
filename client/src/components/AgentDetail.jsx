@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
-  ChevronDown, Edit3, Save, Clock, Zap, AlertCircle
+  ChevronDown, Edit3, Save, Clock, Zap, AlertCircle, FolderCode
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -15,7 +15,7 @@ const TABS = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function AgentDetail({ agent, agents, thinking, streamBuffer, socket, onClose, onRefresh }) {
+export default function AgentDetail({ agent, agents, projects, thinking, streamBuffer, socket, onClose, onRefresh }) {
   const [activeTab, setActiveTab] = useState('chat');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -143,7 +143,7 @@ export default function AgentDetail({ agent, agents, thinking, streamBuffer, soc
           <HandoffTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab agent={agent} onRefresh={onRefresh} />
+          <SettingsTab agent={agent} projects={projects} onRefresh={onRefresh} />
         )}
       </div>
     </div>
@@ -592,7 +592,7 @@ function HandoffTab({ agent, agents, socket, onRefresh }) {
 }
 
 // ─── Settings Tab ──────────────────────────────────────────────────────────
-function SettingsTab({ agent, onRefresh }) {
+function SettingsTab({ agent, projects, onRefresh }) {
   const [form, setForm] = useState({
     name: agent.name,
     role: agent.role,
@@ -605,6 +605,7 @@ function SettingsTab({ agent, onRefresh }) {
     endpoint: agent.endpoint || '',
     icon: agent.icon,
     color: agent.color,
+    project: agent.project || '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -685,6 +686,21 @@ function SettingsTab({ agent, onRefresh }) {
             rows={6}
           />
         </div>
+        <div className="col-span-2">
+          <label className="block text-xs text-dark-400 mb-1.5 flex items-center gap-1.5">
+            <FolderCode className="w-3.5 h-3.5" /> Working Project
+          </label>
+          <select
+            value={form.project}
+            onChange={(e) => updateField('project', e.target.value)}
+            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="">No project selected</option>
+            {projects?.map(p => (
+              <option key={p.name} value={p.name}>{p.name}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Provider</label>
           <select
@@ -694,6 +710,7 @@ function SettingsTab({ agent, onRefresh }) {
           >
             <option value="ollama">Ollama</option>
             <option value="claude">Claude</option>
+            <option value="openai">OpenAI</option>
           </select>
         </div>
         <div>

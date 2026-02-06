@@ -9,6 +9,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [thinkingMap, setThinkingMap] = useState({});
   const [streamBuffers, setStreamBuffers] = useState({});
 
@@ -33,12 +34,14 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [agentsData, templatesData] = await Promise.all([
+      const [agentsData, templatesData, projectsData] = await Promise.all([
         api.getAgents(),
-        api.getTemplates()
+        api.getTemplates(),
+        api.getProjects()
       ]);
       setAgents(agentsData);
       setTemplates(templatesData);
+      setProjects(projectsData);
     } catch (err) {
       console.error('Failed to load data:', err);
     }
@@ -144,6 +147,7 @@ export default function App() {
       user={user}
       agents={agents}
       templates={templates}
+      projects={projects}
       thinkingMap={thinkingMap}
       streamBuffers={streamBuffers}
       onLogout={handleLogout}

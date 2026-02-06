@@ -34,6 +34,7 @@ export class AgentManager {
         errors: 0
       },
       handoffTargets: config.handoffTargets || [],
+      project: config.project || null,
       template: config.template || null,
       color: config.color || this._randomColor(),
       icon: config.icon || '🤖',
@@ -63,7 +64,7 @@ export class AgentManager {
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'todoList', 'ragDocuments', 'handoffTargets',
-      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey'
+      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project'
     ];
 
     for (const key of allowed) {

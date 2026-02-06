@@ -6,6 +6,7 @@ import { Server } from 'socket.io';
 import { authRouter, authenticateToken } from './middleware/auth.js';
 import { agentRoutes } from './routes/agents.js';
 import { templateRoutes } from './routes/templates.js';
+import { projectRoutes } from './routes/projects.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 
@@ -41,6 +42,7 @@ app.use('/api/auth', authRouter);
 // Protected routes
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
+app.use('/api/projects', authenticateToken, projectRoutes());
 
 // Health check
 app.get('/api/health', (req, res) => {

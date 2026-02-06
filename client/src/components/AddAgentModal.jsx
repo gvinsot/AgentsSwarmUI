@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { X, Cpu, Search } from 'lucide-react';
+import { X, Cpu, Search, FolderCode } from 'lucide-react';
 import { api } from '../api';
 
-export default function AddAgentModal({ templates, onClose, onCreated }) {
+export default function AddAgentModal({ templates, projects, onClose, onCreated }) {
   const [step, setStep] = useState('choose'); // choose | template | custom
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,6 +19,7 @@ export default function AddAgentModal({ templates, onClose, onCreated }) {
     maxTokens: 4096,
     icon: '🤖',
     color: '#6366f1',
+    project: '',
   });
   const [creating, setCreating] = useState(false);
 
@@ -214,6 +215,27 @@ export default function AddAgentModal({ templates, onClose, onCreated }) {
                     placeholder="System prompt for the agent..."
                     rows={5}
                   />
+                </div>
+
+                <div className="col-span-2 border-t border-dark-700 pt-4">
+                  <h4 className="text-xs font-medium text-dark-300 mb-3 flex items-center gap-2">
+                    <FolderCode className="w-3.5 h-3.5" /> Project Context
+                  </h4>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs text-dark-400 mb-1.5">Working Project</label>
+                  <select
+                    value={form.project}
+                    onChange={(e) => updateField('project', e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">No project selected</option>
+                    {projects.map(p => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-dark-500 mt-1">Select the project this agent will work on</p>
                 </div>
 
                 <div className="col-span-2 border-t border-dark-700 pt-4">
