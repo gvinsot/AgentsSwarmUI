@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 // ─── Ollama Provider ────────────────────────────────────────────────────────
 export class OllamaProvider {
@@ -227,6 +228,85 @@ export class ClaudeProvider {
   }
 }
 
+// ─── OpenAI Provider ────────────────────────────────────────────────────────
+export class OpenAIProvider {
+  constructor(apiKey, model) {
+    this.client = new OpenAI({ apiKey });
+    this.model = model || 'gpt-4o';
+  }
+
+  async chat(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+    };
+
+    const response = await this.client.chat.completions.create(params);
+
+    return {
+      content: response.choices[0]?.message?.content || '',
+      model: this.model,
+      provider: 'openai',
+      usage: {
+        inputTokens: response.usage?.prompt_tokens || 0,
+        outputTokens: response.usage?.completion_tokens || 0
+      }
+    };
+  }
+
+  async *chatStream(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+
+    const stream = await this.client.chat.completions.create(params);
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        yield { type: 'text', text: delta.content };
+      }
+
+      // Final chunk with usage
+      if (chunk.usage) {
+        yield {
+          type: 'done',
+          usage: {
+            inputTokens: chunk.usage.prompt_tokens || 0,
+            outputTokens: chunk.usage.completion_tokens || 0
+          }
+        };
+      }
+    }
+  }
+
+  async ping() {
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        max_tokens: 5,
+        messages: [{ role: 'user', content: 'ping' }]
+      });
+      return !!response;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // ─── Provider Factory ───────────────────────────────────────────────────────
 export function createProvider(config) {
   switch (config.provider) {
@@ -238,6 +318,11 @@ export function createProvider(config) {
     case 'claude':
       return new ClaudeProvider(
         config.apiKey || process.env.ANTHROPIC_API_KEY,
+        config.model
+      );
+    case 'openai':
+      return new OpenAIProvider(
+        config.apiKey || process.env.OPENAI_API_KEY,
         config.model
       );
     default:

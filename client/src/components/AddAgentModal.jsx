@@ -231,6 +231,9 @@ export default function AddAgentModal({ templates, onClose, onCreated }) {
                       if (e.target.value === 'claude') {
                         updateField('model', 'claude-sonnet-4-20250514');
                         updateField('endpoint', '');
+                      } else if (e.target.value === 'openai') {
+                        updateField('model', 'gpt-4o');
+                        updateField('endpoint', '');
                       } else {
                         updateField('model', 'frob/qwen3-coder-next:80b-a3b-q5_K_M');
                         updateField('endpoint', 'https://llm-dev.methodinfo.fr');
@@ -240,6 +243,7 @@ export default function AddAgentModal({ templates, onClose, onCreated }) {
                   >
                     <option value="ollama">Ollama</option>
                     <option value="claude">Claude (Anthropic)</option>
+                    <option value="openai">OpenAI</option>
                   </select>
                 </div>
 
@@ -272,6 +276,19 @@ export default function AddAgentModal({ templates, onClose, onCreated }) {
                       onChange={(e) => updateField('apiKey', e.target.value)}
                       className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                       placeholder="sk-ant-..."
+                    />
+                    <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
+                  </div>
+                )}
+
+                {form.provider === 'openai' && (
+                  <div className="col-span-2">
+                    <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
+                    <input
+                      type="password" value={form.apiKey}
+                      onChange={(e) => updateField('apiKey', e.target.value)}
+                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                      placeholder="sk-..."
                     />
                     <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
                   </div>
