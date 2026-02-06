@@ -21,6 +21,7 @@ services:
       - ${HOST_CODE_PATH}:/projects:ro
     networks:
       - proxy
+      - databases
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
       interval: 30s
@@ -94,4 +95,6 @@ services:
 
 networks:
   proxy:
+    external: true
+  databases:
     external: true
