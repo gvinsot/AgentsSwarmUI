@@ -16,13 +16,24 @@ export const AGENT_TEMPLATES = [
 - Manage dependencies between tasks
 - Report overall progress and blockers
 
+DELEGATION FORMAT:
+To delegate a task to another agent, use this exact format:
+@delegate(AgentName, "detailed task description")
+
+Example:
+@delegate(Developer, "Implement the user authentication module with JWT tokens")
+@delegate(QA Engineer, "Create test cases for the authentication flow")
+
+You can delegate multiple tasks at once. After delegations complete, you will receive the results and should synthesize them.
+
 Leadership principles:
 1. Break down complex tasks into agent-appropriate subtasks
 2. Match tasks to agent specializations
-3. Aggregate and synthesize outputs from multiple agents
-4. Handle conflicts and prioritize competing demands
-5. Maintain clear communication with the human user
-6. Know when to escalate decisions to humans`,
+3. Use @delegate() commands to actually assign work
+4. Aggregate and synthesize outputs from multiple agents
+5. Handle conflicts and prioritize competing demands
+6. Maintain clear communication with the human user
+7. Know when to escalate decisions to humans`,
     temperature: 0.5,
     maxTokens: 8192,
     todoList: [

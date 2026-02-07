@@ -126,7 +126,9 @@ export class AgentManager {
   }
 
   // ─── Chat ───────────────────────────────────────────────────────────
-  async sendMessage(id, userMessage, streamCallback) {
+  async sendMessage(id, userMessage, streamCallback, delegationDepth = 0) {
+    const MAX_DELEGATION_DEPTH = 5; // Prevent infinite loops
+    
     const agent = this.agents.get(id);
     if (!agent) throw new Error('Agent not found');
 
@@ -137,6 +139,20 @@ export class AgentManager {
     const messages = [];
     if (agent.instructions) {
       let systemContent = agent.instructions;
+      
+      // For leader agents, inject available agents context (only at top level to avoid confusion)
+      if (agent.isLeader && delegationDepth === 0) {
+        const availableAgents = Array.from(this.agents.values())
+          .filter(a => a.id !== id) // Exclude self
+          .map(a => `- ${a.name} (${a.role}): ${a.description || 'No description'}`);
+        
+        if (availableAgents.length > 0) {
+          systemContent += `\n\n--- Available Swarm Agents ---\nYou can delegate tasks to these agents using the format: @delegate(AgentName, "task description")\n${availableAgents.join('\n')}\n\nWhen you need an agent to work on something, use the @delegate command. The agent's response will be provided back to you.`;
+        } else {
+          systemContent += `\n\n--- Available Swarm Agents ---\nNo other agents are currently available in the swarm. You will need to complete tasks yourself or ask the user to create specialist agents.`;
+        }
+      }
+      
       // Append RAG context if available
       if (agent.ragDocuments.length > 0) {
         systemContent += '\n\n--- Reference Documents ---\n';
@@ -204,9 +220,32 @@ export class AgentManager {
       agent.metrics.totalMessages += 1;
       agent.metrics.lastActiveAt = new Date().toISOString();
       agent.currentThinking = '';
-      this.setStatus(id, 'idle');
       saveAgent(agent); // Persist conversation and metrics
 
+      // For leader agents, process delegation commands (with depth limit)
+      if (agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH) {
+        const delegationResults = await this._processDelegations(id, fullResponse, streamCallback, delegationDepth);
+        if (delegationResults.length > 0) {
+          // Feed delegation results back to leader and get synthesis
+          const resultsSummary = delegationResults.map(r => 
+            `--- Response from ${r.agentName} ---\n${r.response || r.error}`
+          ).join('\n\n');
+          
+          // Continue conversation with delegation results (increment depth)
+          const synthesisResponse = await this.sendMessage(
+            id, 
+            `[DELEGATION RESULTS]\n${resultsSummary}\n\nPlease synthesize these results and continue with your plan. If more delegations are needed, use @delegate() commands. If the task is complete, provide the final response.`,
+            streamCallback,
+            delegationDepth + 1
+          );
+          this.setStatus(id, 'idle');
+          return synthesisResponse;
+        }
+      } else if (agent.isLeader && delegationDepth >= MAX_DELEGATION_DEPTH) {
+        console.log(`⚠️ Max delegation depth (${MAX_DELEGATION_DEPTH}) reached for leader ${agent.name}`);
+      }
+
+      this.setStatus(id, 'idle');
       return fullResponse;
     } catch (err) {
       agent.metrics.errors += 1;
@@ -215,6 +254,79 @@ export class AgentManager {
       saveAgent(agent); // Persist error count
       throw err;
     }
+  }
+
+  // ─── Delegation Processing (for Leader agents) ────────────────────
+  async _processDelegations(leaderId, response, streamCallback, delegationDepth = 0) {
+    // Parse @delegate(AgentName, "task") commands from response
+    const delegationPattern = /@delegate\s*\(\s*([^,]+?)\s*,\s*["'](.+?)["']\s*\)/gi;
+    const delegations = [];
+    let match;
+    
+    while ((match = delegationPattern.exec(response)) !== null) {
+      delegations.push({
+        agentName: match[1].trim(),
+        task: match[2].trim()
+      });
+    }
+    
+    if (delegations.length === 0) return [];
+    
+    const leader = this.agents.get(leaderId);
+    const results = [];
+    
+    // Execute each delegation
+    for (const delegation of delegations) {
+      // Find target agent by name (case-insensitive)
+      const targetAgent = Array.from(this.agents.values()).find(
+        a => a.name.toLowerCase() === delegation.agentName.toLowerCase() && a.id !== leaderId
+      );
+      
+      if (!targetAgent) {
+        results.push({
+          agentName: delegation.agentName,
+          response: null,
+          error: `Agent "${delegation.agentName}" not found in swarm`
+        });
+        continue;
+      }
+      
+      try {
+        this._emit('agent:delegation', {
+          from: { id: leaderId, name: leader.name },
+          to: { id: targetAgent.id, name: targetAgent.name },
+          task: delegation.task
+        });
+        
+        // Send task to target agent (pass depth to prevent nested leader loops)
+        const agentResponse = await this.sendMessage(
+          targetAgent.id,
+          `[TASK from ${leader.name}]: ${delegation.task}`,
+          (chunk) => {
+            if (streamCallback) streamCallback(`\n[${targetAgent.name}]: ${chunk}`);
+          },
+          delegationDepth + 1
+        );
+        
+        results.push({
+          agentId: targetAgent.id,
+          agentName: targetAgent.name,
+          task: delegation.task,
+          response: agentResponse,
+          error: null
+        });
+      } catch (err) {
+        results.push({
+          agentId: targetAgent.id,
+          agentName: targetAgent.name,
+          task: delegation.task,
+          response: null,
+          error: err.message
+        });
+      }
+    }
+    
+    return results;
   }
 
   // ─── Global Broadcast (tmux-style) ─────────────────────────────────
