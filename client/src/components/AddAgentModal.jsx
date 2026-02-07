@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Cpu, Search, FolderCode } from 'lucide-react';
+import { X, Cpu, Search, FolderCode, Crown } from 'lucide-react';
 import { api } from '../api';
 
 export default function AddAgentModal({ templates, projects, onClose, onCreated }) {
@@ -20,6 +20,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
     icon: '🤖',
     color: '#6366f1',
     project: '',
+    isLeader: false,
   });
   const [creating, setCreating] = useState(false);
 
@@ -41,6 +42,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
       icon: template.icon,
       color: template.color,
       todoList: template.todoList,
+      isLeader: template.isLeader || false,
     }));
     setSelectedTemplate(template);
     setStep('custom');
@@ -236,6 +238,22 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                     ))}
                   </select>
                   <p className="text-[11px] text-dark-500 mt-1">Select the project this agent will work on</p>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={form.isLeader}
+                      onChange={(e) => updateField('isLeader', e.target.checked)}
+                      className="w-4 h-4 rounded border-dark-600 bg-dark-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-dark-800"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Crown className="w-4 h-4 text-amber-400" />
+                      <span className="text-sm text-dark-200 group-hover:text-dark-100">Leader Agent</span>
+                    </div>
+                  </label>
+                  <p className="text-[11px] text-dark-500 mt-1 ml-7">Leader agents orchestrate and coordinate other agents in the swarm</p>
                 </div>
 
                 <div className="col-span-2 border-t border-dark-700 pt-4">

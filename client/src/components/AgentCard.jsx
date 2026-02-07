@@ -1,4 +1,4 @@
-import { MessageSquare, Clock, Cpu, Zap, FolderOpen } from 'lucide-react';
+import { MessageSquare, Clock, Cpu, Zap, FolderOpen, Crown } from 'lucide-react';
 
 const STATUS_STYLES = {
   idle: { dot: 'bg-emerald-500', label: 'Idle', textColor: 'text-emerald-400' },
@@ -24,6 +24,7 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm text-dark-100 truncate">{agent.name}</span>
+            {agent.isLeader && <Crown className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" title="Leader" />}
             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${status.dot}`} />
           </div>
           <p className="text-xs text-dark-400 truncate">{agent.role} · {agent.provider}/{agent.model}</p>
@@ -72,6 +73,7 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {agent.isLeader && <Crown className="w-3.5 h-3.5 text-amber-400" title="Leader" />}
             <div className={`w-2 h-2 rounded-full ${status.dot}`} />
             <span className={`text-xs font-medium ${status.textColor}`}>{status.label}</span>
           </div>
