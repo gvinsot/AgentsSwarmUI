@@ -1,4 +1,4 @@
-import { MessageSquare, Clock, Cpu, Zap, FolderOpen, Crown } from 'lucide-react';
+import { MessageSquare, Clock, Cpu, Zap, FolderOpen, Crown, StopCircle } from 'lucide-react';
 
 const STATUS_STYLES = {
   idle: { dot: 'bg-emerald-500', label: 'Idle', textColor: 'text-emerald-400' },
@@ -6,7 +6,7 @@ const STATUS_STYLES = {
   error: { dot: 'bg-red-500', label: 'Error', textColor: 'text-red-400' },
 };
 
-export default function AgentCard({ agent, thinking, isSelected, viewMode, onClick }) {
+export default function AgentCard({ agent, thinking, isSelected, viewMode, onClick, onStop }) {
   const status = STATUS_STYLES[agent.status] || STATUS_STYLES.idle;
   const truncatedThinking = thinking ? thinking.slice(-120) + (thinking.length > 120 ? '' : '') : null;
 
@@ -45,7 +45,18 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
             <MessageSquare className="w-3 h-3" />
             {agent.metrics?.totalMessages || 0}
           </span>
-          <span className={status.textColor}>{status.label}</span>
+          {agent.status === 'busy' && onStop ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onStop(agent.id); }}
+              className="flex items-center gap-1 px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+              title="Stop agent"
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <span className={status.textColor}>{status.label}</span>
+          )}
         </div>
       </div>
     );
@@ -74,8 +85,21 @@ export default function AgentCard({ agent, thinking, isSelected, viewMode, onCli
           </div>
           <div className="flex items-center gap-1.5">
             {agent.isLeader && <Crown className="w-3.5 h-3.5 text-amber-400" title="Leader" />}
-            <div className={`w-2 h-2 rounded-full ${status.dot}`} />
-            <span className={`text-xs font-medium ${status.textColor}`}>{status.label}</span>
+            {agent.status === 'busy' && onStop ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); onStop(agent.id); }}
+                className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-xs"
+                title="Stop agent"
+              >
+                <StopCircle className="w-3 h-3" />
+                Stop
+              </button>
+            ) : (
+              <>
+                <div className={`w-2 h-2 rounded-full ${status.dot}`} />
+                <span className={`text-xs font-medium ${status.textColor}`}>{status.label}</span>
+              </>
+            )}
           </div>
         </div>
 

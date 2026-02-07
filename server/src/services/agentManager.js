@@ -1,10 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { createProvider } from './llmProviders.js';
 import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
+import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 
 export class AgentManager {
   constructor(io) {
     this.agents = new Map();
+    this.abortControllers = new Map(); // Track ongoing requests by agentId
     this.io = io;
   }
 
@@ -125,9 +127,35 @@ export class AgentManager {
     this._emit('agent:status', { id, status });
   }
 
+  // ─── Stop Agent ─────────────────────────────────────────────────────
+  stopAgent(id) {
+    const agent = this.agents.get(id);
+    if (!agent) return false;
+    
+    // Abort any in-progress request
+    const controller = this.abortControllers.get(id);
+    if (controller) {
+      controller.abort();
+      this.abortControllers.delete(id);
+    }
+    
+    // Reset agent state
+    agent.currentThinking = '';
+    this.setStatus(id, 'idle');
+    saveAgent(agent);
+    
+    console.log(`🛑 Agent ${agent.name} stopped`);
+    this._emit('agent:stopped', { id, name: agent.name });
+    return true;
+  }
+
   // ─── Chat ───────────────────────────────────────────────────────────
   async sendMessage(id, userMessage, streamCallback, delegationDepth = 0) {
     const MAX_DELEGATION_DEPTH = 5; // Prevent infinite loops
+    
+    // Create abort controller for this request
+    const abortController = new AbortController();
+    this.abortControllers.set(id, abortController);
     
     const agent = this.agents.get(id);
     if (!agent) throw new Error('Agent not found');
@@ -167,6 +195,14 @@ export class AgentManager {
           systemContent += `- [${todo.done ? 'x' : ' '}] ${todo.text}\n`;
         }
       }
+      
+      // Inject tool definitions when agent has a project assigned
+      if (agent.project) {
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\n`;
+        systemContent += TOOL_DEFINITIONS;
+        systemContent += `\nAlways use these tools to read, analyze, and modify code. Do not just discuss - take action!`;
+      }
+      
       messages.push({ role: 'system', content: systemContent });
     }
 
@@ -194,11 +230,16 @@ export class AgentManager {
 
       let fullResponse = '';
 
-      // Stream response
+      // Stream response (check for abort on each chunk)
       for await (const chunk of provider.chatStream(messages, {
         temperature: agent.temperature,
         maxTokens: agent.maxTokens
       })) {
+        // Check if aborted
+        if (abortController.signal.aborted) {
+          throw new Error('Agent stopped by user');
+        }
+        
         if (chunk.type === 'text') {
           fullResponse += chunk.text;
           agent.currentThinking = fullResponse;
@@ -221,6 +262,26 @@ export class AgentManager {
       agent.metrics.lastActiveAt = new Date().toISOString();
       agent.currentThinking = '';
       saveAgent(agent); // Persist conversation and metrics
+
+      // Process tool calls if agent has a project (with depth limit)
+      if (agent.project && delegationDepth < MAX_DELEGATION_DEPTH) {
+        const toolResults = await this._processToolCalls(id, fullResponse, streamCallback, delegationDepth);
+        if (toolResults.length > 0) {
+          // Feed tool results back to agent and continue
+          const resultsSummary = toolResults.map(r => 
+            `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.success ? r.result : `ERROR: ${r.error}`}`
+          ).join('\n\n');
+          
+          const continuedResponse = await this.sendMessage(
+            id,
+            `[TOOL RESULTS]\n${resultsSummary}\n\nContinue with your task based on these results. Use more tools if needed, or provide your final response.`,
+            streamCallback,
+            delegationDepth + 1
+          );
+          this.setStatus(id, 'idle');
+          return continuedResponse;
+        }
+      }
 
       // For leader agents, process delegation commands (with depth limit)
       if (agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH) {
@@ -246,14 +307,64 @@ export class AgentManager {
       }
 
       this.setStatus(id, 'idle');
+      this.abortControllers.delete(id); // Clean up abort controller
       return fullResponse;
     } catch (err) {
+      this.abortControllers.delete(id); // Clean up abort controller
       agent.metrics.errors += 1;
       agent.currentThinking = '';
-      this.setStatus(id, 'error');
+      this.setStatus(id, err.message === 'Agent stopped by user' ? 'idle' : 'error');
       saveAgent(agent); // Persist error count
       throw err;
     }
+  }
+
+  // ─── Tool Execution (for agents with projects) ────────────────────
+  async _processToolCalls(agentId, response, streamCallback, depth = 0) {
+    const agent = this.agents.get(agentId);
+    if (!agent || !agent.project) return [];
+    
+    const toolCalls = parseToolCalls(response);
+    if (toolCalls.length === 0) return [];
+    
+    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s)`);
+    
+    const results = [];
+    for (const call of toolCalls) {
+      try {
+        if (streamCallback) {
+          streamCallback(`\n[Executing: @${call.tool}(${call.args[0]})...]\n`);
+        }
+        
+        this._emit('agent:tool', {
+          agentId,
+          agentName: agent.name,
+          tool: call.tool,
+          args: call.args
+        });
+        
+        const result = await executeTool(call.tool, call.args, agent.project);
+        results.push({
+          tool: call.tool,
+          args: call.args,
+          ...result
+        });
+        
+        if (streamCallback && result.success) {
+          const preview = result.result.slice(0, 500);
+          streamCallback(`${preview}${result.result.length > 500 ? '...(truncated)' : ''}\n`);
+        }
+      } catch (err) {
+        results.push({
+          tool: call.tool,
+          args: call.args,
+          success: false,
+          error: err.message
+        });
+      }
+    }
+    
+    return results;
   }
 
   // ─── Delegation Processing (for Leader agents) ────────────────────

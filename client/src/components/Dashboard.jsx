@@ -20,6 +20,12 @@ export default function Dashboard({
 
   const selectedAgentData = agents.find(a => a.id === selectedAgent);
 
+  const handleStopAgent = (agentId) => {
+    if (socket) {
+      socket.emit('agent:stop', { agentId });
+    }
+  };
+
   const stats = {
     total: agents.length,
     busy: agents.filter(a => a.status === 'busy').length,
@@ -153,6 +159,7 @@ export default function Dashboard({
                     isSelected={selectedAgent === agent.id}
                     viewMode={viewMode}
                     onClick={() => setSelectedAgent(agent.id === selectedAgent ? null : agent.id)}
+                    onStop={handleStopAgent}
                   />
                 ))}
               </div>

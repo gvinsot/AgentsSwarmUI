@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
-  ChevronDown, Edit3, Save, Clock, Zap, AlertCircle, FolderCode
+  ChevronDown, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -91,9 +91,21 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
             </div>
           </div>
         </div>
-        <button onClick={onClose} className="p-2 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {agent.status === 'busy' && socket && (
+            <button
+              onClick={() => socket.emit('agent:stop', { agentId: agent.id })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-sm font-medium"
+              title="Stop agent"
+            >
+              <StopCircle className="w-4 h-4" />
+              Stop
+            </button>
+          )}
+          <button onClick={onClose} className="p-2 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

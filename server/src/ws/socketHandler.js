@@ -74,6 +74,18 @@ export function setupSocketHandlers(io, agentManager) {
       socket.emit('agents:list', agentManager.getAll());
     });
 
+    // ── Stop agent ────────────────────────────────────────────────────
+    socket.on('agent:stop', (data) => {
+      const { agentId } = data;
+      if (!agentId) return;
+      
+      const stopped = agentManager.stopAgent(agentId);
+      if (stopped) {
+        socket.emit('agent:stream:end', { agentId, stopped: true });
+        io.emit('agent:updated', agentManager.getById(agentId));
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`🔌 Client disconnected: ${socket.user?.username}`);
     });

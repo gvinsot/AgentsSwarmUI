@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Radio, Send, Loader2, FolderOpen, ChevronDown } from 'lucide-react';
+import { X, Radio, Send, Loader2, FolderOpen, ChevronDown, StopCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
 
@@ -95,6 +95,17 @@ export default function BroadcastPanel({ agents, projects = [], socket, onClose 
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400 pointer-events-none" />
             </div>
+            {/* Stop All button - visible when any agent is busy */}
+            {agents.some(a => a.status === 'busy') && socket && (
+              <button
+                onClick={() => agents.filter(a => a.status === 'busy').forEach(a => socket.emit('agent:stop', { agentId: a.id }))}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-sm font-medium"
+                title="Stop all running agents"
+              >
+                <StopCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">Stop All</span>
+              </button>
+            )}
             <button onClick={onClose} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
               <X className="w-4 h-4" />
             </button>
