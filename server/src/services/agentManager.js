@@ -374,6 +374,19 @@ export class AgentManager {
 
   // ─── Delegation Processing (for Leader agents) ────────────────────
   async _processDelegations(leaderId, response, streamCallback, delegationDepth = 0) {
+    const leader = this.agents.get(leaderId);
+    const leaderName = leader?.name || leaderId;
+    
+    console.log(`\n🔍 [Delegation] Parsing response from "${leaderName}" (depth=${delegationDepth}, length=${response.length})`);
+    
+    // Log a preview of the response to help debug regex matching
+    const preview = response.length > 500 ? response.slice(0, 500) + '...' : response;
+    console.log(`🔍 [Delegation] Response preview:\n---\n${preview}\n---`);
+    
+    // Check if response contains @delegate at all (before regex)
+    const rawDelegateCount = (response.match(/@delegate/gi) || []).length;
+    console.log(`🔍 [Delegation] Found ${rawDelegateCount} raw "@delegate" occurrence(s) in text`);
+    
     // Parse @delegate(AgentName, "task") commands from response
     // Uses [\s\S]+? to handle multiline task descriptions
     // Matches the closing quote then \s*\) to avoid being tripped by parentheses inside the task
@@ -382,6 +395,7 @@ export class AgentManager {
     let match;
     
     while ((match = delegationPattern.exec(response)) !== null) {
+      console.log(`✅ [Delegation] Matched: agent="${match[1].trim()}", task="${match[2].trim().slice(0, 100)}..."`);
       delegations.push({
         agentName: match[1].trim(),
         task: match[2].trim()
@@ -389,12 +403,25 @@ export class AgentManager {
     }
     
     if (delegations.length === 0) {
-      console.log(`ℹ️  No @delegate() commands found in leader response`);
+      if (rawDelegateCount > 0) {
+        // There are @delegate mentions but regex didn't match — log the surrounding text for debug
+        const lines = response.split('\n');
+        const delegateLines = lines
+          .map((line, i) => ({ line, i }))
+          .filter(({ line }) => /@delegate/i.test(line));
+        console.log(`⚠️  [Delegation] @delegate found in text but regex didn't match. Lines containing @delegate:`);
+        for (const { line, i } of delegateLines) {
+          // Show the line and the next 2 lines for context
+          const context = lines.slice(i, i + 3).join('\n');
+          console.log(`   L${i + 1}: ${context}`);
+        }
+      } else {
+        console.log(`ℹ️  [Delegation] No @delegate() commands found in leader response`);
+      }
       return [];
     }
     
-    console.log(`📨 Leader delegating ${delegations.length} task(s): ${delegations.map(d => d.agentName).join(', ')}`);
-    const leader = this.agents.get(leaderId);
+    console.log(`📨 [Delegation] Leader "${leaderName}" delegating ${delegations.length} task(s): ${delegations.map(d => `"${d.agentName}"`).join(', ')}`);
     const results = [];
     
     // Execute each delegation

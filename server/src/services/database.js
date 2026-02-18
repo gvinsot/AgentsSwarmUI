@@ -4,7 +4,7 @@ const { Pool } = pg;
 
 let pool = null;
 
-export async function initDatabase() {
+export async function initDatabase(retries = 5, delayMs = 3000) {
   const connectionString = process.env.DATABASE_URL;
   
   if (!connectionString) {
@@ -12,30 +12,38 @@ export async function initDatabase() {
     return false;
   }
 
-  try {
-    pool = new Pool({ connectionString });
-    
-    // Test connection
-    await pool.query('SELECT NOW()');
-    console.log('✅ Connected to PostgreSQL');
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      pool = new Pool({ connectionString });
+      
+      // Test connection
+      await pool.query('SELECT NOW()');
+      console.log('✅ Connected to PostgreSQL');
 
-    // Create agents table if not exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS agents (
-        id UUID PRIMARY KEY,
-        data JSONB NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
+      // Create agents table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS agents (
+          id UUID PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
 
-    console.log('✅ Agents table ready');
-    return true;
-  } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
-    pool = null;
-    return false;
+      console.log('✅ Agents table ready');
+      return true;
+    } catch (err) {
+      console.error(`❌ Database connection failed (attempt ${attempt}/${retries}):`, err.message);
+      pool = null;
+      if (attempt < retries) {
+        console.log(`⏳ Retrying in ${delayMs / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
   }
+
+  console.error('❌ All database connection attempts failed, running without persistence');
+  return false;
 }
 
 export async function getAllAgents() {
