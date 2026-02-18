@@ -394,6 +394,84 @@ export class OpenAIProvider {
   }
 }
 
+// ─── vLLM Provider (OpenAI-compatible) ──────────────────────────────────────
+export class VLLMProvider {
+  constructor(baseUrl, model, apiKey) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.model = model;
+    this.client = new OpenAI({
+      apiKey: apiKey || 'dummy',  // vLLM may not require an API key
+      baseURL: `${this.baseUrl}/v1`,
+    });
+  }
+
+  async chat(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+    };
+
+    const response = await this.client.chat.completions.create(params);
+
+    return {
+      content: response.choices[0]?.message?.content || '',
+      model: this.model,
+      provider: 'vllm',
+      usage: {
+        inputTokens: response.usage?.prompt_tokens || 0,
+        outputTokens: response.usage?.completion_tokens || 0
+      }
+    };
+  }
+
+  async *chatStream(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+
+    const stream = await this.client.chat.completions.create(params);
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        yield { type: 'text', text: delta.content };
+      }
+
+      if (chunk.usage) {
+        yield {
+          type: 'done',
+          usage: {
+            inputTokens: chunk.usage.prompt_tokens || 0,
+            outputTokens: chunk.usage.completion_tokens || 0
+          }
+        };
+      }
+    }
+  }
+
+  async ping() {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/models`, { signal: AbortSignal.timeout(5000) });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // ─── Provider Factory ───────────────────────────────────────────────────────
 export function createProvider(config) {
   switch (config.provider) {
@@ -411,6 +489,12 @@ export function createProvider(config) {
       return new OpenAIProvider(
         config.apiKey || process.env.OPENAI_API_KEY,
         config.model
+      );
+    case 'vllm':
+      return new VLLMProvider(
+        config.endpoint || process.env.VLLM_BASE_URL || 'http://localhost:8000',
+        config.model,
+        config.apiKey || process.env.VLLM_API_KEY || ''
       );
     default:
       throw new Error(`Unknown provider: ${config.provider}`);

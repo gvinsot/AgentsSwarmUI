@@ -19,6 +19,7 @@ services:
     volumes:
       - ${HOST_CODE_PATH}/AgentsSwarmUI/server/src:/app/src
       - ${HOST_CODE_PATH}:/projects  # Writable for agent tools
+      - /home/gildas/.ssh:/root/.ssh:ro  # SSH keys for GitHub access
     networks:
       - proxy
       - postgresqlcluster_internal

@@ -723,6 +723,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
             <option value="ollama">Ollama</option>
             <option value="claude">Claude</option>
             <option value="openai">OpenAI</option>
+            <option value="vllm">vLLM (Custom Server)</option>
           </select>
         </div>
         <div>
@@ -743,6 +744,30 @@ function SettingsTab({ agent, projects, onRefresh }) {
               placeholder="https://..."
             />
           </div>
+        )}
+        {form.provider === 'vllm' && (
+          <>
+            <div className="col-span-2">
+              <label className="block text-xs text-dark-400 mb-1.5">Server URL *</label>
+              <input
+                type="text" value={form.endpoint}
+                onChange={(e) => updateField('endpoint', e.target.value)}
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                placeholder="http://localhost:8000"
+              />
+              <p className="text-[11px] text-dark-500 mt-1">Base URL of your vLLM server (OpenAI-compatible API)</p>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-dark-400 mb-1.5">API Key (optional)</label>
+              <input
+                type="password" value={form.apiKey || ''}
+                onChange={(e) => updateField('apiKey', e.target.value)}
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                placeholder="token-..."
+              />
+              <p className="text-[11px] text-dark-500 mt-1">Leave blank if your vLLM server doesn't require authentication</p>
+            </div>
+          </>
         )}
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Temperature: {form.temperature}</label>
