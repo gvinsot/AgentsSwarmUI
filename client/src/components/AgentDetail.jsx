@@ -623,6 +623,25 @@ function SettingsTab({ agent, projects, onRefresh }) {
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Reset form when switching agents
+  useEffect(() => {
+    setForm({
+      name: agent.name,
+      role: agent.role,
+      description: agent.description,
+      instructions: agent.instructions,
+      temperature: agent.temperature,
+      maxTokens: agent.maxTokens,
+      provider: agent.provider,
+      model: agent.model,
+      endpoint: agent.endpoint || '',
+      icon: agent.icon,
+      color: agent.color,
+      project: agent.project || '',
+    });
+    setSaved(false);
+  }, [agent.id]);
+
   const handleSave = async () => {
     setSaving(true);
     try {

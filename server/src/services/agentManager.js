@@ -287,6 +287,11 @@ export class AgentManager {
       if (agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH) {
         const delegationResults = await this._processDelegations(id, fullResponse, streamCallback, delegationDepth);
         if (delegationResults.length > 0) {
+          // Notify the stream that delegation results are being processed
+          if (streamCallback) {
+            streamCallback(`\n\n--- Delegation complete, synthesizing results ---\n\n`);
+          }
+          
           // Feed delegation results back to leader and get synthesis
           const resultsSummary = delegationResults.map(r => 
             `--- Response from ${r.agentName} ---\n${r.response || r.error}`
@@ -370,7 +375,9 @@ export class AgentManager {
   // ─── Delegation Processing (for Leader agents) ────────────────────
   async _processDelegations(leaderId, response, streamCallback, delegationDepth = 0) {
     // Parse @delegate(AgentName, "task") commands from response
-    const delegationPattern = /@delegate\s*\(\s*([^,]+?)\s*,\s*["'](.+?)["']\s*\)/gi;
+    // Uses [\s\S]+? to handle multiline task descriptions
+    // Matches the closing quote then \s*\) to avoid being tripped by parentheses inside the task
+    const delegationPattern = /@delegate\s*\(\s*([^,]+?)\s*,\s*["']([\s\S]+?)["']\s*\)/gi;
     const delegations = [];
     let match;
     
@@ -381,8 +388,12 @@ export class AgentManager {
       });
     }
     
-    if (delegations.length === 0) return [];
+    if (delegations.length === 0) {
+      console.log(`ℹ️  No @delegate() commands found in leader response`);
+      return [];
+    }
     
+    console.log(`📨 Leader delegating ${delegations.length} task(s): ${delegations.map(d => d.agentName).join(', ')}`);
     const leader = this.agents.get(leaderId);
     const results = [];
     
@@ -394,6 +405,10 @@ export class AgentManager {
       );
       
       if (!targetAgent) {
+        console.log(`⚠️  Agent "${delegation.agentName}" not found in swarm`);
+        if (streamCallback) {
+          streamCallback(`\n⚠️ Agent "${delegation.agentName}" not found in swarm\n`);
+        }
         results.push({
           agentName: delegation.agentName,
           response: null,
@@ -403,6 +418,11 @@ export class AgentManager {
       }
       
       try {
+        console.log(`📨 Delegating to ${targetAgent.name}: ${delegation.task.slice(0, 80)}...`);
+        if (streamCallback) {
+          streamCallback(`\n\n--- 📨 Delegating to ${targetAgent.name} ---\n`);
+        }
+        
         this._emit('agent:delegation', {
           from: { id: leaderId, name: leader.name },
           to: { id: targetAgent.id, name: targetAgent.name },

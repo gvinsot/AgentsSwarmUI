@@ -41,7 +41,6 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
       maxTokens: template.maxTokens,
       icon: template.icon,
       color: template.color,
-      todoList: template.todoList,
       isLeader: template.isLeader || false,
     }));
     setSelectedTemplate(template);
@@ -139,8 +138,6 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                     <p className="text-xs text-dark-400 line-clamp-2">{template.description}</p>
                     <div className="flex items-center gap-2 mt-2 text-[11px] text-dark-500">
                       <span>Temp: {template.temperature}</span>
-                      <span>·</span>
-                      <span>{template.todoList?.length || 0} tasks</span>
                     </div>
                   </button>
                 ))}

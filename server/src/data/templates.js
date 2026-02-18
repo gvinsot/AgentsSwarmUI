@@ -43,11 +43,6 @@ Leadership principles:
 6. Maintain clear communication with the human user`,
     temperature: 0.5,
     maxTokens: 8192,
-    todoList: [
-      { id: 'tmpl-1', text: 'Assess available agents and their capabilities', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Create task delegation plan', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Establish communication protocols', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'developer',
@@ -84,11 +79,6 @@ When writing code, always:
 6. After writing, verify changes with @read_file`,
     temperature: 0.3,
     maxTokens: 8192,
-    todoList: [
-      { id: 'tmpl-1', text: 'Review codebase architecture', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Identify improvement areas', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Write tests for critical paths', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'architect',
@@ -121,11 +111,6 @@ When designing systems:
 6. Document architectural decisions with @write_file`,
     temperature: 0.4,
     maxTokens: 8192,
-    todoList: [
-      { id: 'tmpl-1', text: 'Document current architecture', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Identify bottlenecks', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Propose improvements', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'qa-engineer',
@@ -158,11 +143,6 @@ Testing approach:
 5. Run tests with @run_command and report results`,
     temperature: 0.2,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Create test plan', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Write test cases for critical features', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Set up automated testing', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'marketing',
@@ -189,11 +169,6 @@ Communication principles:
 6. Focus on storytelling and emotional connection`,
     temperature: 0.8,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Define target audience', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Create content calendar', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Draft key messaging', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'devops',
@@ -225,11 +200,6 @@ Best practices:
 6. Disaster recovery and backup strategies`,
     temperature: 0.3,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Audit current infrastructure', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Set up monitoring', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Define deployment strategy', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'data-analyst',
@@ -256,11 +226,6 @@ Analytical approach:
 6. Consider data privacy and ethics`,
     temperature: 0.3,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Identify data sources', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Perform exploratory analysis', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Create reports', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'product-manager',
@@ -287,11 +252,6 @@ Product principles:
 6. Focus on outcomes over outputs`,
     temperature: 0.5,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Define product vision', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Gather user requirements', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Create feature roadmap', done: false, createdAt: new Date().toISOString() }
-    ]
   },
   {
     id: 'security',
@@ -324,10 +284,5 @@ Security principles:
 5. After finding issues, use @write_file to fix them`,
     temperature: 0.2,
     maxTokens: 4096,
-    todoList: [
-      { id: 'tmpl-1', text: 'Perform threat assessment', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-2', text: 'Review authentication flows', done: false, createdAt: new Date().toISOString() },
-      { id: 'tmpl-3', text: 'Create security checklist', done: false, createdAt: new Date().toISOString() }
-    ]
   }
 ];
