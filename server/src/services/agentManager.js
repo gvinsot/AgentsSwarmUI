@@ -387,14 +387,19 @@ export class AgentManager {
     const rawDelegateCount = (response.match(/@delegate/gi) || []).length;
     console.log(`🔍 [Delegation] Found ${rawDelegateCount} raw "@delegate" occurrence(s) in text`);
     
-    // Parse @delegate(AgentName, "task") commands from response
+    // Strip code blocks (``` ... ```) and inline code (` ... `) to avoid matching examples/documentation
+    const cleanedResponse = response
+      .replace(/```[\s\S]*?```/g, '')   // remove fenced code blocks
+      .replace(/`[^`]*`/g, '');          // remove inline code
+    
+    // Parse @delegate(AgentName, "task") commands from the cleaned response
     // Uses [\s\S]+? to handle multiline task descriptions
     // Matches the closing quote then \s*\) to avoid being tripped by parentheses inside the task
     const delegationPattern = /@delegate\s*\(\s*([^,]+?)\s*,\s*["']([\s\S]+?)["']\s*\)/gi;
     const delegations = [];
     let match;
     
-    while ((match = delegationPattern.exec(response)) !== null) {
+    while ((match = delegationPattern.exec(cleanedResponse)) !== null) {
       console.log(`✅ [Delegation] Matched: agent="${match[1].trim()}", task="${match[2].trim().slice(0, 100)}..."`);
       delegations.push({
         agentName: match[1].trim(),

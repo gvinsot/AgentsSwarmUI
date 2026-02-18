@@ -46,6 +46,29 @@ IMPORTANT:
 - After making changes, verify by reading the file
 `;
 
+// Sanitize a tool argument: remove surrounding quotes and normalize paths
+function sanitizeArg(arg) {
+  if (!arg) return arg;
+  // Remove surrounding double or single quotes
+  arg = arg.replace(/^["']+|["']+$/g, '').trim();
+  return arg;
+}
+
+// Normalize a file/dir path: strip leading project base if the LLM passed an absolute path
+function normalizePath(pathArg, basePath) {
+  let p = sanitizeArg(pathArg);
+  // If the LLM passed an absolute path like /projects/Securator/src, make it relative
+  if (p.startsWith(basePath)) {
+    p = relative(basePath, p) || '.';
+  } else if (p.startsWith(PROJECTS_BASE + '/')) {
+    p = relative(basePath, join(PROJECTS_BASE, p.slice(PROJECTS_BASE.length + 1))) || '.';
+  } else if (p.startsWith('/')) {
+    // Any other absolute path — try to make it relative, fallback to stripping the leading /
+    p = p.replace(/^\/+/, '');
+  }
+  return p || '.';
+}
+
 // Execute a tool command and return the result
 export async function executeTool(toolName, args, projectPath) {
   const basePath = join(PROJECTS_BASE, projectPath);
@@ -57,25 +80,30 @@ export async function executeTool(toolName, args, projectPath) {
     return { success: false, error: `Project path not accessible: ${projectPath}` };
   }
   
+  // Sanitize all arguments
+  const cleanArgs = args.map(a => sanitizeArg(a));
+  
+  console.log(`🔧 [Tool] ${toolName}(${cleanArgs.map(a => a?.length > 100 ? a.slice(0, 100) + '...' : a).join(', ')}) | project=${projectPath} | basePath=${basePath}`);
+  
   try {
     switch (toolName) {
       case 'read_file':
-        return await readFileFromProject(basePath, args[0]);
+        return await readFileFromProject(basePath, normalizePath(cleanArgs[0], basePath));
       
       case 'write_file':
-        return await writeFileToProject(basePath, args[0], args[1]);
+        return await writeFileToProject(basePath, normalizePath(cleanArgs[0], basePath), cleanArgs[1]);
       
       case 'list_dir':
-        return await listDirectory(basePath, args[0] || '.');
+        return await listDirectory(basePath, normalizePath(cleanArgs[0] || '.', basePath));
       
       case 'search_files':
-        return await searchInFiles(basePath, args[0], args[1]);
+        return await searchInFiles(basePath, cleanArgs[0], cleanArgs[1]);
       
       case 'run_command':
-        return await runCommand(basePath, args[0]);
+        return await runCommand(basePath, cleanArgs[0]);
       
       case 'append_file':
-        return await appendToFile(basePath, args[0], args[1]);
+        return await appendToFile(basePath, normalizePath(cleanArgs[0], basePath), cleanArgs[1]);
       
       default:
         return { success: false, error: `Unknown tool: ${toolName}` };
@@ -228,7 +256,8 @@ async function runCommand(basePath, command) {
     const { stdout, stderr } = await execAsync(command, { 
       cwd: basePath, 
       timeout: 30000,
-      maxBuffer: 1024 * 1024 // 1MB
+      maxBuffer: 1024 * 1024, // 1MB
+      shell: '/bin/sh'
     });
     
     const output = stdout || stderr || '(no output)';
