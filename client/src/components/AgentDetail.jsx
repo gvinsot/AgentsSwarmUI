@@ -308,6 +308,8 @@ function ChatMessage({ message }) {
     || (!message.type && isUser && message.content?.startsWith('[TOOL RESULTS]'));
   const isDelegationResult = message.type === 'delegation-result'
     || (!message.type && isUser && message.content?.startsWith('[DELEGATION RESULTS]'));
+  const isDelegationTask = message.type === 'delegation-task'
+    || (!message.type && isUser && message.content?.startsWith('[TASK from '));
   const isSystemMessage = isToolResult || isDelegationResult;
 
   // Render tool/delegation results as a collapsible sub-element
@@ -315,6 +317,34 @@ function ChatMessage({ message }) {
     return isToolResult
       ? <ToolResultMessage message={message} />
       : <DelegationResultMessage message={message} />;
+  }
+
+  // Render delegation tasks with special attribution
+  if (isDelegationTask) {
+    const fromAgent = message.fromAgent || message.content?.match(/^\[TASK from (.+?)\]/)?.[1] || 'Leader';
+    // Extract just the task text (remove the [TASK from ...]: prefix)
+    const taskText = message.content?.replace(/^\[TASK from .+?\]:\s*/, '') || message.content;
+    return (
+      <div className="flex gap-3">
+        <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0 text-sm">
+          \uD83D\uDCE8
+        </div>
+        <div className="flex-1 rounded-xl p-3 bg-amber-500/5 border border-amber-500/20">
+          <p className="text-[10px] text-amber-400 font-medium mb-1.5 flex items-center gap-1">
+            Task from {fromAgent}
+          </p>
+          <div className="markdown-content text-sm text-dark-200">
+            <ReactMarkdown>{taskText}</ReactMarkdown>
+          </div>
+          {message.timestamp && (
+            <p className="text-[10px] text-dark-500 mt-2 flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" />
+              {new Date(message.timestamp).toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (

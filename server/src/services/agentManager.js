@@ -223,6 +223,7 @@ export class AgentManager {
       historyEntry.type = messageMeta.type;
       if (messageMeta.toolResults) historyEntry.toolResults = messageMeta.toolResults;
       if (messageMeta.delegationResults) historyEntry.delegationResults = messageMeta.delegationResults;
+      if (messageMeta.fromAgent) historyEntry.fromAgent = messageMeta.fromAgent;
     }
     agent.conversationHistory.push(historyEntry);
 
@@ -439,24 +440,73 @@ export class AgentManager {
     const rawDelegateCount = (response.match(/@delegate/gi) || []).length;
     console.log(`🔍 [Delegation] Found ${rawDelegateCount} raw "@delegate" occurrence(s) in text`);
     
-    // Strip code blocks (``` ... ```) and inline code (` ... `) to avoid matching examples/documentation
-    const cleanedResponse = response
-      .replace(/```[\s\S]*?```/g, '')   // remove fenced code blocks
-      .replace(/`[^`]*`/g, '');          // remove inline code
+    // Build a list of code-block ranges so we can skip @delegate matches inside examples/docs
+    // but still extract full task content (including backtick code) from the original text.
+    const codeBlockRanges = [];
+    const cbRe = /```[\s\S]*?```|`[^`]*`/g;
+    let cbMatch;
+    while ((cbMatch = cbRe.exec(response)) !== null) {
+      codeBlockRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length });
+    }
+    const isInsideCodeBlock = (pos) => codeBlockRanges.some(r => pos >= r.start && pos < r.end);
     
-    // Parse @delegate(AgentName, "task") commands from the cleaned response
-    // Uses [\s\S]+? to handle multiline task descriptions
-    // Matches the closing quote then \s*\) to avoid being tripped by parentheses inside the task
-    const delegationPattern = /@delegate\s*\(\s*([^,]+?)\s*,\s*["']([\s\S]+?)["']\s*\)/gi;
+    // Parse @delegate(AgentName, "task") commands using a robust character-by-character
+    // parser that properly handles escaped quotes, nested code blocks, and multiline content.
+    // We parse from the ORIGINAL response so that task content is preserved intact.
     const delegations = [];
-    let match;
-    
-    while ((match = delegationPattern.exec(cleanedResponse)) !== null) {
-      console.log(`✅ [Delegation] Matched: agent="${match[1].trim()}", task="${match[2].trim().slice(0, 100)}..."`);
-      delegations.push({
-        agentName: match[1].trim(),
-        task: match[2].trim()
-      });
+    const delegateRe = /@delegate\s*\(/gi;
+    let reMatch;
+    while ((reMatch = delegateRe.exec(response)) !== null) {
+      // Skip @delegate occurrences found inside code blocks (examples/docs)
+      if (isInsideCodeBlock(reMatch.index)) continue;
+
+      const startAfterParen = reMatch.index + reMatch[0].length;
+      // Find the comma separating agent name from task
+      const commaIdx = response.indexOf(',', startAfterParen);
+      if (commaIdx === -1) continue;
+      const agentName = response.slice(startAfterParen, commaIdx).trim();
+      
+      // Find the opening quote for the task
+      let i = commaIdx + 1;
+      while (i < response.length && /\s/.test(response[i])) i++;
+      const quoteChar = response[i];
+      if (quoteChar !== '"' && quoteChar !== "'") continue;
+      i++; // skip opening quote
+      
+      // Scan for the matching closing quote — skip escaped quotes
+      let taskContent = '';
+      let found = false;
+      while (i < response.length) {
+        if (response[i] === '\\' && i + 1 < response.length) {
+          // Escaped character — include both
+          taskContent += response[i] + response[i + 1];
+          i += 2;
+          continue;
+        }
+        if (response[i] === quoteChar) {
+          // Check if followed by \s*\) — this is the real closing
+          let j = i + 1;
+          while (j < response.length && /\s/.test(response[j])) j++;
+          if (j < response.length && response[j] === ')') {
+            found = true;
+            break;
+          }
+          // Not followed by ) — this is a quote inside the task content
+          taskContent += response[i];
+          i++;
+          continue;
+        }
+        taskContent += response[i];
+        i++;
+      }
+      
+      if (found && agentName && taskContent.trim()) {
+        console.log(`\u2705 [Delegation] Matched: agent="${agentName}", task="${taskContent.trim().slice(0, 100)}..."`);
+        delegations.push({
+          agentName: agentName,
+          task: taskContent.trim()
+        });
+      }
     }
     
     if (delegations.length === 0) {
@@ -523,7 +573,8 @@ export class AgentManager {
           (chunk) => {
             if (streamCallback) streamCallback(`\n[${targetAgent.name}]: ${chunk}`);
           },
-          delegationDepth + 1
+          delegationDepth + 1,
+          { type: 'delegation-task', fromAgent: leader.name }
         );
         
         // Mark the todo as done after successful execution
