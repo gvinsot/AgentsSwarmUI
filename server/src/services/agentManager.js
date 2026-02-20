@@ -7,6 +7,7 @@ export class AgentManager {
   constructor(io) {
     this.agents = new Map();
     this.abortControllers = new Map(); // Track ongoing requests by agentId
+    this._taskQueues = new Map();       // Per-agent sequential task queue
     this.io = io;
   }
 
@@ -237,12 +238,15 @@ export class AgentManager {
 
       let fullResponse = '';
 
-      // ── Incremental delegation tracking (for leader agents) ───────────
-      // As the leader streams its response, we detect complete @delegate()
-      // commands and fire them off immediately — without waiting for the
-      // full response to finish.
-      let dispatchedCount = 0;            // how many delegations we already fired
-      const earlyDelegationPromises = []; // Promise[] of dispatched delegations
+      // ── Incremental delegation: detect → enqueue immediately ───────────
+      // As the leader streams, we detect complete @delegate() commands and:
+      //  1. Notify the UI immediately (create todo + emit event)
+      //  2. Enqueue execution on the target agent's task queue
+      // The per-agent queue guarantees tasks run one-at-a-time per Developer,
+      // but multiple tasks can be ADDED to the queue in parallel.
+      // Each enqueue returns a Promise that resolves when execution finishes.
+      let detectedCount = 0;
+      const delegationPromises = [];   // Promise[] — one per enqueued task
       const isLeaderStreaming = agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH;
 
       // Stream response (check for abort on each chunk)
@@ -263,15 +267,71 @@ export class AgentManager {
           // ── Incremental delegation detection ──────────────────────
           if (isLeaderStreaming) {
             const parsed = this._parseDelegations(fullResponse);
-            // Dispatch only newly-completed delegations
-            while (dispatchedCount < parsed.length) {
-              const delegation = parsed[dispatchedCount];
-              dispatchedCount++;
-              console.log(`⚡ [Incremental] Dispatching delegation #${dispatchedCount}: ${delegation.agentName} — "${delegation.task.slice(0, 80)}..."`);
-              // Fire immediately (don't await — run in parallel with continued streaming)
-              earlyDelegationPromises.push(
-                this._executeSingleDelegation(id, delegation, streamCallback, delegationDepth)
+            while (detectedCount < parsed.length) {
+              const delegation = parsed[detectedCount];
+              detectedCount++;
+
+              const targetAgent = Array.from(this.agents.values()).find(
+                a => a.name.toLowerCase() === delegation.agentName.toLowerCase() && a.id !== id
               );
+
+              if (!targetAgent) {
+                console.log(`⚠️  Agent "${delegation.agentName}" not found in swarm`);
+                delegationPromises.push(
+                  Promise.resolve({ agentName: delegation.agentName, response: null, error: `Agent "${delegation.agentName}" not found in swarm` })
+                );
+                continue;
+              }
+
+              console.log(`⚡ [Incremental] Detected delegation #${detectedCount}: ${delegation.agentName} — enqueuing`);
+
+              // Notify UI immediately
+              this._emit('agent:delegation', {
+                from: { id, name: agent.name },
+                to: { id: targetAgent.id, name: targetAgent.name },
+                task: delegation.task
+              });
+
+              // Create todo immediately
+              const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`);
+
+              // Enqueue execution — the queue will process it when the agent is free
+              const promise = this._enqueueAgentTask(targetAgent.id, async () => {
+                if (streamCallback) streamCallback(`\n\n--- \uD83D\uDCE8 Delegating to ${targetAgent.name} ---\n`);
+                let delegateStreamStarted = false;
+                const agentResponse = await this.sendMessage(
+                  targetAgent.id,
+                  `[TASK from ${agent.name}]: ${delegation.task}`,
+                  (chunk) => {
+                    if (streamCallback) {
+                      if (!delegateStreamStarted) {
+                        delegateStreamStarted = true;
+                        streamCallback(`\n**[${targetAgent.name}]:**\n`);
+                      }
+                      streamCallback(chunk);
+                    }
+                  },
+                  delegationDepth + 1,
+                  { type: 'delegation-task', fromAgent: agent.name }
+                );
+
+                // Mark todo as done
+                if (todo) {
+                  const t = targetAgent.todoList.find(t => t.id === todo.id);
+                  if (t) {
+                    t.done = true;
+                    t.completedAt = new Date().toISOString();
+                    saveAgent(targetAgent);
+                    this._emit('agent:updated', this._sanitize(targetAgent));
+                  }
+                }
+
+                return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: agentResponse, error: null };
+              }).catch(err => {
+                return { agentId: targetAgent?.id, agentName: targetAgent?.name || delegation.agentName, task: delegation.task, response: null, error: err.message };
+              });
+
+              delegationPromises.push(promise);
             }
           }
         }
@@ -319,20 +379,69 @@ export class AgentManager {
 
       // For leader agents, process delegation commands (with depth limit)
       if (isLeaderStreaming) {
-        // Parse one last time to catch any delegations that completed in the final chunk
+        // Final pass: catch any delegations completed in the last chunk
         const finalParsed = this._parseDelegations(fullResponse);
-        while (dispatchedCount < finalParsed.length) {
-          const delegation = finalParsed[dispatchedCount];
-          dispatchedCount++;
-          console.log(`⚡ [Final-pass] Dispatching delegation #${dispatchedCount}: ${delegation.agentName}`);
-          earlyDelegationPromises.push(
-            this._executeSingleDelegation(id, delegation, streamCallback, delegationDepth)
+        while (detectedCount < finalParsed.length) {
+          const delegation = finalParsed[detectedCount];
+          detectedCount++;
+
+          const targetAgent = Array.from(this.agents.values()).find(
+            a => a.name.toLowerCase() === delegation.agentName.toLowerCase() && a.id !== id
           );
+
+          if (!targetAgent) {
+            delegationPromises.push(
+              Promise.resolve({ agentName: delegation.agentName, response: null, error: `Agent "${delegation.agentName}" not found in swarm` })
+            );
+            continue;
+          }
+
+          this._emit('agent:delegation', {
+            from: { id, name: agent.name },
+            to: { id: targetAgent.id, name: targetAgent.name },
+            task: delegation.task
+          });
+          const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`);
+
+          const promise = this._enqueueAgentTask(targetAgent.id, async () => {
+            if (streamCallback) streamCallback(`\n\n--- \uD83D\uDCE8 Delegating to ${targetAgent.name} ---\n`);
+            let delegateStreamStarted = false;
+            const agentResponse = await this.sendMessage(
+              targetAgent.id,
+              `[TASK from ${agent.name}]: ${delegation.task}`,
+              (chunk) => {
+                if (streamCallback) {
+                  if (!delegateStreamStarted) {
+                    delegateStreamStarted = true;
+                    streamCallback(`\n**[${targetAgent.name}]:**\n`);
+                  }
+                  streamCallback(chunk);
+                }
+              },
+              delegationDepth + 1,
+              { type: 'delegation-task', fromAgent: agent.name }
+            );
+            if (todo) {
+              const t = targetAgent.todoList.find(t => t.id === todo.id);
+              if (t) {
+                t.done = true;
+                t.completedAt = new Date().toISOString();
+                saveAgent(targetAgent);
+                this._emit('agent:updated', this._sanitize(targetAgent));
+              }
+            }
+            return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: agentResponse, error: null };
+          }).catch(err => {
+            return { agentId: targetAgent?.id, agentName: targetAgent?.name || delegation.agentName, task: delegation.task, response: null, error: err.message };
+          });
+
+          delegationPromises.push(promise);
         }
 
-        if (earlyDelegationPromises.length > 0) {
-          // Wait for all dispatched delegations to finish
-          const delegationResults = await Promise.all(earlyDelegationPromises);
+        if (delegationPromises.length > 0) {
+          console.log(`📨 [Delegation] Waiting for ${delegationPromises.length} queued delegation(s) to complete...`);
+          // Wait for all enqueued delegations to finish (they run sequentially per agent)
+          const delegationResults = await Promise.all(delegationPromises);
 
           // Notify the stream that delegation results are being processed
           if (streamCallback) {
@@ -760,6 +869,29 @@ export class AgentManager {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Per-agent sequential task queue.
+   * Tasks are added instantly (returns a Promise) but execute one at a time.
+   * Multiple callers can enqueue concurrently — the queue serialises execution.
+   */
+  _enqueueAgentTask(agentId, taskFn) {
+    if (!this._taskQueues.has(agentId)) {
+      this._taskQueues.set(agentId, Promise.resolve());
+    }
+
+    // Chain the new task after whatever is currently running/queued
+    const resultPromise = this._taskQueues.get(agentId).then(
+      () => taskFn(),
+      () => taskFn()   // If the previous task rejected, still run the next one
+    );
+
+    // Update the queue tail (ignore rejections so the chain never breaks)
+    this._taskQueues.set(agentId, resultPromise.catch(() => {}));
+
+    return resultPromise;
+  }
+
   _sanitize(agent) {
     const { apiKey, ...rest } = agent;
     return { ...rest, hasApiKey: !!apiKey };

@@ -2,6 +2,35 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 
 // ─── Ollama Provider ────────────────────────────────────────────────────────
+// Retry helper for Ollama fetch calls — handles transient 'fetch failed'
+// or HTTP 503 when Ollama is busy with another request.
+const OLLAMA_MAX_RETRIES = 4;
+const OLLAMA_BASE_DELAY_MS = 2000;
+
+async function ollamaFetchWithRetry(url, options, maxRetries = OLLAMA_MAX_RETRIES) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      // Ollama returns 503 when busy — retry
+      if (res.status === 503 && attempt < maxRetries) {
+        const delay = OLLAMA_BASE_DELAY_MS * Math.pow(2, attempt);
+        console.log(`⚠️  [Ollama] 503 busy — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      // Transient network errors (fetch failed, ECONNREFUSED, etc.)
+      if (attempt < maxRetries) {
+        const delay = OLLAMA_BASE_DELAY_MS * Math.pow(2, attempt);
+        console.log(`⚠️  [Ollama] ${err.message} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 export class OllamaProvider {
   constructor(baseUrl, model) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -22,7 +51,7 @@ export class OllamaProvider {
       }
     };
 
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
+    const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -59,7 +88,7 @@ export class OllamaProvider {
       }
     };
 
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
+    const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
