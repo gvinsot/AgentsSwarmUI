@@ -41,6 +41,7 @@ export class AgentManager {
       status: 'idle',
       temperature: config.temperature ?? 0.7,
       maxTokens: config.maxTokens ?? 4096,
+      contextLength: config.contextLength ?? 0,
       todoList: config.todoList || [],
       ragDocuments: config.ragDocuments || [],
       conversationHistory: [],
@@ -84,7 +85,7 @@ export class AgentManager {
 
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
-      'maxTokens', 'todoList', 'ragDocuments', 'handoffTargets',
+      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader'
     ];
 
@@ -252,7 +253,9 @@ export class AgentManager {
       // Stream response (check for abort on each chunk)
       for await (const chunk of provider.chatStream(messages, {
         temperature: agent.temperature,
-        maxTokens: agent.maxTokens
+        maxTokens: agent.maxTokens,
+        contextLength: agent.contextLength || 0,
+        signal: abortController.signal
       })) {
         // Check if aborted
         if (abortController.signal.aborted) {
@@ -362,7 +365,13 @@ export class AgentManager {
             if (r.isErrorReport) {
               return `--- ⚠️ ERROR REPORT ---\n${r.args[0] || r.result}`;
             }
-            return `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.success ? r.result : `ERROR: ${r.error}`}`;
+            if (!r.success) {
+              // Include both the error message AND the actual command output (stderr/stdout)
+              const parts = [`ERROR: ${r.error}`];
+              if (r.result) parts.push(`OUTPUT:\n${r.result}`);
+              return `--- ${r.tool}(${r.args.join(', ')}) ---\n${parts.join('\n')}`;
+            }
+            return `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.result}`;
           }).join('\n\n');
 
           // Check if there are error reports — add specific instructions for the agent
@@ -380,7 +389,7 @@ export class AgentManager {
             `[TOOL RESULTS]\n${resultsSummary}\n\n${continuationPrompt}`,
             streamCallback,
             delegationDepth + 1,
-            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.success ? r.result : undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }
+            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.result || undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }
           );
           this.setStatus(id, 'idle');
           return continuedResponse;
@@ -633,12 +642,14 @@ export class AgentManager {
             tool: call.tool,
             args: call.args,
             error: result.error || 'Unknown error',
+            output: result.result || null,
             timestamp: new Date().toISOString()
           });
 
-          // Push error visibly into the stream
+          // Push error visibly into the stream (include actual output when available)
           if (streamCallback) {
-            streamCallback(`\n\n⚠️ **Tool error** \`@${call.tool}(${(call.args[0] || '').slice(0, 100)})\`: ${result.error}\n`);
+            const outputSnippet = result.result ? `\n\`\`\`\n${result.result.slice(0, 500)}\n\`\`\`` : '';
+            streamCallback(`\n\n⚠️ **Tool error** \`@${call.tool}(${(call.args[0] || '').slice(0, 100)})\`: ${result.error}${outputSnippet}\n`);
           }
         }
       } catch (err) {

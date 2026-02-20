@@ -6,11 +6,28 @@ import OpenAI from 'openai';
 // or HTTP 503 when Ollama is busy with another request.
 const OLLAMA_MAX_RETRIES = 4;
 const OLLAMA_BASE_DELAY_MS = 2000;
+// Timeout for an individual Ollama request (5 minutes).  If the GPU hangs or
+// prompt evaluation takes too long, we abort rather than wait forever.
+const OLLAMA_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
-async function ollamaFetchWithRetry(url, options, maxRetries = OLLAMA_MAX_RETRIES) {
+/**
+ * @param {string} url
+ * @param {RequestInit} options
+ * @param {number} maxRetries
+ * @param {AbortSignal|null} externalSignal — caller-provided signal (e.g. user stop)
+ */
+async function ollamaFetchWithRetry(url, options, maxRetries = OLLAMA_MAX_RETRIES, externalSignal = null) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Combine the caller's abort signal with a per-request timeout so:
+    //  • the user can cancel at any time
+    //  • a hung GPU doesn't block forever
+    const timeoutSignal = AbortSignal.timeout(OLLAMA_REQUEST_TIMEOUT_MS);
+    const combinedSignal = externalSignal
+      ? AbortSignal.any([externalSignal, timeoutSignal])
+      : timeoutSignal;
+
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, { ...options, signal: combinedSignal });
       // Ollama returns 503 when busy — retry
       if (res.status === 503 && attempt < maxRetries) {
         const delay = OLLAMA_BASE_DELAY_MS * Math.pow(2, attempt);
@@ -20,7 +37,9 @@ async function ollamaFetchWithRetry(url, options, maxRetries = OLLAMA_MAX_RETRIE
       }
       return res;
     } catch (err) {
-      // Transient network errors (fetch failed, ECONNREFUSED, etc.)
+      // If the caller explicitly aborted, propagate immediately (no retry)
+      if (externalSignal?.aborted) throw err;
+      // Transient network / timeout errors — retry
       if (attempt < maxRetries) {
         const delay = OLLAMA_BASE_DELAY_MS * Math.pow(2, attempt);
         console.log(`⚠️  [Ollama] ${err.message} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
@@ -38,6 +57,18 @@ export class OllamaProvider {
   }
 
   async chat(messages, options = {}) {
+    const ollamaOpts = {
+      temperature: options.temperature ?? 0.7,
+      num_predict: options.maxTokens ?? 4096,
+    };
+    // Limit the context window so Ollama doesn't allocate a giant KV cache
+    // that saturates the GPU. Default to 8192 if not explicitly configured.
+    if (options.contextLength) {
+      ollamaOpts.num_ctx = options.contextLength;
+    } else {
+      ollamaOpts.num_ctx = 8192;
+    }
+
     const body = {
       model: this.model,
       messages: messages.map(m => ({
@@ -45,17 +76,14 @@ export class OllamaProvider {
         content: m.content
       })),
       stream: false,
-      options: {
-        temperature: options.temperature ?? 0.7,
-        num_predict: options.maxTokens ?? 4096,
-      }
+      options: ollamaOpts
     };
 
     const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    });
+    }, OLLAMA_MAX_RETRIES, options.signal || null);
 
     if (!res.ok) {
       const text = await res.text();
@@ -75,6 +103,16 @@ export class OllamaProvider {
   }
 
   async *chatStream(messages, options = {}) {
+    const ollamaOpts = {
+      temperature: options.temperature ?? 0.7,
+      num_predict: options.maxTokens ?? 4096,
+    };
+    if (options.contextLength) {
+      ollamaOpts.num_ctx = options.contextLength;
+    } else {
+      ollamaOpts.num_ctx = 8192;
+    }
+
     const body = {
       model: this.model,
       messages: messages.map(m => ({
@@ -82,17 +120,14 @@ export class OllamaProvider {
         content: m.content
       })),
       stream: true,
-      options: {
-        temperature: options.temperature ?? 0.7,
-        num_predict: options.maxTokens ?? 4096,
-      }
+      options: ollamaOpts
     };
 
     const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    });
+    }, OLLAMA_MAX_RETRIES, options.signal || null);
 
     if (!res.ok) {
       const text = await res.text();

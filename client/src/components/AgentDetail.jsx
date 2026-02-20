@@ -620,7 +620,11 @@ function ToolResultMessage({ message }) {
 function ToolResultItem({ result }) {
   const [showOutput, setShowOutput] = useState(!result.success); // auto-expand errors
   const argSummary = (result.args || []).map(a => typeof a === 'string' && a.length > 60 ? a.slice(0, 60) + '...' : a).join(', ');
-  const output = result.success ? result.result : result.error;
+  // For failed tools, show both the error message AND the actual output (stderr/stdout)
+  const output = result.success
+    ? result.result
+    : [result.error, result.result].filter(Boolean).join('\n\n--- Output ---\n');
+  const hasContent = !!output;
 
   return (
     <div className="text-xs">
@@ -630,12 +634,12 @@ function ToolResultItem({ result }) {
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${result.success ? 'bg-emerald-500' : 'bg-red-500'}`} />
         <code className={`font-mono ${result.success ? 'text-dark-300' : 'text-red-300'}`}>@{result.tool}({argSummary})</code>
-        {output && (showOutput
+        {hasContent && (showOutput
           ? <ChevronDown className="w-3 h-3 ml-auto flex-shrink-0" />
           : <ChevronRight className="w-3 h-3 ml-auto flex-shrink-0" />
         )}
       </button>
-      {showOutput && output && (
+      {showOutput && hasContent && (
         <pre className={`mt-1 ml-3 p-2 rounded text-[11px] overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap break-all ${
           result.success
             ? 'bg-dark-900/80 border border-dark-700/50 text-dark-400'
@@ -1119,6 +1123,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
     instructions: agent.instructions,
     temperature: agent.temperature,
     maxTokens: agent.maxTokens,
+    contextLength: agent.contextLength || 0,
     provider: agent.provider,
     model: agent.model,
     endpoint: agent.endpoint || '',
@@ -1139,6 +1144,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
       instructions: agent.instructions,
       temperature: agent.temperature,
       maxTokens: agent.maxTokens,
+      contextLength: agent.contextLength || 0,
       provider: agent.provider,
       model: agent.model,
       endpoint: agent.endpoint || '',
@@ -1308,6 +1314,17 @@ function SettingsTab({ agent, projects, onRefresh }) {
           <input
             type="number" value={form.maxTokens}
             onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 4096)}
+            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-dark-400 mb-1.5">
+            Context Length (Ollama) <span className="text-dark-500">0 = 8192 par défaut</span>
+          </label>
+          <input
+            type="number" value={form.contextLength}
+            onChange={(e) => updateField('contextLength', parseInt(e.target.value) || 0)}
+            placeholder="8192"
             className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
           />
         </div>

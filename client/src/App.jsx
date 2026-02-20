@@ -142,11 +142,6 @@ export default function App() {
     });
 
     // ── Tool error notifications ──────────────────────────────────────
-    sock.on('agent:tool:error', ({ agentName, tool, args, error }) => {
-      const argSummary = (args || []).map(a => typeof a === 'string' && a.length > 60 ? a.slice(0, 60) + '…' : a).join(', ');
-      showToast(`⚠️ ${agentName} — @${tool}(${argSummary}): ${error}`, 'error', 8000);
-    });
-
     // ── Error escalation from developer agents ────────────────────────
     sock.on('agent:error:report', ({ agentName, description }) => {
       showToast(`🚨 ${agentName} reports an error: ${description.slice(0, 200)}`, 'error', 12000);
