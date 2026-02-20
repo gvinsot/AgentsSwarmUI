@@ -133,7 +133,18 @@ export default function App() {
 
     sock.on('agent:stream:error', ({ agentId, error }) => {
       console.error(`Stream error for ${agentId}:`, error);
-      showToast(error || 'An error occurred while streaming response', 'error');
+      // Detect model-level errors (context exceeded, OOM, etc.) — persistent toast
+      const errorLower = (error || '').toLowerCase();
+      const isModelError = [
+        'context length', 'context_length', 'num_ctx', 'context window',
+        'too long', 'maximum context', 'exceeds', 'out of memory', 'oom',
+        'kv cache', 'model error', 'ollama error'
+      ].some(kw => errorLower.includes(kw));
+      showToast(
+        error || 'An error occurred while streaming response',
+        'error',
+        isModelError ? 0 : 8000  // 0 = persistent (no auto-dismiss)
+      );
       setStreamBuffers(prev => {
         const copy = { ...prev };
         delete copy[agentId];
