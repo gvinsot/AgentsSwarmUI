@@ -176,7 +176,7 @@ export class AgentManager {
           .map(a => `- ${a.name} (${a.role}): ${a.description || 'No description'}`);
         
         if (availableAgents.length > 0) {
-          systemContent += `\n\n--- Available Swarm Agents ---\nYou can delegate tasks to these agents using the format: @delegate(AgentName, "task description")\n${availableAgents.join('\n')}\n\nWhen you need an agent to work on something, use the @delegate command. The agent's response will be provided back to you.`;
+          systemContent += `\n\n--- Available Swarm Agents ---\nYou can delegate tasks to these agents using the format: @delegate(AgentName, "task description")\n${availableAgents.join('\n')}\n\nWhen you need an agent to work on something, use the @delegate command. The agent's response will be provided back to you.\n\nIMPORTANT: Agents may report errors using @report_error(). When you receive delegation results containing errors, analyze the problem and decide whether to retry the task, reassign it to another agent, provide additional guidance, or escalate to the user.`;
         } else {
           systemContent += `\n\n--- Available Swarm Agents ---\nNo other agents are currently available in the swarm. You will need to complete tasks yourself or ask the user to create specialist agents.`;
         }
@@ -358,19 +358,29 @@ export class AgentManager {
         const toolResults = await this._processToolCalls(id, fullResponse, streamCallback, delegationDepth);
         if (toolResults.length > 0) {
           // Feed tool results back to agent and continue
-          const resultsSummary = toolResults.map(r => 
-            `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.success ? r.result : `ERROR: ${r.error}`}`
-          ).join('\n\n');
+          const resultsSummary = toolResults.map(r => {
+            if (r.isErrorReport) {
+              return `--- ⚠️ ERROR REPORT ---\n${r.args[0] || r.result}`;
+            }
+            return `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.success ? r.result : `ERROR: ${r.error}`}`;
+          }).join('\n\n');
+
+          // Check if there are error reports — add specific instructions for the agent
+          const hasErrorReports = toolResults.some(r => r.isErrorReport);
+          const hasRealErrors = toolResults.some(r => !r.success && !r.isErrorReport);
+          let continuationPrompt = 'Continue with your task based on these results. Use more tools if needed, or provide your final response.';
+          if (hasErrorReports) {
+            continuationPrompt = 'You reported an error. The error has been escalated to the manager. Summarize what you attempted and what went wrong so the manager can help.';
+          } else if (hasRealErrors) {
+            continuationPrompt = 'Some tools encountered errors. Try to resolve the issues, use alternative approaches, or use @report_error(description) to escalate the problem to the manager if you cannot resolve it.';
+          }
           
-          // Tag the previous user message in history as a tool-result
-          // (it will be stored by the recursive sendMessage call, so we
-          // inject a _messageType hint that sendMessage will pick up)
           const continuedResponse = await this.sendMessage(
             id,
-            `[TOOL RESULTS]\n${resultsSummary}\n\nContinue with your task based on these results. Use more tools if needed, or provide your final response.`,
+            `[TOOL RESULTS]\n${resultsSummary}\n\n${continuationPrompt}`,
             streamCallback,
             delegationDepth + 1,
-            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.success ? r.result : undefined, error: r.success ? undefined : r.error })) }
+            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.success ? r.result : undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }
           );
           this.setStatus(id, 'idle');
           return continuedResponse;
@@ -449,14 +459,22 @@ export class AgentManager {
           }
           
           // Feed delegation results back to leader and get synthesis
-          const resultsSummary = delegationResults.map(r => 
-            `--- Response from ${r.agentName} ---\n${r.response || r.error}`
-          ).join('\n\n');
+          const resultsSummary = delegationResults.map(r => {
+            const header = r.error
+              ? `--- ⚠️ ERROR from ${r.agentName} ---`
+              : `--- Response from ${r.agentName} ---`;
+            return `${header}\n${r.response || r.error}`;
+          }).join('\n\n');
           
+          const hasErrors = delegationResults.some(r => r.error);
+          const synthesisHint = hasErrors
+            ? 'Some agents reported errors. Decide whether to retry, reassign, or adapt your plan accordingly.'
+            : 'Please synthesize these results and continue with your plan. If more delegations are needed, use @delegate() commands. If the task is complete, provide the final response.';
+
           // Continue conversation with delegation results (increment depth)
           const synthesisResponse = await this.sendMessage(
             id, 
-            `[DELEGATION RESULTS]\n${resultsSummary}\n\nPlease synthesize these results and continue with your plan. If more delegations are needed, use @delegate() commands. If the task is complete, provide the final response.`,
+            `[DELEGATION RESULTS]\n${resultsSummary}\n\n${synthesisHint}`,
             streamCallback,
             delegationDepth + 1,
             { type: 'delegation-result', delegationResults: delegationResults.map(r => ({ agentName: r.agentName, task: r.task, response: r.response, error: r.error })) }
@@ -487,6 +505,33 @@ export class AgentManager {
     if (!agent) return [];
     
     if (!agent.project) {
+      // Even without a project, @report_error should still work
+      const errorReportCalls = parseToolCalls(response).filter(c => c.tool === 'report_error');
+      if (errorReportCalls.length > 0) {
+        const results = [];
+        for (const call of errorReportCalls) {
+          const errorDescription = call.args[0] || 'Unknown error';
+          console.log(`🚨 [Error Report] Agent "${agent.name}" (no project) reports: ${errorDescription.slice(0, 200)}`);
+          this._emit('agent:error:report', {
+            agentId,
+            agentName: agent.name,
+            description: errorDescription,
+            timestamp: new Date().toISOString()
+          });
+          if (streamCallback) {
+            streamCallback(`\n\n🚨 **Error reported by ${agent.name}:** ${errorDescription}\n`);
+          }
+          results.push({
+            tool: 'report_error',
+            args: call.args,
+            success: true,
+            result: `Error reported: ${errorDescription}`,
+            isErrorReport: true
+          });
+        }
+        return results;
+      }
+      
       // Check if the response contains tool-like patterns — warn if tools are used without a project
       const hasToolSyntax = /@(read_file|write_file|list_dir|search_files|run_command|append_file)\s*\(/i.test(response)
         || /<tool_call>/i.test(response);
@@ -525,6 +570,34 @@ export class AgentManager {
     
     const results = [];
     for (const call of toolCalls) {
+      // ── Handle @report_error() specially ─────────────────────────────
+      if (call.tool === 'report_error') {
+        const errorDescription = call.args[0] || 'Unknown error';
+        console.log(`🚨 [Error Report] Agent "${agent.name}" reports: ${errorDescription.slice(0, 200)}`);
+        
+        // Emit error report event for UI notifications
+        this._emit('agent:error:report', {
+          agentId,
+          agentName: agent.name,
+          description: errorDescription,
+          timestamp: new Date().toISOString()
+        });
+
+        // Also push into stream so the user can see it inline
+        if (streamCallback) {
+          streamCallback(`\n\n🚨 **Error reported by ${agent.name}:** ${errorDescription}\n`);
+        }
+
+        results.push({
+          tool: 'report_error',
+          args: call.args,
+          success: true,
+          result: `Error reported: ${errorDescription}`,
+          isErrorReport: true
+        });
+        continue;
+      }
+
       try {
         // Emit structured tool-start event (not raw text into stream)
         this._emit('agent:tool:start', {
@@ -541,15 +614,36 @@ export class AgentManager {
           ...result
         });
         
-        // Emit structured tool-result event
-        this._emit('agent:tool:result', {
-          agentId,
-          tool: call.tool,
-          args: call.args,
-          success: result.success,
-          preview: result.success ? result.result.slice(0, 300) : (result.error || 'Unknown error')
-        });
+        if (result.success) {
+          // Emit structured tool-result event
+          this._emit('agent:tool:result', {
+            agentId,
+            tool: call.tool,
+            args: call.args,
+            success: true,
+            preview: result.result.slice(0, 300)
+          });
+        } else {
+          // ── Tool returned an error ─────────────────────────────────
+          console.warn(`⚠️  [Tool Error] Agent "${agent.name}" — @${call.tool}(${(call.args[0] || '').slice(0, 80)}): ${result.error}`);
+          
+          this._emit('agent:tool:error', {
+            agentId,
+            agentName: agent.name,
+            tool: call.tool,
+            args: call.args,
+            error: result.error || 'Unknown error',
+            timestamp: new Date().toISOString()
+          });
+
+          // Push error visibly into the stream
+          if (streamCallback) {
+            streamCallback(`\n\n⚠️ **Tool error** \`@${call.tool}(${(call.args[0] || '').slice(0, 100)})\`: ${result.error}\n`);
+          }
+        }
       } catch (err) {
+        console.error(`❌ [Tool Crash] Agent "${agent.name}" — @${call.tool}: ${err.message}`);
+        
         results.push({
           tool: call.tool,
           args: call.args,
@@ -557,13 +651,18 @@ export class AgentManager {
           error: err.message
         });
         
-        this._emit('agent:tool:result', {
+        this._emit('agent:tool:error', {
           agentId,
+          agentName: agent.name,
           tool: call.tool,
           args: call.args,
-          success: false,
-          preview: err.message
+          error: err.message,
+          timestamp: new Date().toISOString()
         });
+
+        if (streamCallback) {
+          streamCallback(`\n\n❌ **Tool crashed** \`@${call.tool}(${(call.args[0] || '').slice(0, 100)})\`: ${err.message}\n`);
+        }
       }
     }
     

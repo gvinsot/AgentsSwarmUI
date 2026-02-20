@@ -39,6 +39,11 @@ You can interact with project files using these commands. Use the exact format s
   - Fixed bug
   """)
 
+@report_error(description) - Report an error or problem back to the leader/manager agent
+  Use this when you encounter a blocking issue you cannot resolve yourself.
+  The error will be escalated to the leader agent and displayed in the UI.
+  Example: @report_error(Cannot compile the project: missing dependency 'express'. Please install it or update package.json.)
+
 IMPORTANT:
 - File paths are relative to the project root
 - Always read files before modifying them
@@ -71,6 +76,12 @@ function normalizePath(pathArg, basePath) {
 
 // Execute a tool command and return the result
 export async function executeTool(toolName, args, projectPath) {
+  // report_error doesn't need project access — handle it early
+  if (toolName === 'report_error') {
+    const description = args[0] || 'Unknown error';
+    return { success: true, result: `Error reported: ${description}`, isErrorReport: true };
+  }
+
   const basePath = join(PROJECTS_BASE, projectPath);
   
   // Verify project exists
@@ -304,7 +315,7 @@ async function appendToFile(basePath, filePath, content) {
   };
 }
 
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file'];
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -322,6 +333,8 @@ function jsonToToolCall(name, args) {
       return { tool: 'append_file', args: [args.path || args.file || '', args.content || ''] };
     case 'search_files':
       return { tool: 'search_files', args: [args.pattern || args.glob || '*', args.query || args.search || ''] };
+    case 'report_error':
+      return { tool: 'report_error', args: [args.description || args.message || args.error || ''] };
     default:
       return null;
   }
@@ -391,7 +404,7 @@ export function parseToolCalls(response) {
 
   // Pattern for single-arg tools with double-quoted args: @tool("arg")
   // Handles nested single-quotes and escaped chars inside double quotes.
-  const dblQuotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/gi;
+  const dblQuotedPattern = /@(read_file|list_dir|run_command|report_error)\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/gi;
   while ((match = dblQuotedPattern.exec(cleaned)) !== null) {
     toolCalls.push({
       tool: match[1].toLowerCase(),
@@ -400,7 +413,7 @@ export function parseToolCalls(response) {
   }
 
   // Pattern for single-arg tools with single-quoted args: @tool('arg')
-  const sglQuotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/gi;
+  const sglQuotedPattern = /@(read_file|list_dir|run_command|report_error)\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/gi;
   while ((match = sglQuotedPattern.exec(cleaned)) !== null) {
     toolCalls.push({
       tool: match[1].toLowerCase(),
@@ -410,7 +423,7 @@ export function parseToolCalls(response) {
 
   // Pattern for single-arg tools without quotes: @tool(arg)
   // Only match if we haven't already matched this tool call via quoted patterns above.
-  const unquotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*([^)]+)\s*\)/gi;
+  const unquotedPattern = /@(read_file|list_dir|run_command|report_error)\s*\(\s*([^)]+)\s*\)/gi;
   while ((match = unquotedPattern.exec(cleaned)) !== null) {
     const tool = match[1].toLowerCase();
     const rawArg = match[2].trim();

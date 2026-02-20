@@ -75,6 +75,20 @@ export function cleanToolSyntax(text) {
     (_, pat, q) => `\n> **Searching** \`${pat.trim()}\` for *${q.trim()}*\n`
   );
 
+  // @report_error(description) → styled error block
+  cleaned = cleaned.replace(
+    /@report_error\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/gi,
+    (_, desc) => `\n> 🚨 **Error reported:** ${desc.trim()}\n`
+  );
+  cleaned = cleaned.replace(
+    /@report_error\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/gi,
+    (_, desc) => `\n> 🚨 **Error reported:** ${desc.trim()}\n`
+  );
+  cleaned = cleaned.replace(
+    /@report_error\s*\(\s*([^)]+)\s*\)/gi,
+    (_, desc) => `\n> 🚨 **Error reported:** ${desc.trim().replace(/^["']+|["']+$/g, '')}\n`
+  );
+
   return cleaned;
 }
 
@@ -556,24 +570,34 @@ function parseLegacyDelegationResults(content) {
 
 // ─── Tool Result Collapsible Message ───────────────────────────────────────
 function ToolResultMessage({ message }) {
-  const [expanded, setExpanded] = useState(false);
   const results = message.toolResults?.length
     ? message.toolResults
     : parseLegacyToolResults(message.content || '');
-  const successCount = results.filter(r => r.success).length;
+  const successCount = results.filter(r => r.success && !r.isErrorReport).length;
   const errorCount = results.filter(r => !r.success).length;
+  const reportCount = results.filter(r => r.isErrorReport).length;
+  const hasProblems = errorCount > 0 || reportCount > 0;
+  const [expanded, setExpanded] = useState(hasProblems); // auto-expand when errors
 
   return (
     <div className="mx-2 my-1">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-dark-800/70 border border-dark-700/50 hover:border-dark-600 transition-colors text-left group"
+        className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg transition-colors text-left group ${
+          hasProblems
+            ? 'bg-red-500/5 border border-red-500/30 hover:border-red-500/50'
+            : 'bg-dark-800/70 border border-dark-700/50 hover:border-dark-600'
+        }`}
       >
-        <Terminal className="w-4 h-4 text-amber-400 flex-shrink-0" />
+        {hasProblems
+          ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          : <Terminal className="w-4 h-4 text-amber-400 flex-shrink-0" />
+        }
         <span className="text-xs font-medium text-dark-300 flex-1">
           {results.length} tool call{results.length !== 1 ? 's' : ''} executed
           {successCount > 0 && <span className="text-emerald-400 ml-1.5">{successCount} passed</span>}
           {errorCount > 0 && <span className="text-red-400 ml-1.5">{errorCount} failed</span>}
+          {reportCount > 0 && <span className="text-orange-400 ml-1.5">{reportCount} error report{reportCount !== 1 ? 's' : ''}</span>}
         </span>
         {expanded
           ? <ChevronDown className="w-3.5 h-3.5 text-dark-500 group-hover:text-dark-300 transition-colors" />
@@ -583,7 +607,9 @@ function ToolResultMessage({ message }) {
       {expanded && (
         <div className="mt-1 ml-3 border-l-2 border-dark-700 pl-3 space-y-2 py-1">
           {results.map((r, i) => (
-            <ToolResultItem key={i} result={r} />
+            r.isErrorReport
+              ? <ErrorReportItem key={i} result={r} />
+              : <ToolResultItem key={i} result={r} />
           ))}
         </div>
       )}
@@ -592,7 +618,7 @@ function ToolResultMessage({ message }) {
 }
 
 function ToolResultItem({ result }) {
-  const [showOutput, setShowOutput] = useState(false);
+  const [showOutput, setShowOutput] = useState(!result.success); // auto-expand errors
   const argSummary = (result.args || []).map(a => typeof a === 'string' && a.length > 60 ? a.slice(0, 60) + '...' : a).join(', ');
   const output = result.success ? result.result : result.error;
 
@@ -603,17 +629,35 @@ function ToolResultItem({ result }) {
         className="flex items-center gap-1.5 text-dark-400 hover:text-dark-200 transition-colors w-full text-left"
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${result.success ? 'bg-emerald-500' : 'bg-red-500'}`} />
-        <code className="text-dark-300 font-mono">@{result.tool}({argSummary})</code>
+        <code className={`font-mono ${result.success ? 'text-dark-300' : 'text-red-300'}`}>@{result.tool}({argSummary})</code>
         {output && (showOutput
           ? <ChevronDown className="w-3 h-3 ml-auto flex-shrink-0" />
           : <ChevronRight className="w-3 h-3 ml-auto flex-shrink-0" />
         )}
       </button>
       {showOutput && output && (
-        <pre className="mt-1 ml-3 p-2 rounded bg-dark-900/80 border border-dark-700/50 text-[11px] text-dark-400 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap break-all">
+        <pre className={`mt-1 ml-3 p-2 rounded text-[11px] overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap break-all ${
+          result.success
+            ? 'bg-dark-900/80 border border-dark-700/50 text-dark-400'
+            : 'bg-red-500/5 border border-red-500/20 text-red-300'
+        }`}>
           {typeof output === 'string' ? output.slice(0, 3000) : JSON.stringify(output, null, 2).slice(0, 3000)}
         </pre>
       )}
+    </div>
+  );
+}
+
+// ─── Error Report Item (from @report_error) ────────────────────────────────
+function ErrorReportItem({ result }) {
+  const description = (result.args || [])[0] || result.result || 'Unknown error';
+  return (
+    <div className="text-xs flex items-start gap-2 p-2 rounded bg-orange-500/5 border border-orange-500/20">
+      <AlertCircle className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" />
+      <div>
+        <p className="text-orange-300 font-medium text-[11px] mb-0.5">Error escalated to manager</p>
+        <p className="text-dark-300">{description}</p>
+      </div>
     </div>
   );
 }
