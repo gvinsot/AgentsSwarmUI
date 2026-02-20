@@ -237,6 +237,14 @@ export class AgentManager {
 
       let fullResponse = '';
 
+      // ── Incremental delegation tracking (for leader agents) ───────────
+      // As the leader streams its response, we detect complete @delegate()
+      // commands and fire them off immediately — without waiting for the
+      // full response to finish.
+      let dispatchedCount = 0;            // how many delegations we already fired
+      const earlyDelegationPromises = []; // Promise[] of dispatched delegations
+      const isLeaderStreaming = agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH;
+
       // Stream response (check for abort on each chunk)
       for await (const chunk of provider.chatStream(messages, {
         temperature: agent.temperature,
@@ -251,6 +259,21 @@ export class AgentManager {
           fullResponse += chunk.text;
           agent.currentThinking = fullResponse;
           if (streamCallback) streamCallback(chunk.text);
+
+          // ── Incremental delegation detection ──────────────────────
+          if (isLeaderStreaming) {
+            const parsed = this._parseDelegations(fullResponse);
+            // Dispatch only newly-completed delegations
+            while (dispatchedCount < parsed.length) {
+              const delegation = parsed[dispatchedCount];
+              dispatchedCount++;
+              console.log(`⚡ [Incremental] Dispatching delegation #${dispatchedCount}: ${delegation.agentName} — "${delegation.task.slice(0, 80)}..."`);
+              // Fire immediately (don't await — run in parallel with continued streaming)
+              earlyDelegationPromises.push(
+                this._executeSingleDelegation(id, delegation, streamCallback, delegationDepth)
+              );
+            }
+          }
         }
         if (chunk.type === 'done' && chunk.usage) {
           agent.metrics.totalTokensIn += chunk.usage.inputTokens;
@@ -295,9 +318,22 @@ export class AgentManager {
       }
 
       // For leader agents, process delegation commands (with depth limit)
-      if (agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH) {
-        const delegationResults = await this._processDelegations(id, fullResponse, streamCallback, delegationDepth);
-        if (delegationResults.length > 0) {
+      if (isLeaderStreaming) {
+        // Parse one last time to catch any delegations that completed in the final chunk
+        const finalParsed = this._parseDelegations(fullResponse);
+        while (dispatchedCount < finalParsed.length) {
+          const delegation = finalParsed[dispatchedCount];
+          dispatchedCount++;
+          console.log(`⚡ [Final-pass] Dispatching delegation #${dispatchedCount}: ${delegation.agentName}`);
+          earlyDelegationPromises.push(
+            this._executeSingleDelegation(id, delegation, streamCallback, delegationDepth)
+          );
+        }
+
+        if (earlyDelegationPromises.length > 0) {
+          // Wait for all dispatched delegations to finish
+          const delegationResults = await Promise.all(earlyDelegationPromises);
+
           // Notify the stream that delegation results are being processed
           if (streamCallback) {
             streamCallback(`\n\n--- Delegation complete, synthesizing results ---\n\n`);
@@ -426,194 +462,127 @@ export class AgentManager {
   }
 
   // ─── Delegation Processing (for Leader agents) ────────────────────
-  async _processDelegations(leaderId, response, streamCallback, delegationDepth = 0) {
-    const leader = this.agents.get(leaderId);
-    const leaderName = leader?.name || leaderId;
-    
-    console.log(`\n🔍 [Delegation] Parsing response from "${leaderName}" (depth=${delegationDepth}, length=${response.length})`);
-    
-    // Log a preview of the response to help debug regex matching
-    const preview = response.length > 500 ? response.slice(0, 500) + '...' : response;
-    console.log(`🔍 [Delegation] Response preview:\n---\n${preview}\n---`);
-    
-    // Check if response contains @delegate at all (before regex)
-    const rawDelegateCount = (response.match(/@delegate/gi) || []).length;
-    console.log(`🔍 [Delegation] Found ${rawDelegateCount} raw "@delegate" occurrence(s) in text`);
-    
-    // Build a list of code-block ranges so we can skip @delegate matches inside examples/docs
-    // but still extract full task content (including backtick code) from the original text.
+
+  /**
+   * Pure parser: extract all complete @delegate(Agent, "task") commands from text.
+   * Returns array of { agentName, task }.
+   */
+  _parseDelegations(text) {
+    // Build code-block ranges to skip @delegate inside examples/docs
     const codeBlockRanges = [];
     const cbRe = /```[\s\S]*?```|`[^`]*`/g;
     let cbMatch;
-    while ((cbMatch = cbRe.exec(response)) !== null) {
+    while ((cbMatch = cbRe.exec(text)) !== null) {
       codeBlockRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length });
     }
     const isInsideCodeBlock = (pos) => codeBlockRanges.some(r => pos >= r.start && pos < r.end);
-    
-    // Parse @delegate(AgentName, "task") commands using a robust character-by-character
-    // parser that properly handles escaped quotes, nested code blocks, and multiline content.
-    // We parse from the ORIGINAL response so that task content is preserved intact.
+
     const delegations = [];
     const delegateRe = /@delegate\s*\(/gi;
     let reMatch;
-    while ((reMatch = delegateRe.exec(response)) !== null) {
-      // Skip @delegate occurrences found inside code blocks (examples/docs)
+    while ((reMatch = delegateRe.exec(text)) !== null) {
       if (isInsideCodeBlock(reMatch.index)) continue;
 
       const startAfterParen = reMatch.index + reMatch[0].length;
-      // Find the comma separating agent name from task
-      const commaIdx = response.indexOf(',', startAfterParen);
+      const commaIdx = text.indexOf(',', startAfterParen);
       if (commaIdx === -1) continue;
-      const agentName = response.slice(startAfterParen, commaIdx).trim();
-      
-      // Find the opening quote for the task
+      const agentName = text.slice(startAfterParen, commaIdx).trim();
+
       let i = commaIdx + 1;
-      while (i < response.length && /\s/.test(response[i])) i++;
-      const quoteChar = response[i];
+      while (i < text.length && /\s/.test(text[i])) i++;
+      const quoteChar = text[i];
       if (quoteChar !== '"' && quoteChar !== "'") continue;
-      i++; // skip opening quote
-      
-      // Scan for the matching closing quote — skip escaped quotes
+      i++;
+
       let taskContent = '';
       let found = false;
-      while (i < response.length) {
-        if (response[i] === '\\' && i + 1 < response.length) {
-          // Escaped character — include both
-          taskContent += response[i] + response[i + 1];
+      while (i < text.length) {
+        if (text[i] === '\\' && i + 1 < text.length) {
+          taskContent += text[i] + text[i + 1];
           i += 2;
           continue;
         }
-        if (response[i] === quoteChar) {
-          // Check if followed by \s*\) — this is the real closing
+        if (text[i] === quoteChar) {
           let j = i + 1;
-          while (j < response.length && /\s/.test(response[j])) j++;
-          if (j < response.length && response[j] === ')') {
+          while (j < text.length && /\s/.test(text[j])) j++;
+          if (j < text.length && text[j] === ')') {
             found = true;
             break;
           }
-          // Not followed by ) — this is a quote inside the task content
-          taskContent += response[i];
+          taskContent += text[i];
           i++;
           continue;
         }
-        taskContent += response[i];
+        taskContent += text[i];
         i++;
       }
-      
+
       if (found && agentName && taskContent.trim()) {
-        console.log(`\u2705 [Delegation] Matched: agent="${agentName}", task="${taskContent.trim().slice(0, 100)}..."`);
-        delegations.push({
-          agentName: agentName,
-          task: taskContent.trim()
-        });
+        delegations.push({ agentName, task: taskContent.trim() });
       }
     }
-    
-    if (delegations.length === 0) {
-      if (rawDelegateCount > 0) {
-        // There are @delegate mentions but regex didn't match — log the surrounding text for debug
-        const lines = response.split('\n');
-        const delegateLines = lines
-          .map((line, i) => ({ line, i }))
-          .filter(({ line }) => /@delegate/i.test(line));
-        console.log(`⚠️  [Delegation] @delegate found in text but regex didn't match. Lines containing @delegate:`);
-        for (const { line, i } of delegateLines) {
-          // Show the line and the next 2 lines for context
-          const context = lines.slice(i, i + 3).join('\n');
-          console.log(`   L${i + 1}: ${context}`);
-        }
-      } else {
-        console.log(`ℹ️  [Delegation] No @delegate() commands found in leader response`);
-      }
-      return [];
-    }
-    
-    console.log(`📨 [Delegation] Leader "${leaderName}" delegating ${delegations.length} task(s): ${delegations.map(d => `"${d.agentName}"`).join(', ')}`);
-    const results = [];
-    
-    // Execute each delegation
-    for (const delegation of delegations) {
-      // Find target agent by name (case-insensitive)
-      const targetAgent = Array.from(this.agents.values()).find(
-        a => a.name.toLowerCase() === delegation.agentName.toLowerCase() && a.id !== leaderId
-      );
-      
-      if (!targetAgent) {
-        console.log(`⚠️  Agent "${delegation.agentName}" not found in swarm`);
-        if (streamCallback) {
-          streamCallback(`\n⚠️ Agent "${delegation.agentName}" not found in swarm\n`);
-        }
-        results.push({
-          agentName: delegation.agentName,
-          response: null,
-          error: `Agent "${delegation.agentName}" not found in swarm`
-        });
-        continue;
-      }
-      
-      try {
-        console.log(`📨 Delegating to ${targetAgent.name}: ${delegation.task.slice(0, 80)}...`);
-        if (streamCallback) {
-          streamCallback(`\n\n--- 📨 Delegating to ${targetAgent.name} ---\n`);
-        }
-        
-        this._emit('agent:delegation', {
-          from: { id: leaderId, name: leader.name },
-          to: { id: targetAgent.id, name: targetAgent.name },
-          task: delegation.task
-        });
+    return delegations;
+  }
 
-        // Create a tracking todo on the target agent
-        const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`);
-        
-        // Send task to target agent (pass depth to prevent nested leader loops)
-        let delegateStreamStarted = false;
-        const agentResponse = await this.sendMessage(
-          targetAgent.id,
-          `[TASK from ${leader.name}]: ${delegation.task}`,
-          (chunk) => {
-            if (streamCallback) {
-              if (!delegateStreamStarted) {
-                delegateStreamStarted = true;
-                streamCallback(`\n**[${targetAgent.name}]:**\n`);
-              }
-              streamCallback(chunk);
+  /**
+   * Execute a single delegation: find target agent, create todo, send message, mark done.
+   * Returns { agentId, agentName, task, response, error }.
+   */
+  async _executeSingleDelegation(leaderId, delegation, streamCallback, delegationDepth) {
+    const leader = this.agents.get(leaderId);
+    const targetAgent = Array.from(this.agents.values()).find(
+      a => a.name.toLowerCase() === delegation.agentName.toLowerCase() && a.id !== leaderId
+    );
+
+    if (!targetAgent) {
+      console.log(`⚠️  Agent "${delegation.agentName}" not found in swarm`);
+      if (streamCallback) streamCallback(`\n⚠️ Agent "${delegation.agentName}" not found in swarm\n`);
+      return { agentName: delegation.agentName, response: null, error: `Agent "${delegation.agentName}" not found in swarm` };
+    }
+
+    try {
+      console.log(`📨 Delegating to ${targetAgent.name}: ${delegation.task.slice(0, 80)}...`);
+      if (streamCallback) streamCallback(`\n\n--- 📨 Delegating to ${targetAgent.name} ---\n`);
+
+      this._emit('agent:delegation', {
+        from: { id: leaderId, name: leader.name },
+        to: { id: targetAgent.id, name: targetAgent.name },
+        task: delegation.task
+      });
+
+      const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`);
+
+      let delegateStreamStarted = false;
+      const agentResponse = await this.sendMessage(
+        targetAgent.id,
+        `[TASK from ${leader.name}]: ${delegation.task}`,
+        (chunk) => {
+          if (streamCallback) {
+            if (!delegateStreamStarted) {
+              delegateStreamStarted = true;
+              streamCallback(`\n**[${targetAgent.name}]:**\n`);
             }
-          },
-          delegationDepth + 1,
-          { type: 'delegation-task', fromAgent: leader.name }
-        );
-        
-        // Mark the todo as done after successful execution
-        if (todo) {
-          const t = targetAgent.todoList.find(t => t.id === todo.id);
-          if (t) {
-            t.done = true;
-            t.completedAt = new Date().toISOString();
-            saveAgent(targetAgent);
-            this._emit('agent:updated', this._sanitize(targetAgent));
+            streamCallback(chunk);
           }
-        }
+        },
+        delegationDepth + 1,
+        { type: 'delegation-task', fromAgent: leader.name }
+      );
 
-        results.push({
-          agentId: targetAgent.id,
-          agentName: targetAgent.name,
-          task: delegation.task,
-          response: agentResponse,
-          error: null
-        });
-      } catch (err) {
-        results.push({
-          agentId: targetAgent.id,
-          agentName: targetAgent.name,
-          task: delegation.task,
-          response: null,
-          error: err.message
-        });
+      if (todo) {
+        const t = targetAgent.todoList.find(t => t.id === todo.id);
+        if (t) {
+          t.done = true;
+          t.completedAt = new Date().toISOString();
+          saveAgent(targetAgent);
+          this._emit('agent:updated', this._sanitize(targetAgent));
+        }
       }
+
+      return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: agentResponse, error: null };
+    } catch (err) {
+      return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: null, error: err.message };
     }
-    
-    return results;
   }
 
   // ─── Global Broadcast (tmux-style) ─────────────────────────────────
