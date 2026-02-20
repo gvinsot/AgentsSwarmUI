@@ -2,8 +2,21 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache git openssh-client
+# Install system dependencies for agent coding tools
+RUN apk add --no-cache \
+    git openssh-client \
+    curl wget \
+    jq yq \
+    bash \
+    grep sed gawk findutils coreutils \
+    tree \
+    tar gzip unzip \
+    python3 py3-pip \
+    make gcc g++ musl-dev \
+    ripgrep \
+    fd \
+    less \
+    patch diffutils
 
 # Configure git
 RUN git config --global user.name "Gildas" && \

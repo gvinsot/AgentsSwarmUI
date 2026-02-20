@@ -268,7 +268,7 @@ async function runCommand(basePath, command) {
       cwd: basePath, 
       timeout: 30000,
       maxBuffer: 1024 * 1024, // 1MB
-      shell: '/bin/sh'
+      shell: '/bin/bash'
     });
     
     const output = stdout || stderr || '(no output)';
