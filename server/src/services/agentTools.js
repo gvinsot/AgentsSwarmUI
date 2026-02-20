@@ -304,44 +304,138 @@ async function appendToFile(basePath, filePath, content) {
   };
 }
 
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file'];
+
+// Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
+function jsonToToolCall(name, args) {
+  if (!args || typeof args !== 'object') args = {};
+  switch (name) {
+    case 'read_file':
+      return { tool: 'read_file', args: [args.path || args.file || args.filename || ''] };
+    case 'list_dir':
+      return { tool: 'list_dir', args: [args.path || args.directory || args.dir || '.'] };
+    case 'run_command':
+      return { tool: 'run_command', args: [args.command || args.cmd || ''] };
+    case 'write_file':
+      return { tool: 'write_file', args: [args.path || args.file || '', args.content || ''] };
+    case 'append_file':
+      return { tool: 'append_file', args: [args.path || args.file || '', args.content || ''] };
+    case 'search_files':
+      return { tool: 'search_files', args: [args.pattern || args.glob || '*', args.query || args.search || ''] };
+    default:
+      return null;
+  }
+}
+
 // Parse tool calls from agent response
 export function parseToolCalls(response) {
   const toolCalls = [];
-  
-  // Pattern for single-arg tools: @tool_name(arg)
-  const singleArgPattern = /@(read_file|list_dir|run_command)\s*\(\s*([^)]+)\s*\)/gi;
-  
-  // Pattern for two-arg tools with multi-line content: @tool_name(path, """content""")
-  const multiLinePattern = /@(write_file|append_file)\s*\(\s*([^,]+?)\s*,\s*"""([\s\S]*?)"""\s*\)/gi;
-  
-  // Pattern for search: @search_files(pattern, query)
-  const searchPattern = /@search_files\s*\(\s*([^,]+?)\s*,\s*([^)]+)\s*\)/gi;
-  
-  let match;
-  
-  // Parse single-arg tools
-  while ((match = singleArgPattern.exec(response)) !== null) {
-    toolCalls.push({
-      tool: match[1].toLowerCase(),
-      args: [match[2].trim()]
-    });
+
+  // ── Phase 1: Parse <tool_call> JSON blocks ──────────────────────────
+  // Many Ollama models (Qwen, DeepSeek, Mistral, etc.) emit tool calls as JSON
+  // inside <tool_call>...</tool_call> tags.
+  const jsonCallPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi;
+  let jm;
+  while ((jm = jsonCallPattern.exec(response)) !== null) {
+    const content = jm[1].trim();
+    // Skip if content looks like our @tool() format (handled in phase 2)
+    if (content.startsWith('@')) continue;
+    try {
+      const parsed = JSON.parse(content);
+      const name = parsed.name || parsed.function?.name || parsed.tool;
+      let args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
+      // Some models stringify the arguments
+      if (typeof args === 'string') {
+        try { args = JSON.parse(args); } catch { args = {}; }
+      }
+      if (name && KNOWN_TOOLS.includes(name)) {
+        const tc = jsonToToolCall(name, args);
+        if (tc) {
+          console.log(`🔧 [ToolParse] Matched <tool_call> JSON: ${name}(${JSON.stringify(args).slice(0, 80)})`);
+          toolCalls.push(tc);
+        }
+      }
+    } catch {
+      // Not valid JSON — will be handled in phase 2
+    }
   }
-  
-  // Parse multi-line tools
-  while ((match = multiLinePattern.exec(response)) !== null) {
+
+  // ── Phase 2: Parse @tool(args) custom format ────────────────────────
+  // Strip <tool_call> / </tool_call> wrappers (some models use them as prefixes
+  // around our @tool() syntax without JSON).
+  const cleaned = response
+    .replace(/<\|?\/?tool_call\|?>/gi, '')    // <tool_call>, </tool_call>, <|tool_call|>, etc.
+    .replace(/<\|?\/?tool_use\|?>/gi, '')     // <tool_use> variants
+    .replace(/\[TOOL_CALLS?\]/gi, '');        // [TOOL_CALL] / [TOOL_CALLS] markers
+
+  let match;
+
+  // Pattern for two-arg tools with multi-line content: @tool_name(path, """content""")
+  // (parse first — most specific pattern)
+  const multiLinePattern = /@(write_file|append_file)\s*\(\s*([^,]+?)\s*,\s*"""([\s\S]*?)"""\s*\)/gi;
+  while ((match = multiLinePattern.exec(cleaned)) !== null) {
     toolCalls.push({
       tool: match[1].toLowerCase(),
       args: [match[2].trim(), match[3]]
     });
   }
-  
-  // Parse search
-  while ((match = searchPattern.exec(response)) !== null) {
+
+  // Pattern for search: @search_files(pattern, query)
+  const searchPattern = /@search_files\s*\(\s*([^,]+?)\s*,\s*([^)]+)\s*\)/gi;
+  while ((match = searchPattern.exec(cleaned)) !== null) {
     toolCalls.push({
       tool: 'search_files',
       args: [match[1].trim(), match[2].trim()]
     });
   }
-  
+
+  // Pattern for single-arg tools with double-quoted args: @tool("arg")
+  // Handles nested single-quotes and escaped chars inside double quotes.
+  const dblQuotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/gi;
+  while ((match = dblQuotedPattern.exec(cleaned)) !== null) {
+    toolCalls.push({
+      tool: match[1].toLowerCase(),
+      args: [match[2].trim()]
+    });
+  }
+
+  // Pattern for single-arg tools with single-quoted args: @tool('arg')
+  const sglQuotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/gi;
+  while ((match = sglQuotedPattern.exec(cleaned)) !== null) {
+    toolCalls.push({
+      tool: match[1].toLowerCase(),
+      args: [match[2].trim()]
+    });
+  }
+
+  // Pattern for single-arg tools without quotes: @tool(arg)
+  // Only match if we haven't already matched this tool call via quoted patterns above.
+  const unquotedPattern = /@(read_file|list_dir|run_command)\s*\(\s*([^)]+)\s*\)/gi;
+  while ((match = unquotedPattern.exec(cleaned)) !== null) {
+    const tool = match[1].toLowerCase();
+    const rawArg = match[2].trim();
+    // Strip surrounding quotes if the LLM added them (sanitizeArg also does this,
+    // but we deduplicate here by checking if a quoted-pattern already captured this arg).
+    const stripped = rawArg.replace(/^["']+|["']+$/g, '').trim();
+    const isDuplicate = toolCalls.some(
+      tc => tc.tool === tool && (tc.args[0] === stripped || tc.args[0] === rawArg)
+    );
+    if (!isDuplicate) {
+      toolCalls.push({ tool, args: [rawArg] });
+    }
+  }
+
+  // Log summary
+  if (toolCalls.length > 0) {
+    console.log(`🔧 [ToolParse] Found ${toolCalls.length} tool call(s): ${toolCalls.map(t => `@${t.tool}(${(t.args[0] || '').slice(0, 60)}${(t.args[0] || '').length > 60 ? '...' : ''})`).join(', ')}`);
+  } else {
+    // Check if there are tool-like patterns that we failed to parse
+    const rawToolMentions = (response.match(/@(read_file|write_file|list_dir|search_files|run_command|append_file)/gi) || []).length;
+    const toolCallTags = (response.match(/<tool_call>/gi) || []).length;
+    if (rawToolMentions > 0 || toolCallTags > 0) {
+      console.warn(`⚠️  [ToolParse] Response contains ${rawToolMentions} @tool mention(s) and ${toolCallTags} <tool_call> tag(s) but no tool calls were parsed. Response preview:\n${response.slice(0, 500)}`);
+    }
+  }
+
   return toolCalls;
 }

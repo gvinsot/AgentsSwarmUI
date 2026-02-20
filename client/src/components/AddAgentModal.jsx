@@ -12,7 +12,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
     description: '',
     instructions: 'You are a helpful AI assistant.',
     provider: 'ollama',
-    model: 'frob/qwen3-coder-next:80b-a3b-q5_K_M',
+    model: 'qwen3-coder-next:q4_K_M',
     endpoint: 'https://llm-dev.methodinfo.fr',
     apiKey: '',
     temperature: 0.7,
@@ -276,7 +276,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                         updateField('endpoint', 'http://localhost:8000');
                         updateField('apiKey', '');
                       } else {
-                        updateField('model', 'frob/qwen3-coder-next:80b-a3b-q5_K_M');
+                        updateField('model', 'qwen3-coder-next:q4_K_M');
                         updateField('endpoint', 'https://llm-dev.methodinfo.fr');
                       }
                     }}

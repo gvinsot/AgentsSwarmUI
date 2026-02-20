@@ -150,7 +150,7 @@ export class AgentManager {
   }
 
   // ─── Chat ───────────────────────────────────────────────────────────
-  async sendMessage(id, userMessage, streamCallback, delegationDepth = 0) {
+  async sendMessage(id, userMessage, streamCallback, delegationDepth = 0, messageMeta = null) {
     const MAX_DELEGATION_DEPTH = 5; // Prevent infinite loops
     
     // Create abort controller for this request
@@ -213,12 +213,18 @@ export class AgentManager {
     // Add user message
     messages.push({ role: 'user', content: userMessage });
 
-    // Store user message
-    agent.conversationHistory.push({
+    // Store user message (with optional metadata for tool/delegation results)
+    const historyEntry = {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString()
-    });
+    };
+    if (messageMeta) {
+      historyEntry.type = messageMeta.type;
+      if (messageMeta.toolResults) historyEntry.toolResults = messageMeta.toolResults;
+      if (messageMeta.delegationResults) historyEntry.delegationResults = messageMeta.delegationResults;
+    }
+    agent.conversationHistory.push(historyEntry);
 
     try {
       const provider = createProvider({
@@ -272,11 +278,15 @@ export class AgentManager {
             `--- ${r.tool}(${r.args.join(', ')}) ---\n${r.success ? r.result : `ERROR: ${r.error}`}`
           ).join('\n\n');
           
+          // Tag the previous user message in history as a tool-result
+          // (it will be stored by the recursive sendMessage call, so we
+          // inject a _messageType hint that sendMessage will pick up)
           const continuedResponse = await this.sendMessage(
             id,
             `[TOOL RESULTS]\n${resultsSummary}\n\nContinue with your task based on these results. Use more tools if needed, or provide your final response.`,
             streamCallback,
-            delegationDepth + 1
+            delegationDepth + 1,
+            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.success ? r.result : undefined, error: r.success ? undefined : r.error })) }
           );
           this.setStatus(id, 'idle');
           return continuedResponse;
@@ -302,7 +312,8 @@ export class AgentManager {
             id, 
             `[DELEGATION RESULTS]\n${resultsSummary}\n\nPlease synthesize these results and continue with your plan. If more delegations are needed, use @delegate() commands. If the task is complete, provide the final response.`,
             streamCallback,
-            delegationDepth + 1
+            delegationDepth + 1,
+            { type: 'delegation-result', delegationResults: delegationResults.map(r => ({ agentName: r.agentName, task: r.task, response: r.response, error: r.error })) }
           );
           this.setStatus(id, 'idle');
           return synthesisResponse;
@@ -327,12 +338,44 @@ export class AgentManager {
   // ─── Tool Execution (for agents with projects) ────────────────────
   async _processToolCalls(agentId, response, streamCallback, depth = 0) {
     const agent = this.agents.get(agentId);
-    if (!agent || !agent.project) return [];
+    if (!agent) return [];
+    
+    if (!agent.project) {
+      // Check if the response contains tool-like patterns — warn if tools are used without a project
+      const hasToolSyntax = /@(read_file|write_file|list_dir|search_files|run_command|append_file)\s*\(/i.test(response)
+        || /<tool_call>/i.test(response);
+      if (hasToolSyntax) {
+        console.warn(`⚠️  Agent "${agent.name}" generated tool calls but has NO PROJECT assigned — tools will NOT execute. Assign a project to enable tool use.`);
+        if (streamCallback) {
+          streamCallback(`\n\n⚠️ **Tool calls detected but no project is assigned.** Assign a project to this agent (in Settings tab) to enable file and command tools.\n`);
+        }
+      }
+      return [];
+    }
     
     const toolCalls = parseToolCalls(response);
-    if (toolCalls.length === 0) return [];
     
-    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s)`);
+    console.log(`\n🔧 [Tools] Parsing response from "${agent.name}" (depth=${depth}, length=${response.length})`);
+    
+    if (toolCalls.length === 0) {
+      // Log if we see tool-like patterns that didn't parse
+      const rawCount = (response.match(/@(read_file|write_file|list_dir|search_files|run_command|append_file)/gi) || []).length;
+      const tagCount = (response.match(/<tool_call>/gi) || []).length;
+      if (rawCount > 0 || tagCount > 0) {
+        console.warn(`⚠️  [Tools] Agent "${agent.name}": found ${rawCount} @tool mention(s) and ${tagCount} <tool_call> tag(s) but parseToolCalls returned 0 matches`);
+        // Log lines containing tool patterns for debugging
+        const lines = response.split('\n');
+        const toolLines = lines
+          .map((line, i) => ({ line, i }))
+          .filter(({ line }) => /@(read_file|write_file|list_dir|search_files|run_command|append_file)/i.test(line) || /<tool_call>/i.test(line));
+        for (const { line, i } of toolLines.slice(0, 5)) {
+          console.warn(`   L${i + 1}: ${line.slice(0, 200)}`);
+        }
+      }
+      return [];
+    }
+    
+    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project})`);
     
     const results = [];
     for (const call of toolCalls) {
