@@ -86,6 +86,54 @@ export function setupSocketHandlers(io, agentManager) {
       }
     });
 
+    // ── Execute single todo ─────────────────────────────────────────
+    socket.on('agent:todo:execute', async (data) => {
+      const { agentId, todoId } = data;
+      if (!agentId || !todoId) return;
+
+      try {
+        socket.emit('agent:stream:start', { agentId });
+
+        const result = await agentManager.executeTodo(agentId, todoId, (chunk) => {
+          socket.emit('agent:stream:chunk', { agentId, chunk });
+          io.emit('agent:thinking', {
+            agentId,
+            thinking: agentManager.agents.get(agentId)?.currentThinking || ''
+          });
+        });
+
+        socket.emit('agent:stream:end', { agentId });
+        const agent = agentManager.getById(agentId);
+        if (agent) io.emit('agent:updated', agent);
+      } catch (err) {
+        socket.emit('agent:stream:error', { agentId, error: err.message });
+      }
+    });
+
+    // ── Execute all pending todos ─────────────────────────────────────
+    socket.on('agent:todo:executeAll', async (data) => {
+      const { agentId } = data;
+      if (!agentId) return;
+
+      try {
+        socket.emit('agent:stream:start', { agentId });
+
+        await agentManager.executeAllTodos(agentId, (chunk) => {
+          socket.emit('agent:stream:chunk', { agentId, chunk });
+          io.emit('agent:thinking', {
+            agentId,
+            thinking: agentManager.agents.get(agentId)?.currentThinking || ''
+          });
+        });
+
+        socket.emit('agent:stream:end', { agentId });
+        const agent = agentManager.getById(agentId);
+        if (agent) io.emit('agent:updated', agent);
+      } catch (err) {
+        socket.emit('agent:stream:error', { agentId, error: err.message });
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`🔌 Client disconnected: ${socket.user?.username}`);
     });

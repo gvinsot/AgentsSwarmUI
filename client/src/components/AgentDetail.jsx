@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
-  ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users
+  ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
+  Play, PlayCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -14,6 +15,68 @@ const TABS = [
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
+
+// Tool-call syntax patterns to match in assistant messages
+const TOOL_NAMES = 'read_file|write_file|list_dir|search_files|run_command|append_file';
+
+// Clean raw @tool() syntax and [Executing:...] markers from assistant text.
+// Replaces them with clean markdown code blocks showing the command and hides
+// the internal @tool_name wrapper.
+export function cleanToolSyntax(text) {
+  if (!text) return text;
+  let cleaned = text;
+
+  // Remove <tool_call> / </tool_call> tags
+  cleaned = cleaned.replace(/<\|?\/?tool_call\|?>/gi, '');
+  cleaned = cleaned.replace(/<\|?\/?tool_use\|?>/gi, '');
+  cleaned = cleaned.replace(/\[TOOL_CALLS?\]/gi, '');
+
+  // Remove legacy [Executing: @tool(...)...] lines (from old streaming output)
+  cleaned = cleaned.replace(/\n?\[Executing: @(?:read_file|write_file|list_dir|search_files|run_command|append_file)\([^)]*\)\.{3}\]\n?/gi, '');
+
+  // @run_command("cmd") or @run_command('cmd') → code block with $ cmd
+  // Handle double-quoted args (may contain parens, single quotes, etc.)
+  cleaned = cleaned.replace(
+    /@run_command\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/gi,
+    (_, cmd) => `\n\`\`\`bash\n$ ${cmd.trim()}\n\`\`\`\n`
+  );
+  // Handle single-quoted args
+  cleaned = cleaned.replace(
+    /@run_command\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/gi,
+    (_, cmd) => `\n\`\`\`bash\n$ ${cmd.trim()}\n\`\`\`\n`
+  );
+  // Handle unquoted args (no parens inside)
+  cleaned = cleaned.replace(
+    /@run_command\s*\(\s*([^)]+)\s*\)/gi,
+    (_, cmd) => `\n\`\`\`bash\n$ ${cmd.trim().replace(/^["']+|["']+$/g, '')}\n\`\`\`\n`
+  );
+
+  // @read_file(path) → short label
+  cleaned = cleaned.replace(
+    new RegExp(`@read_file\\s*\\(\\s*["']?([^)"']*)["']?\\s*\\)`, 'gi'),
+    (_, p) => `\n> **Reading** \`${p.trim()}\`\n`
+  );
+
+  // @list_dir(path) → short label
+  cleaned = cleaned.replace(
+    new RegExp(`@list_dir\\s*\\(\\s*["']?([^)"']*)["']?\\s*\\)`, 'gi'),
+    (_, p) => `\n> **Listing** \`${p.trim() || '.'}\`\n`
+  );
+
+  // @write_file(path, """content""") → code block
+  cleaned = cleaned.replace(
+    new RegExp(`@(?:write_file|append_file)\\s*\\(\\s*["']?([^,"']+?)["']?\\s*,\\s*"""([\\s\\S]*?)"""\\s*\\)`, 'gi'),
+    (_, p, content) => `\n> **Writing** \`${p.trim()}\`\n\`\`\`\n${content}\n\`\`\`\n`
+  );
+
+  // @search_files(pattern, query)
+  cleaned = cleaned.replace(
+    new RegExp(`@search_files\\s*\\(\\s*([^,]+?)\\s*,\\s*([^)]+)\\s*\\)`, 'gi'),
+    (_, pat, q) => `\n> **Searching** \`${pat.trim()}\` for *${q.trim()}*\n`
+  );
+
+  return cleaned;
+}
 
 export default function AgentDetail({ agent, agents, projects, thinking, streamBuffer, socket, onClose, onRefresh }) {
   const [activeTab, setActiveTab] = useState('chat');
@@ -146,7 +209,7 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
           />
         )}
         {activeTab === 'todos' && (
-          <TodoTab agent={agent} onRefresh={onRefresh} />
+          <TodoTab agent={agent} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'rag' && (
           <RagTab agent={agent} onRefresh={onRefresh} />
@@ -186,7 +249,7 @@ function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending
             </div>
             <div className="flex-1 bg-dark-800/50 rounded-xl p-3 border border-dark-700/50">
               <div className="markdown-content text-sm text-dark-200">
-                <ReactMarkdown>{streamBuffer}</ReactMarkdown>
+                <ReactMarkdown>{cleanToolSyntax(streamBuffer)}</ReactMarkdown>
               </div>
               <div className="flex items-center gap-1 mt-2">
                 <div className="w-1 h-1 rounded-full bg-indigo-500 animate-pulse" />
@@ -267,7 +330,7 @@ function ChatMessage({ message }) {
         isUser ? 'bg-dark-700/50 border border-dark-600/50' : 'bg-dark-800/50 border border-dark-700/50'
       }`}>
         <div className="markdown-content text-sm text-dark-200">
-          <ReactMarkdown>{message.content}</ReactMarkdown>
+          <ReactMarkdown>{isUser ? message.content : cleanToolSyntax(message.content)}</ReactMarkdown>
         </div>
         {message.timestamp && (
           <p className="text-[10px] text-dark-500 mt-2 flex items-center gap-1">
@@ -439,8 +502,9 @@ function DelegationResultItem({ result }) {
 }
 
 // ─── Todo Tab ──────────────────────────────────────────────────────────────
-function TodoTab({ agent, onRefresh }) {
+function TodoTab({ agent, socket, onRefresh }) {
   const [newTodo, setNewTodo] = useState('');
+  const [executing, setExecuting] = useState(null); // todoId or 'all'
 
   const handleAdd = async () => {
     if (!newTodo.trim()) return;
@@ -459,18 +523,51 @@ function TodoTab({ agent, onRefresh }) {
     onRefresh();
   };
 
+  const handleExecute = (todoId) => {
+    if (!socket || executing) return;
+    setExecuting(todoId);
+    socket.emit('agent:todo:execute', { agentId: agent.id, todoId });
+  };
+
+  const handleExecuteAll = () => {
+    if (!socket || executing) return;
+    setExecuting('all');
+    socket.emit('agent:todo:executeAll', { agentId: agent.id });
+  };
+
+  // Reset executing state when agent goes idle
+  useEffect(() => {
+    if (agent.status !== 'busy' && executing) {
+      setExecuting(null);
+    }
+  }, [agent.status]);
+
   const done = agent.todoList?.filter(t => t.done).length || 0;
   const total = agent.todoList?.length || 0;
+  const pending = total - done;
 
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium text-dark-200 text-sm">Task List</h3>
-        {total > 0 && (
-          <span className="text-xs text-dark-400">
-            {done}/{total} completed
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {pending > 0 && (
+            <button
+              onClick={handleExecuteAll}
+              disabled={!!executing || agent.status === 'busy'}
+              className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-md text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Execute all pending tasks"
+            >
+              <PlayCircle className="w-3.5 h-3.5" />
+              Run all ({pending})
+            </button>
+          )}
+          {total > 0 && (
+            <span className="text-xs text-dark-400">
+              {done}/{total} completed
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}
@@ -505,7 +602,9 @@ function TodoTab({ agent, onRefresh }) {
       {/* Todo list */}
       <div className="space-y-2">
         {(agent.todoList || []).map(todo => (
-          <div key={todo.id} className="flex items-center gap-3 px-3 py-2 bg-dark-800/50 rounded-lg border border-dark-700/50 group">
+          <div key={todo.id} className={`flex items-center gap-3 px-3 py-2 bg-dark-800/50 rounded-lg border group transition-colors ${
+            executing === todo.id || (executing === 'all' && !todo.done) ? 'border-amber-500/50 bg-amber-500/5' : 'border-dark-700/50'
+          }`}>
             <button
               onClick={() => handleToggle(todo.id)}
               className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -519,12 +618,24 @@ function TodoTab({ agent, onRefresh }) {
             <span className={`flex-1 text-sm ${todo.done ? 'line-through text-dark-500' : 'text-dark-200'}`}>
               {todo.text}
             </span>
-            <button
-              onClick={() => handleDelete(todo.id)}
-              className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              {!todo.done && (
+                <button
+                  onClick={() => handleExecute(todo.id)}
+                  disabled={!!executing || agent.status === 'busy'}
+                  className="p-1 text-dark-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 disabled:opacity-30 transition-all"
+                  title="Execute this task"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => handleDelete(todo.id)}
+                className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         ))}
       </div>

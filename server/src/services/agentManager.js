@@ -380,11 +380,8 @@ export class AgentManager {
     const results = [];
     for (const call of toolCalls) {
       try {
-        if (streamCallback) {
-          streamCallback(`\n[Executing: @${call.tool}(${call.args[0]})...]\n`);
-        }
-        
-        this._emit('agent:tool', {
+        // Emit structured tool-start event (not raw text into stream)
+        this._emit('agent:tool:start', {
           agentId,
           agentName: agent.name,
           tool: call.tool,
@@ -398,16 +395,28 @@ export class AgentManager {
           ...result
         });
         
-        if (streamCallback && result.success) {
-          const preview = result.result.slice(0, 500);
-          streamCallback(`${preview}${result.result.length > 500 ? '...(truncated)' : ''}\n`);
-        }
+        // Emit structured tool-result event
+        this._emit('agent:tool:result', {
+          agentId,
+          tool: call.tool,
+          args: call.args,
+          success: result.success,
+          preview: result.success ? result.result.slice(0, 300) : (result.error || 'Unknown error')
+        });
       } catch (err) {
         results.push({
           tool: call.tool,
           args: call.args,
           success: false,
           error: err.message
+        });
+        
+        this._emit('agent:tool:result', {
+          agentId,
+          tool: call.tool,
+          args: call.args,
+          success: false,
+          preview: err.message
         });
       }
     }
@@ -503,6 +512,9 @@ export class AgentManager {
           to: { id: targetAgent.id, name: targetAgent.name },
           task: delegation.task
         });
+
+        // Create a tracking todo on the target agent
+        const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`);
         
         // Send task to target agent (pass depth to prevent nested leader loops)
         const agentResponse = await this.sendMessage(
@@ -514,6 +526,17 @@ export class AgentManager {
           delegationDepth + 1
         );
         
+        // Mark the todo as done after successful execution
+        if (todo) {
+          const t = targetAgent.todoList.find(t => t.id === todo.id);
+          if (t) {
+            t.done = true;
+            t.completedAt = new Date().toISOString();
+            saveAgent(targetAgent);
+            this._emit('agent:updated', this._sanitize(targetAgent));
+          }
+        }
+
         results.push({
           agentId: targetAgent.id,
           agentName: targetAgent.name,
@@ -605,6 +628,64 @@ export class AgentManager {
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
+  }
+
+  // Execute a single todo — sends it as a chat message to the agent
+  async executeTodo(agentId, todoId, streamCallback) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    const todo = agent.todoList.find(t => t.id === todoId);
+    if (!todo) throw new Error('Todo not found');
+    if (todo.done) throw new Error('Todo already completed');
+
+    console.log(`▶️  Executing todo for ${agent.name}: "${todo.text.slice(0, 80)}"`);
+    this._emit('agent:todo:executing', { agentId, todoId, text: todo.text });
+
+    try {
+      const response = await this.sendMessage(
+        agentId,
+        `[TASK] ${todo.text}`,
+        streamCallback
+      );
+
+      // Mark as done
+      todo.done = true;
+      todo.completedAt = new Date().toISOString();
+      saveAgent(agent);
+      this._emit('agent:updated', this._sanitize(agent));
+
+      return { todoId, response };
+    } catch (err) {
+      // Mark as failed but don't mark done
+      this._emit('agent:todo:error', { agentId, todoId, error: err.message });
+      throw err;
+    }
+  }
+
+  // Execute all pending todos sequentially
+  async executeAllTodos(agentId, streamCallback) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+
+    const pending = agent.todoList.filter(t => !t.done);
+    if (pending.length === 0) throw new Error('No pending tasks');
+
+    console.log(`▶️  Executing ${pending.length} pending todo(s) for ${agent.name}`);
+    this._emit('agent:todo:executeAll:start', { agentId, count: pending.length });
+
+    const results = [];
+    for (const todo of pending) {
+      try {
+        const result = await this.executeTodo(agentId, todo.id, streamCallback);
+        results.push({ todoId: todo.id, text: todo.text, success: true, response: result.response });
+      } catch (err) {
+        results.push({ todoId: todo.id, text: todo.text, success: false, error: err.message });
+        // Continue with next todo
+      }
+    }
+
+    this._emit('agent:todo:executeAll:complete', { agentId, results: results.map(r => ({ todoId: r.todoId, success: r.success })) });
+    return results;
   }
 
   // ─── RAG Document Management ───────────────────────────────────────

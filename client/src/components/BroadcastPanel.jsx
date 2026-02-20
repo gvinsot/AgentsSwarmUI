@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Radio, Send, Loader2, FolderOpen, ChevronDown, StopCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { cleanToolSyntax } from './AgentDetail';
 import { api } from '../api';
 
 export default function BroadcastPanel({ agents, projects = [], socket, onClose }) {
@@ -165,7 +166,7 @@ export default function BroadcastPanel({ agents, projects = [], socket, onClose 
                   <p className="text-xs text-red-400">{r.error}</p>
                 ) : (
                   <div className="markdown-content text-xs text-dark-300">
-                    <ReactMarkdown>{r.response}</ReactMarkdown>
+                    <ReactMarkdown>{cleanToolSyntax(r.response)}</ReactMarkdown>
                   </div>
                 )}
               </div>
