@@ -66,6 +66,13 @@ export function agentRoutes(agentManager) {
     res.json({ success: true });
   });
 
+  // Truncate conversation history after a specific message index
+  router.delete('/:id/history/after/:index', (req, res) => {
+    const result = agentManager.truncateHistory(req.params.id, req.params.index);
+    if (result === null) return res.status(404).json({ error: 'Agent not found or invalid index' });
+    res.json(result);
+  });
+
   // Handoff between agents
   router.post('/:id/handoff', async (req, res) => {
     try {

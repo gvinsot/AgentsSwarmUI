@@ -69,6 +69,12 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  truncateHistory: (id, afterIndex) =>
+    fetch(`${API_BASE}/agents/${id}/history/after/${afterIndex}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   handoff: (fromId, targetAgentId, context) =>
     fetch(`${API_BASE}/agents/${fromId}/handoff`, {
       method: 'POST',

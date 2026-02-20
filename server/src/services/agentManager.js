@@ -567,11 +567,18 @@ export class AgentManager {
         const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`);
         
         // Send task to target agent (pass depth to prevent nested leader loops)
+        let delegateStreamStarted = false;
         const agentResponse = await this.sendMessage(
           targetAgent.id,
           `[TASK from ${leader.name}]: ${delegation.task}`,
           (chunk) => {
-            if (streamCallback) streamCallback(`\n[${targetAgent.name}]: ${chunk}`);
+            if (streamCallback) {
+              if (!delegateStreamStarted) {
+                delegateStreamStarted = true;
+                streamCallback(`\n**[${targetAgent.name}]:**\n`);
+              }
+              streamCallback(chunk);
+            }
           },
           delegationDepth + 1,
           { type: 'delegation-task', fromAgent: leader.name }
@@ -768,6 +775,19 @@ export class AgentManager {
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
+  }
+
+  // ─── Truncate Conversation (keep messages 0..afterIndex, remove the rest) ──
+  truncateHistory(agentId, afterIndex) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const idx = parseInt(afterIndex, 10);
+    if (isNaN(idx) || idx < 0) return null;
+    // Keep messages from 0 to afterIndex (inclusive)
+    agent.conversationHistory = agent.conversationHistory.slice(0, idx + 1);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return agent.conversationHistory;
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────
