@@ -731,6 +731,69 @@ function DelegationResultItem({ result }) {
 }
 
 // ─── Todo Tab ──────────────────────────────────────────────────────────────
+function TodoItem({ todo, executing, agentStatus, onToggle, onExecute, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const firstLine = todo.text.split('\n')[0];
+  const hasMore = todo.text.includes('\n') && todo.text.trim() !== firstLine.trim();
+
+  return (
+    <div className={`bg-dark-800/50 rounded-lg border group transition-colors ${
+      executing === todo.id || (executing === 'all' && !todo.done) ? 'border-amber-500/50 bg-amber-500/5' : 'border-dark-700/50'
+    }`}>
+      <div className="flex items-center gap-3 px-3 py-2">
+        <button
+          onClick={() => onToggle(todo.id)}
+          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+            todo.done
+              ? 'bg-indigo-500 border-indigo-500 text-white'
+              : 'border-dark-500 hover:border-indigo-400'
+          }`}
+        >
+          {todo.done && <span className="text-xs">✓</span>}
+        </button>
+        <div
+          className={`flex-1 min-w-0 text-sm ${hasMore ? 'cursor-pointer select-none' : ''} ${todo.done ? 'line-through text-dark-500' : 'text-dark-200'}`}
+          onClick={() => hasMore && setExpanded(e => !e)}
+        >
+          <div className="flex items-center gap-1.5">
+            {hasMore && (
+              expanded
+                ? <ChevronDown className="w-3 h-3 text-dark-400 flex-shrink-0" />
+                : <ChevronRight className="w-3 h-3 text-dark-400 flex-shrink-0" />
+            )}
+            <span className="truncate">{firstLine}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {!todo.done && (
+            <button
+              onClick={() => onExecute(todo.id)}
+              disabled={!!executing || agentStatus === 'busy'}
+              className="p-1 text-dark-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 disabled:opacity-30 transition-all"
+              title="Execute this task"
+            >
+              <Play className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => onDelete(todo.id)}
+            className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      {hasMore && expanded && (
+        <div className={`px-3 pb-2 ml-8 border-t border-dark-700/30 pt-2 ${todo.done ? 'opacity-50' : ''}`}>
+          <div className="markdown-content text-xs text-dark-300 leading-relaxed">
+            <ReactMarkdown>{todo.text}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TodoTab({ agent, socket, onRefresh }) {
   const [newTodo, setNewTodo] = useState('');
   const [executing, setExecuting] = useState(null); // todoId or 'all'
@@ -831,41 +894,15 @@ function TodoTab({ agent, socket, onRefresh }) {
       {/* Todo list */}
       <div className="space-y-2">
         {(agent.todoList || []).map(todo => (
-          <div key={todo.id} className={`flex items-center gap-3 px-3 py-2 bg-dark-800/50 rounded-lg border group transition-colors ${
-            executing === todo.id || (executing === 'all' && !todo.done) ? 'border-amber-500/50 bg-amber-500/5' : 'border-dark-700/50'
-          }`}>
-            <button
-              onClick={() => handleToggle(todo.id)}
-              className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                todo.done
-                  ? 'bg-indigo-500 border-indigo-500 text-white'
-                  : 'border-dark-500 hover:border-indigo-400'
-              }`}
-            >
-              {todo.done && <span className="text-xs">✓</span>}
-            </button>
-            <span className={`flex-1 text-sm ${todo.done ? 'line-through text-dark-500' : 'text-dark-200'}`}>
-              {todo.text}
-            </span>
-            <div className="flex items-center gap-1">
-              {!todo.done && (
-                <button
-                  onClick={() => handleExecute(todo.id)}
-                  disabled={!!executing || agent.status === 'busy'}
-                  className="p-1 text-dark-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 disabled:opacity-30 transition-all"
-                  title="Execute this task"
-                >
-                  <Play className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <button
-                onClick={() => handleDelete(todo.id)}
-                className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+          <TodoItem
+            key={todo.id}
+            todo={todo}
+            executing={executing}
+            agentStatus={agent.status}
+            onToggle={handleToggle}
+            onExecute={handleExecute}
+            onDelete={handleDelete}
+          />
         ))}
       </div>
 
@@ -1127,6 +1164,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
     provider: agent.provider,
     model: agent.model,
     endpoint: agent.endpoint || '',
+    apiKey: agent.apiKey || '',
     icon: agent.icon,
     color: agent.color,
     project: agent.project || '',
@@ -1148,6 +1186,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
       provider: agent.provider,
       model: agent.model,
       endpoint: agent.endpoint || '',
+      apiKey: agent.apiKey || '',
       icon: agent.icon,
       color: agent.color,
       project: agent.project || '',
@@ -1277,6 +1316,30 @@ function SettingsTab({ agent, projects, onRefresh }) {
             />
           </div>
         )}
+        {form.provider === 'claude' && (
+          <div className="col-span-2">
+            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
+            <input
+              type="password" value={form.apiKey}
+              onChange={(e) => updateField('apiKey', e.target.value)}
+              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+              placeholder="sk-ant-..."
+            />
+            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
+          </div>
+        )}
+        {form.provider === 'openai' && (
+          <div className="col-span-2">
+            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
+            <input
+              type="password" value={form.apiKey}
+              onChange={(e) => updateField('apiKey', e.target.value)}
+              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+              placeholder="sk-..."
+            />
+            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
+          </div>
+        )}
         {form.provider === 'vllm' && (
           <>
             <div className="col-span-2">
@@ -1292,7 +1355,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
             <div className="col-span-2">
               <label className="block text-xs text-dark-400 mb-1.5">API Key (optional)</label>
               <input
-                type="password" value={form.apiKey || ''}
+                type="password" value={form.apiKey}
                 onChange={(e) => updateField('apiKey', e.target.value)}
                 className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                 placeholder="token-..."
@@ -1310,7 +1373,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
           />
         </div>
         <div>
-          <label className="block text-xs text-dark-400 mb-1.5">Max Tokens</label>
+          <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
           <input
             type="number" value={form.maxTokens}
             onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 4096)}

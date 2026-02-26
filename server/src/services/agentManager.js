@@ -167,8 +167,9 @@ export class AgentManager {
 
     // Build messages array
     const messages = [];
+    let systemContent = '';   // Hoisted so we can rebuild messages after compaction
     if (agent.instructions) {
-      let systemContent = agent.instructions;
+      systemContent = agent.instructions;
       
       // For leader agents, inject available agents context (only at top level to avoid confusion)
       if (agent.isLeader && delegationDepth === 0) {
@@ -214,6 +215,23 @@ export class AgentManager {
 
     // Add user message
     messages.push({ role: 'user', content: userMessage });
+
+    // ── Proactive compaction: estimate token usage and compact BEFORE sending ──
+    const contextLimit = agent.contextLength || 8192;
+    const estimatedTokens = this._estimateTokens(messages);
+    // Trigger proactive compaction when we use > 75% of the context window
+    if (estimatedTokens > contextLimit * 0.75 && agent.conversationHistory.length > 12) {
+      console.log(`🗜️  [Proactive Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting before send`);
+      if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (${agent.conversationHistory.length} messages)...*\n`);
+      await this._compactHistory(agent, 8);
+      // Rebuild messages with compacted history
+      messages.length = 0;
+      if (systemContent) {
+        messages.push({ role: 'system', content: systemContent });
+      }
+      messages.push(...agent.conversationHistory.slice(-50));
+      messages.push({ role: 'user', content: userMessage });
+    }
 
     // Store user message (with optional metadata for tool/delegation results)
     const historyEntry = {
@@ -499,6 +517,31 @@ export class AgentManager {
       this.abortControllers.delete(id); // Clean up abort controller
       return fullResponse;
     } catch (err) {
+      // ── Reactive compaction: context exceeded → compact and retry once ──
+      if (this._isContextExceededError(err.message) && !agent._compactionRetried) {
+        console.log(`🗜️  [Reactive Compact] "${agent.name}": context exceeded — compacting and retrying`);
+        agent._compactionRetried = true;  // Prevent infinite retry loop
+        try {
+          if (streamCallback) streamCallback(`\n⚠️ *Context limit exceeded — compacting conversation and retrying...*\n`);
+          await this._compactHistory(agent, 6);
+          // Retry the same message (it's already in conversationHistory, so remove the last entry to avoid duplication)
+          agent.conversationHistory.pop();
+          const retryResult = await this.sendMessage(id, userMessage, streamCallback, delegationDepth, messageMeta);
+          delete agent._compactionRetried;
+          return retryResult;
+        } catch (retryErr) {
+          delete agent._compactionRetried;
+          // Retry also failed — fall through to normal error handling
+          console.error(`🗜️  [Reactive Compact] "${agent.name}": retry after compaction also failed: ${retryErr.message}`);
+          this.abortControllers.delete(id);
+          agent.metrics.errors += 1;
+          agent.currentThinking = '';
+          this.setStatus(id, 'error');
+          saveAgent(agent);
+          throw retryErr;
+        }
+      }
+      
       this.abortControllers.delete(id); // Clean up abort controller
       agent.metrics.errors += 1;
       agent.currentThinking = '';
@@ -979,6 +1022,120 @@ export class AgentManager {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Rough token estimation (~4 chars per token for English, ~3 for code).
+   * This is a fast heuristic — not exact, but good enough for compaction triggers.
+   */
+  _estimateTokens(messages) {
+    let chars = 0;
+    for (const m of messages) {
+      chars += (m.content || '').length;
+    }
+    return Math.ceil(chars / 3.5);
+  }
+
+  /**
+   * Detect if an error message indicates the context window was exceeded.
+   */
+  _isContextExceededError(errMsg) {
+    const lower = (errMsg || '').toLowerCase();
+    return [
+      'context length', 'context_length', 'num_ctx', 'context window',
+      'too long', 'maximum context', 'exceeds', 'token limit',
+      'kv cache full', 'prompt is too long', 'input too long',
+      'context_length_exceeded'
+    ].some(kw => lower.includes(kw));
+  }
+
+  /**
+   * Compact (summarize) the conversation history to free up context space.
+   *
+   * Strategy:
+   *  1. Keep the system prompt (always first)
+   *  2. Keep the last `keepRecent` messages untouched (most relevant)
+   *  3. Summarize everything in between into a single assistant message
+   *  4. Replace the agent's conversationHistory with: [summary, ...recentMessages]
+   *
+   * The summarization is done via a short non-streaming LLM call with a
+   * very compact system prompt.  If summarization itself fails, we fall back
+   * to a hard truncation (drop oldest messages).
+   */
+  async _compactHistory(agent, keepRecent = 10) {
+    const history = agent.conversationHistory;
+    if (history.length <= keepRecent + 2) {
+      // Not enough to compact — fall back to hard truncation: keep last keepRecent
+      agent.conversationHistory = history.slice(-keepRecent);
+      saveAgent(agent);
+      console.log(`🗜️  [Compact] "${agent.name}": hard truncation to ${agent.conversationHistory.length} msgs (history too short for summary)`);
+      return;
+    }
+
+    // Split: messages to summarize vs messages to keep
+    const toSummarize = history.slice(0, history.length - keepRecent);
+    const toKeep = history.slice(-keepRecent);
+
+    // Build a compact representation of messages to summarize
+    const summaryInput = toSummarize.map(m => {
+      const role = m.role === 'user' ? 'User' : 'Assistant';
+      // Truncate very long messages in the summary input
+      const content = (m.content || '').length > 2000
+        ? (m.content || '').slice(0, 2000) + '... [truncated]'
+        : (m.content || '');
+      return `[${role}]: ${content}`;
+    }).join('\n\n');
+
+    try {
+      const provider = createProvider({
+        provider: agent.provider,
+        model: agent.model,
+        endpoint: agent.endpoint,
+        apiKey: agent.apiKey
+      });
+
+      console.log(`🗜️  [Compact] "${agent.name}": summarizing ${toSummarize.length} messages, keeping ${toKeep.length} recent`);
+
+      const summaryResponse = await provider.chat([
+        {
+          role: 'system',
+          content: 'You are a conversation summarizer. Produce a concise but complete summary of the conversation below. Preserve: key decisions made, files modified, errors encountered, current task status, and any important context the assistant needs to continue working. Be factual and structured. Use bullet points. Maximum 500 words.'
+        },
+        {
+          role: 'user',
+          content: `Summarize this conversation:\n\n${summaryInput.slice(0, 12000)}`
+        }
+      ], {
+        temperature: 0.2,
+        maxTokens: 1024,
+        contextLength: agent.contextLength || 0
+      });
+
+      const summaryText = summaryResponse.content || '';
+      if (!summaryText.trim()) throw new Error('Empty summary');
+
+      // Replace history: one summary message + recent messages
+      agent.conversationHistory = [
+        {
+          role: 'assistant',
+          content: `[CONVERSATION SUMMARY — earlier messages were compacted to save context]\n\n${summaryText}`,
+          timestamp: new Date().toISOString(),
+          type: 'compaction-summary'
+        },
+        ...toKeep
+      ];
+
+      saveAgent(agent);
+      console.log(`🗜️  [Compact] "${agent.name}": compacted ${history.length} → ${agent.conversationHistory.length} messages`);
+
+    } catch (summaryErr) {
+      // Summarization failed — hard truncation fallback
+      console.warn(`🗜️  [Compact] "${agent.name}": summarization failed (${summaryErr.message}), falling back to hard truncation`);
+      agent.conversationHistory = toKeep;
+      saveAgent(agent);
+    }
+
+    this._emit('agent:updated', this._sanitize(agent));
+  }
 
   /**
    * Per-agent sequential task queue.

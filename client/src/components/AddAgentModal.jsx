@@ -371,7 +371,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                 </div>
 
                 <div>
-                  <label className="block text-xs text-dark-400 mb-1.5">Max Tokens</label>
+                  <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
                   <input
                     type="number" value={form.maxTokens}
                     onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 4096)}
