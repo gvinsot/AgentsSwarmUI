@@ -18,6 +18,7 @@ export class AgentManager {
         // Reset runtime state
         agent.status = 'idle';
         agent.currentThinking = '';
+        agent.actionLogs = agent.actionLogs || [];
         this.agents.set(agent.id, agent);
       }
       console.log(`📂 Loaded ${agents.length} agents from database`);
@@ -45,6 +46,7 @@ export class AgentManager {
       todoList: config.todoList || [],
       ragDocuments: config.ragDocuments || [],
       conversationHistory: [],
+      actionLogs: [],
       currentThinking: '',
       metrics: {
         totalMessages: 0,
@@ -125,11 +127,21 @@ export class AgentManager {
     return updated;
   }
 
-  setStatus(id, status) {
+  setStatus(id, status, detail = null) {
     const agent = this.agents.get(id);
     if (!agent) return;
+    const prev = agent.status;
     agent.status = status;
     this._emit('agent:status', { id, status });
+
+    // Log meaningful status transitions
+    if (status === 'busy' && prev !== 'busy') {
+      this.addActionLog(id, 'busy', detail || 'Agent started working');
+    } else if (status === 'idle' && prev !== 'idle') {
+      this.addActionLog(id, 'idle', detail || 'Agent finished working');
+    } else if (status === 'error') {
+      this.addActionLog(id, 'error', 'Agent encountered an error', detail);
+    }
   }
 
   // ─── Stop Agent ─────────────────────────────────────────────────────
@@ -202,11 +214,13 @@ export class AgentManager {
         }
       }
       
-      // Inject tool definitions when agent has a project assigned
+      // Inject tool definitions and project working directory
       if (agent.project) {
-        systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\n`;
-        systemContent += TOOL_DEFINITIONS;
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nAll project files are located in /projects/${agent.project}/ — you MUST only read and write files within this directory.`;
+        systemContent += `\n${TOOL_DEFINITIONS}`;
         systemContent += `\nAlways use these tools to read, analyze, and modify code. Do not just discuss - take action!`;
+      } else {
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is selected. All projects are available under /projects/ — explore this directory to find the relevant project.`;
       }
 
       // For Ollama models: suppress native/built-in tool calling (e.g. gpt-oss harmony tools)
@@ -552,7 +566,7 @@ export class AgentManager {
           this.abortControllers.delete(id);
           agent.metrics.errors += 1;
           agent.currentThinking = '';
-          this.setStatus(id, 'error');
+          this.setStatus(id, 'error', retryErr.message);
           saveAgent(agent);
           throw retryErr;
         }
@@ -561,7 +575,8 @@ export class AgentManager {
       this.abortControllers.delete(id); // Clean up abort controller
       agent.metrics.errors += 1;
       agent.currentThinking = '';
-      this.setStatus(id, err.message === 'Agent stopped by user' ? 'idle' : 'error');
+      const isUserStop = err.message === 'Agent stopped by user';
+      this.setStatus(id, isUserStop ? 'idle' : 'error', err.message);
       saveAgent(agent); // Persist error count
       throw err;
     }
@@ -904,6 +919,40 @@ export class AgentManager {
     return this.sendMessage(toId, handoffMessage);
   }
 
+  // ─── Action Logs ──────────────────────────────────────────────────
+  static MAX_ACTION_LOGS = 200;
+
+  addActionLog(agentId, type, message, errorDetail = null) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+
+    const entry = {
+      id: uuidv4(),
+      type,
+      message,
+      error: errorDetail,
+      timestamp: new Date().toISOString()
+    };
+
+    agent.actionLogs.push(entry);
+    if (agent.actionLogs.length > AgentManager.MAX_ACTION_LOGS) {
+      agent.actionLogs = agent.actionLogs.slice(-AgentManager.MAX_ACTION_LOGS);
+    }
+
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return entry;
+  }
+
+  clearActionLogs(agentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return false;
+    agent.actionLogs = [];
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return true;
+  }
+
   // ─── Todo Management ───────────────────────────────────────────────
   addTodo(agentId, text) {
     const agent = this.agents.get(agentId);
@@ -1032,6 +1081,8 @@ export class AgentManager {
     if (isNaN(idx) || idx < 0) return null;
     // Keep messages from 0 to afterIndex (inclusive)
     agent.conversationHistory = agent.conversationHistory.slice(0, idx + 1);
+    // Remove any stale compaction summary — it refers to messages that may no longer exist
+    agent.conversationHistory = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return agent.conversationHistory;

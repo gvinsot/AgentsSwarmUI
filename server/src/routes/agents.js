@@ -73,6 +73,13 @@ export function agentRoutes(agentManager) {
     res.json(result);
   });
 
+  // Clear action logs
+  router.delete('/:id/action-logs', (req, res) => {
+    const success = agentManager.clearActionLogs(req.params.id);
+    if (!success) return res.status(404).json({ error: 'Agent not found' });
+    res.json({ success: true });
+  });
+
   // Handoff between agents
   router.post('/:id/handoff', async (req, res) => {
     try {

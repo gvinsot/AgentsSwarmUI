@@ -116,6 +116,13 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Action Logs
+  clearActionLogs: (agentId) =>
+    fetch(`${API_BASE}/agents/${agentId}/action-logs`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // RAG
   addRagDoc: (agentId, name, content) =>
     fetch(`${API_BASE}/agents/${agentId}/rag`, {

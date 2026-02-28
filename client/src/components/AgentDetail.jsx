@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors
+  Play, PlayCircle, ArrowRight, Scissors, Activity
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -13,6 +13,7 @@ const TABS = [
   { id: 'todos', label: 'Tasks', icon: CheckSquare },
   { id: 'rag', label: 'RAG', icon: FileText },
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
+  { id: 'logs', label: 'Action Logs', icon: Activity },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -346,6 +347,9 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
         )}
         {activeTab === 'handoff' && (
           <HandoffTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
+        )}
+        {activeTab === 'logs' && (
+          <ActionLogsTab agent={agent} onRefresh={onRefresh} />
         )}
         {activeTab === 'settings' && (
           <SettingsTab agent={agent} projects={projects} onRefresh={onRefresh} />
@@ -1157,6 +1161,82 @@ function HandoffTab({ agent, agents, socket, onRefresh }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Action Logs Tab ───────────────────────────────────────────────────────
+function ActionLogsTab({ agent, onRefresh }) {
+  const logs = agent.actionLogs || [];
+
+  const handleClear = async () => {
+    if (!confirm('Clear all action logs?')) return;
+    await api.clearActionLogs(agent.id);
+    onRefresh();
+  };
+
+  const typeConfig = {
+    busy:  { icon: Zap,          color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   label: 'Busy' },
+    idle:  { icon: Clock,        color: 'text-emerald-400', bg: 'bg-emerald-500/10',  border: 'border-emerald-500/20', label: 'Idle' },
+    error: { icon: AlertCircle,  color: 'text-red-400',     bg: 'bg-red-500/10',      border: 'border-red-500/20',     label: 'Error' },
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-medium text-dark-200 text-sm">Action Logs</h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-dark-400">{logs.length} entries</span>
+          {logs.length > 0 && (
+            <button
+              onClick={handleClear}
+              className="flex items-center gap-1 px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-md text-xs font-medium transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {logs.length === 0 ? (
+        <div className="text-center py-12 text-dark-500">
+          <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No action logs yet</p>
+          <p className="text-xs mt-1">Logs appear when the agent starts working, finishes, or encounters errors.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {[...logs].reverse().map(log => {
+            const config = typeConfig[log.type] || typeConfig.idle;
+            const Icon = config.icon;
+            return (
+              <div
+                key={log.id}
+                className={`flex items-start gap-3 p-3 rounded-lg border ${config.bg} ${config.border}`}
+              >
+                <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${config.color}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs font-semibold ${config.color}`}>
+                      {config.label}
+                    </span>
+                    <span className="text-xs text-dark-500">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-dark-300 mt-0.5">{log.message}</p>
+                  {log.error && (
+                    <pre className="text-xs text-red-300/80 mt-1 whitespace-pre-wrap break-words bg-red-500/5 rounded p-2">
+                      {log.error}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
