@@ -254,12 +254,16 @@ export class AgentManager {
     }
 
     // ── Proactive compaction: summarize older messages when history exceeds threshold ──
+    // IMPORTANT: Skip during tool/delegation continuations (delegationDepth > 0) to avoid
+    // losing context mid-task. Only compact on top-level user messages.
     const MAX_RECENT = 10;
-    const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
-    if (nonSummaryMessages.length > MAX_RECENT + 2) {
-      console.log(`🗜️  [Proactive Compact] "${agent.name}": ${nonSummaryMessages.length} messages — compacting to keep ${MAX_RECENT} recent`);
-      if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (${nonSummaryMessages.length} messages)...*\n`);
-      await this._compactHistory(agent, MAX_RECENT);
+    if (delegationDepth === 0) {
+      const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
+      if (nonSummaryMessages.length > MAX_RECENT + 2) {
+        console.log(`🗜️  [Proactive Compact] "${agent.name}": ${nonSummaryMessages.length} messages — compacting to keep ${MAX_RECENT} recent`);
+        if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (${nonSummaryMessages.length} messages)...*\n`);
+        await this._compactHistory(agent, MAX_RECENT);
+      }
     }
 
     // Add conversation history: always include compaction summary + last N real messages
@@ -272,22 +276,25 @@ export class AgentManager {
     messages.push({ role: 'user', content: userMessage });
 
     // ── Safety net: also compact if token budget is exceeded ──
-    const contextLimit = agent.contextLength || 8192;
-    const estimatedTokens = this._estimateTokens(messages);
-    if (estimatedTokens > contextLimit * 0.75 && realMessages.length > MAX_RECENT) {
-      console.log(`🗜️  [Token Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting`);
-      if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (token limit)...*\n`);
-      await this._compactHistory(agent, 6);
-      // Rebuild messages with compacted history
-      messages.length = 0;
-      if (systemContent) {
-        messages.push({ role: 'system', content: systemContent });
+    // Skip during tool/delegation continuations to avoid breaking mid-task context
+    if (delegationDepth === 0) {
+      const contextLimit = agent.contextLength || 8192;
+      const estimatedTokens = this._estimateTokens(messages);
+      if (estimatedTokens > contextLimit * 0.75 && realMessages.length > MAX_RECENT) {
+        console.log(`🗜️  [Token Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting`);
+        if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (token limit)...*\n`);
+        await this._compactHistory(agent, 6);
+        // Rebuild messages with compacted history
+        messages.length = 0;
+        if (systemContent) {
+          messages.push({ role: 'system', content: systemContent });
+        }
+        const newSummary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
+        const newReal = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
+        if (newSummary) messages.push(newSummary);
+        messages.push(...newReal.slice(-MAX_RECENT));
+        messages.push({ role: 'user', content: userMessage });
       }
-      const newSummary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
-      const newReal = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
-      if (newSummary) messages.push(newSummary);
-      messages.push(...newReal.slice(-MAX_RECENT));
-      messages.push({ role: 'user', content: userMessage });
     }
 
     // Store user message (with optional metadata for tool/delegation results)
