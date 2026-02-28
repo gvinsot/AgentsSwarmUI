@@ -60,6 +60,36 @@ export class OllamaProvider {
   // which prevents models from generating tool calls that the harmony parser
   // would intercept and block.
 
+  /**
+   * Pull the model from Ollama if it's not already available locally.
+   * Called automatically on 404 errors.
+   */
+  async _pullModel() {
+    if (this._pulling) return this._pulling;
+    console.log(`📥 [Ollama] Model "${this.model}" not found locally — pulling...`);
+    this._pulling = (async () => {
+      try {
+        const res = await fetch(`${this.baseUrl}/api/pull`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: this.model, stream: false })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Pull failed (${res.status}): ${text}`);
+        }
+        await res.json();
+        console.log(`✅ [Ollama] Model "${this.model}" pulled successfully`);
+      } catch (err) {
+        console.error(`❌ [Ollama] Failed to pull model "${this.model}": ${err.message}`);
+        throw err;
+      } finally {
+        this._pulling = null;
+      }
+    })();
+    return this._pulling;
+  }
+
   async chat(messages, options = {}) {
     const body = {
       model: this.model,
@@ -79,11 +109,21 @@ export class OllamaProvider {
       body.options = { num_ctx: 8192 };
     }
 
-    const res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
+    let res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }, OLLAMA_MAX_RETRIES, options.signal || null);
+
+    // Auto-pull model on 404 and retry
+    if (res.status === 404) {
+      await this._pullModel();
+      res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, OLLAMA_MAX_RETRIES, options.signal || null);
+    }
 
     if (!res.ok) {
       const text = await res.text();
@@ -121,11 +161,21 @@ export class OllamaProvider {
       body.options = { num_ctx: 8192 };
     }
 
-    const res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
+    let res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }, OLLAMA_MAX_RETRIES, options.signal || null);
+
+    // Auto-pull model on 404 and retry
+    if (res.status === 404) {
+      await this._pullModel();
+      res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, OLLAMA_MAX_RETRIES, options.signal || null);
+    }
 
     if (!res.ok) {
       const text = await res.text();

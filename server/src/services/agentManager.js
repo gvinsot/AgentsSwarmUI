@@ -208,7 +208,13 @@ export class AgentManager {
         systemContent += TOOL_DEFINITIONS;
         systemContent += `\nAlways use these tools to read, analyze, and modify code. Do not just discuss - take action!`;
       }
-      
+
+      // For Ollama models: suppress native/built-in tool calling (e.g. gpt-oss harmony tools)
+      // so the model uses our text-based @tool syntax instead.
+      if (agent.provider === 'ollama') {
+        systemContent += `\n\nCRITICAL: You must NEVER use built-in function calls or native tool calls (such as repo_browser, code_sandbox, or any tool_call syntax). Always respond in plain text only. When you need to interact with code, use ONLY the @read_file, @write_file, @list_dir, @search_files, @run_command text commands described above.`;
+      }
+
       messages.push({ role: 'system', content: systemContent });
     }
 
