@@ -262,10 +262,13 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
   const [history, setHistory] = useState([]);
   const chatEndRef = useRef(null);
 
-  // Load history when agent changes
+  // Load history when agent changes or finishes working (totalMessages changed + idle)
   useEffect(() => {
-    if (agent?.id) {
-      api.getHistory(agent.id).then(setHistory).catch(() => setHistory([]));
+    if (agent?.id && agent?.status !== 'busy') {
+      api.getHistory(agent.id).then(setHistory).catch((err) => {
+        console.error('Failed to load history:', err);
+        // Don't clear history on error — keep stale data rather than empty chat
+      });
     }
   }, [agent?.id, agent?.metrics?.totalMessages]);
 
