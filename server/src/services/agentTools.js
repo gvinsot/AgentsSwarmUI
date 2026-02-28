@@ -51,6 +51,7 @@ IMPORTANT:
 - After making changes, verify by reading the file
 - Each tool call MUST be on its own line, with an empty line before and after it
 - Do NOT add decorative text like "Editing file..." or "Now I'll read..." before tool calls — just call the tool directly
+- NEVER stop yourself with messages like "[Agent stopped after N turns]" or "I'll stop here" — you have NO turn limit. Keep working until the task is fully complete. Use as many tool calls as needed.
 `;
 
 // Sanitize a tool argument: only strip a matching pair of surrounding quotes.
