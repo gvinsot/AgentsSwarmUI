@@ -76,6 +76,7 @@ export class OllamaProvider {
         content: m.content
       })),
       stream: false,
+      raw: true,
       options: ollamaOpts
     };
 
@@ -120,6 +121,7 @@ export class OllamaProvider {
         content: m.content
       })),
       stream: true,
+      raw: true,
       options: ollamaOpts
     };
 
