@@ -56,44 +56,30 @@ export class OllamaProvider {
     this.model = model;
   }
 
-  // Strip control tokens that some models leak in their output
-  _cleanResponse(text) {
-    return text
-      .replace(/<\|im_start\|>.*?(?:<\|im_end\|>|$)/gs, '')
-      .replace(/<\|(?:end|start|channel|message|assistant|user|system)\|>/g, '')
-      .replace(/<\|im_start\|[^>]*>/g, '')
-      .replace(/<\|eot_id\|>/g, '')
-      .replace(/<\|end_header_id\|>/g, '')
-      .replace(/<\|start_header_id\|>.*?\n*/g, '')
-      .replace(/<end_of_turn>/g, '')
-      .replace(/<start_of_turn>.*?\n*/g, '')
-      .trim();
-  }
+  // Use Ollama's OpenAI-compatible endpoint to leverage tool_choice: "none"
+  // which prevents models from generating tool calls that the harmony parser
+  // would intercept and block.
 
   async chat(messages, options = {}) {
-    const ollamaOpts = {
-      temperature: options.temperature ?? 0.7,
-      num_predict: options.maxTokens ?? 4096,
-    };
-    // Limit the context window so Ollama doesn't allocate a giant KV cache
-    // that saturates the GPU. Default to 8192 if not explicitly configured.
-    if (options.contextLength) {
-      ollamaOpts.num_ctx = options.contextLength;
-    } else {
-      ollamaOpts.num_ctx = 8192;
-    }
-
     const body = {
       model: this.model,
       messages: messages.map(m => ({
         role: m.role === 'system' ? 'system' : m.role,
         content: m.content
       })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 4096,
       stream: false,
-      options: ollamaOpts
+      tool_choice: 'none',
     };
+    // Pass num_ctx via Ollama-specific extension
+    if (options.contextLength) {
+      body.options = { num_ctx: options.contextLength };
+    } else {
+      body.options = { num_ctx: 8192 };
+    }
 
-    const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
+    const res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -105,39 +91,37 @@ export class OllamaProvider {
     }
 
     const data = await res.json();
+    const choice = data.choices?.[0];
     return {
-      content: this._cleanResponse(data.message?.content || ''),
+      content: choice?.message?.content || '',
       model: this.model,
       provider: 'ollama',
       usage: {
-        inputTokens: data.prompt_eval_count || 0,
-        outputTokens: data.eval_count || 0
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0
       }
     };
   }
 
   async *chatStream(messages, options = {}) {
-    const ollamaOpts = {
-      temperature: options.temperature ?? 0.7,
-      num_predict: options.maxTokens ?? 4096,
-    };
-    if (options.contextLength) {
-      ollamaOpts.num_ctx = options.contextLength;
-    } else {
-      ollamaOpts.num_ctx = 8192;
-    }
-
     const body = {
       model: this.model,
       messages: messages.map(m => ({
         role: m.role === 'system' ? 'system' : m.role,
         content: m.content
       })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 4096,
       stream: true,
-      options: ollamaOpts
+      tool_choice: 'none',
     };
+    if (options.contextLength) {
+      body.options = { num_ctx: options.contextLength };
+    } else {
+      body.options = { num_ctx: 8192 };
+    }
 
-    const res = await ollamaFetchWithRetry(`${this.baseUrl}/api/chat`, {
+    const res = await ollamaFetchWithRetry(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -151,8 +135,8 @@ export class OllamaProvider {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    // Buffer to detect and strip control tokens from streamed chunks
-    let tokenBuffer = '';
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -163,43 +147,32 @@ export class OllamaProvider {
       buffer = lines.pop() || '';
 
       for (const line of lines) {
-        if (!line.trim()) continue;
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const payload = trimmed.slice(6);
+        if (payload === '[DONE]') {
+          yield {
+            type: 'done',
+            usage: {
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens
+            }
+          };
+          continue;
+        }
         try {
-          const data = JSON.parse(line);
-          if (data.message?.content) {
-            tokenBuffer += data.message.content;
-            // Flush tokenBuffer but hold back if it ends with '<' (possible start of control token)
-            const lastAngle = tokenBuffer.lastIndexOf('<');
-            let toEmit;
-            if (lastAngle >= 0 && !tokenBuffer.includes('>', lastAngle)) {
-              // Potential incomplete control token — hold it
-              toEmit = tokenBuffer.slice(0, lastAngle);
-              tokenBuffer = tokenBuffer.slice(lastAngle);
-            } else {
-              toEmit = this._cleanResponse(tokenBuffer);
-              tokenBuffer = '';
-            }
-            if (toEmit) {
-              yield { type: 'text', text: toEmit };
-            }
+          const data = JSON.parse(payload);
+          const delta = data.choices?.[0]?.delta;
+          if (delta?.content) {
+            yield { type: 'text', text: delta.content };
           }
-          if (data.done) {
-            // Flush remaining buffer
-            if (tokenBuffer) {
-              const cleaned = this._cleanResponse(tokenBuffer);
-              if (cleaned) yield { type: 'text', text: cleaned };
-              tokenBuffer = '';
-            }
-            yield {
-              type: 'done',
-              usage: {
-                inputTokens: data.prompt_eval_count || 0,
-                outputTokens: data.eval_count || 0
-              }
-            };
+          // Ollama may include usage in the last chunk
+          if (data.usage) {
+            totalInputTokens = data.usage.prompt_tokens || 0;
+            totalOutputTokens = data.usage.completion_tokens || 0;
           }
         } catch (e) {
-          // skip malformed lines
+          // skip malformed SSE lines
         }
       }
     }
