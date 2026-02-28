@@ -188,8 +188,9 @@ export class AgentManager {
   }
 
   // ─── Chat ───────────────────────────────────────────────────────────
-  async sendMessage(id, userMessage, streamCallback, delegationDepth = 0, messageMeta = null) {
-    const MAX_DELEGATION_DEPTH = 5; // Prevent infinite loops
+  async sendMessage(id, userMessage, streamCallback, delegationDepth = 0, messageMeta = null, toolRound = 0) {
+    const MAX_DELEGATION_DEPTH = 5;  // Agent-to-agent nesting limit
+    const MAX_TOOL_ROUNDS = 30;      // Same-agent tool call loop limit
     
     // Create abort controller for this request
     const abortController = new AbortController();
@@ -254,12 +255,12 @@ export class AgentManager {
     }
 
     // ── Proactive compaction: summarize older messages when history exceeds threshold ──
-    // IMPORTANT: Skip during tool/delegation continuations (delegationDepth > 0) to avoid
+    // IMPORTANT: Skip during tool/delegation continuations to avoid
     // losing context mid-task. Only compact on top-level user messages.
     const MAX_RECENT = 10;
     const COMPACT_TRIGGER = MAX_RECENT + 5; // 15
     const COMPACT_RESET = MAX_RECENT + 2;   // 12
-    if (delegationDepth === 0) {
+    if (delegationDepth === 0 && toolRound === 0) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
 
       if (agent._compactionArmed === undefined) {
@@ -288,7 +289,7 @@ export class AgentManager {
 
     // ── Safety net: also compact if token budget is exceeded ──
     // Skip during tool/delegation continuations to avoid breaking mid-task context
-    if (delegationDepth === 0) {
+    if (delegationDepth === 0 && toolRound === 0) {
       const contextLimit = agent.contextLength || 8192;
       const estimatedTokens = this._estimateTokens(messages);
       if (estimatedTokens > contextLimit * 0.75 && realMessages.length > MAX_RECENT) {
@@ -509,8 +510,12 @@ export class AgentManager {
       agent.currentThinking = '';
       saveAgent(agent); // Persist conversation and metrics
 
-      // Process tool calls if agent has a project (with depth limit)
-      if (agent.project && delegationDepth < MAX_DELEGATION_DEPTH) {
+      // Process tool calls if agent has a project (with tool round limit)
+      if (agent.project && toolRound >= MAX_TOOL_ROUNDS) {
+        console.log(`⚠️ Max tool rounds (${MAX_TOOL_ROUNDS}) reached for agent "${agent.name}" — stopping tool loop`);
+        if (streamCallback) streamCallback(`\n⚠️ *Agent reached maximum tool rounds (${MAX_TOOL_ROUNDS}). Stopping.*\n`);
+      }
+      if (agent.project && toolRound < MAX_TOOL_ROUNDS) {
         const toolResults = await this._processToolCalls(id, fullResponse, streamCallback, delegationDepth);
         if (toolResults.length > 0) {
           // Feed tool results back to agent and continue
@@ -541,8 +546,9 @@ export class AgentManager {
             id,
             `[TOOL RESULTS]\n${resultsSummary}\n\n${continuationPrompt}`,
             streamCallback,
-            delegationDepth + 1,
-            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.result || undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }
+            delegationDepth,    // Same delegation depth (same agent)
+            { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.result || undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) },
+            toolRound + 1       // Increment tool round
           );
           this.setStatus(id, 'idle');
           return continuedResponse;
@@ -640,13 +646,14 @@ export class AgentManager {
             ? 'Some agents reported errors. Decide whether to retry, reassign, or adapt your plan accordingly.'
             : 'Please synthesize these results and continue with your plan. If more delegations are needed, use @delegate() commands. If the task is complete, provide the final response.';
 
-          // Continue conversation with delegation results (increment depth)
+          // Continue conversation with delegation results (increment delegation depth, reset tool rounds)
           const synthesisResponse = await this.sendMessage(
-            id, 
+            id,
             `[DELEGATION RESULTS]\n${resultsSummary}\n\n${synthesisHint}`,
             streamCallback,
             delegationDepth + 1,
-            { type: 'delegation-result', delegationResults: delegationResults.map(r => ({ agentName: r.agentName, task: r.task, response: r.response, error: r.error })) }
+            { type: 'delegation-result', delegationResults: delegationResults.map(r => ({ agentName: r.agentName, task: r.task, response: r.response, error: r.error })) },
+            0  // Reset tool rounds for synthesis phase
           );
           this.setStatus(id, 'idle');
           return synthesisResponse;
@@ -669,7 +676,7 @@ export class AgentManager {
           agent._compactionArmed = false;
           // Retry the same message (it's already in conversationHistory, so remove the last entry to avoid duplication)
           agent.conversationHistory.pop();
-          const retryResult = await this.sendMessage(id, userMessage, streamCallback, delegationDepth, messageMeta);
+          const retryResult = await this.sendMessage(id, userMessage, streamCallback, delegationDepth, messageMeta, toolRound);
           delete agent._compactionRetried;
           return retryResult;
         } catch (retryErr) {
