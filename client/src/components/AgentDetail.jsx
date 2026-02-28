@@ -1167,6 +1167,18 @@ function HandoffTab({ agent, agents, socket, onRefresh }) {
 }
 
 // ─── Action Logs Tab ───────────────────────────────────────────────────────
+function formatDuration(ms) {
+  if (ms == null) return null;
+  if (ms < 1000) return '<1s';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function ActionLogsTab({ agent, onRefresh }) {
   const logs = agent.actionLogs || [];
 
@@ -1219,9 +1231,16 @@ function ActionLogsTab({ agent, onRefresh }) {
                 <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${config.color}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-semibold ${config.color}`}>
-                      {config.label}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold ${config.color}`}>
+                        {config.label}
+                      </span>
+                      {log.durationMs != null && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${config.bg} ${config.color} opacity-80`}>
+                          {formatDuration(log.durationMs)}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-dark-500">
                       {new Date(log.timestamp).toLocaleString()}
                     </span>

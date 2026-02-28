@@ -148,19 +148,40 @@ export class AgentManager {
   stopAgent(id) {
     const agent = this.agents.get(id);
     if (!agent) return false;
-    
+
     // Abort any in-progress request
     const controller = this.abortControllers.get(id);
     if (controller) {
       controller.abort();
       this.abortControllers.delete(id);
     }
-    
+
+    // Clear the task queue so pending delegations don't start
+    this._taskQueues.delete(id);
+
+    // If this is a leader, also stop all other busy agents (delegated work)
+    if (agent.isLeader) {
+      for (const [subId, subAgent] of this.agents) {
+        if (subId !== id && subAgent.status === 'busy') {
+          const subCtrl = this.abortControllers.get(subId);
+          if (subCtrl) {
+            subCtrl.abort();
+            this.abortControllers.delete(subId);
+          }
+          this._taskQueues.delete(subId);
+          subAgent.currentThinking = '';
+          this.setStatus(subId, 'idle', 'Stopped by leader');
+          saveAgent(subAgent);
+          this._emit('agent:stopped', { id: subId, name: subAgent.name });
+        }
+      }
+    }
+
     // Reset agent state
     agent.currentThinking = '';
-    this.setStatus(id, 'idle');
+    this.setStatus(id, 'idle', 'Agent stopped by user');
     saveAgent(agent);
-    
+
     console.log(`🛑 Agent ${agent.name} stopped`);
     this._emit('agent:stopped', { id, name: agent.name });
     return true;
@@ -348,23 +369,27 @@ export class AgentManager {
 
               // Enqueue execution — the queue will process it when the agent is free
               const promise = this._enqueueAgentTask(targetAgent.id, async () => {
+                // Notify leader's stream with a status marker (not raw sub-agent output)
                 if (streamCallback) streamCallback(`\n\n--- \uD83D\uDCE8 Delegating to ${targetAgent.name} ---\n`);
-                let delegateStreamStarted = false;
+
+                // Stream to the sub-agent's own chat via socket
+                this._emit('agent:stream:start', { agentId: targetAgent.id });
+
                 const agentResponse = await this.sendMessage(
                   targetAgent.id,
                   `[TASK from ${agent.name}]: ${delegation.task}`,
                   (chunk) => {
-                    if (streamCallback) {
-                      if (!delegateStreamStarted) {
-                        delegateStreamStarted = true;
-                        streamCallback(`\n**[${targetAgent.name}]:**\n`);
-                      }
-                      streamCallback(chunk);
-                    }
+                    // Stream to the sub-agent's own chat
+                    this._emit('agent:stream:chunk', { agentId: targetAgent.id, chunk });
                   },
                   delegationDepth + 1,
                   { type: 'delegation-task', fromAgent: agent.name }
                 );
+
+                // End sub-agent stream and notify leader
+                this._emit('agent:stream:end', { agentId: targetAgent.id });
+                if (streamCallback) streamCallback(`\n--- \u2705 ${targetAgent.name} finished ---\n`);
+                this._emit('agent:updated', this._sanitize(targetAgent));
 
                 // Mark todo as done
                 if (todo) {
@@ -379,6 +404,8 @@ export class AgentManager {
 
                 return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: agentResponse, error: null };
               }).catch(err => {
+                // End sub-agent stream on error too
+                if (targetAgent?.id) this._emit('agent:stream:end', { agentId: targetAgent.id });
                 return { agentId: targetAgent?.id, agentName: targetAgent?.name || delegation.agentName, task: delegation.task, response: null, error: err.message };
               });
 
@@ -471,23 +498,28 @@ export class AgentManager {
           const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`);
 
           const promise = this._enqueueAgentTask(targetAgent.id, async () => {
+            // Notify leader's stream with a status marker (not raw sub-agent output)
             if (streamCallback) streamCallback(`\n\n--- \uD83D\uDCE8 Delegating to ${targetAgent.name} ---\n`);
-            let delegateStreamStarted = false;
+
+            // Stream to the sub-agent's own chat via socket
+            this._emit('agent:stream:start', { agentId: targetAgent.id });
+
             const agentResponse = await this.sendMessage(
               targetAgent.id,
               `[TASK from ${agent.name}]: ${delegation.task}`,
               (chunk) => {
-                if (streamCallback) {
-                  if (!delegateStreamStarted) {
-                    delegateStreamStarted = true;
-                    streamCallback(`\n**[${targetAgent.name}]:**\n`);
-                  }
-                  streamCallback(chunk);
-                }
+                // Stream to the sub-agent's own chat
+                this._emit('agent:stream:chunk', { agentId: targetAgent.id, chunk });
               },
               delegationDepth + 1,
               { type: 'delegation-task', fromAgent: agent.name }
             );
+
+            // End sub-agent stream and notify leader
+            this._emit('agent:stream:end', { agentId: targetAgent.id });
+            if (streamCallback) streamCallback(`\n--- \u2705 ${targetAgent.name} finished ---\n`);
+            this._emit('agent:updated', this._sanitize(targetAgent));
+
             if (todo) {
               const t = targetAgent.todoList.find(t => t.id === todo.id);
               if (t) {
@@ -499,6 +531,8 @@ export class AgentManager {
             }
             return { agentId: targetAgent.id, agentName: targetAgent.name, task: delegation.task, response: agentResponse, error: null };
           }).catch(err => {
+            // End sub-agent stream on error too
+            if (targetAgent?.id) this._emit('agent:stream:end', { agentId: targetAgent.id });
             return { agentId: targetAgent?.id, agentName: targetAgent?.name || delegation.agentName, task: delegation.task, response: null, error: err.message };
           });
 
@@ -926,12 +960,22 @@ export class AgentManager {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
 
+    const now = new Date();
+
+    // Compute duration for the previous log entry (how long that state lasted)
+    if (agent.actionLogs.length > 0) {
+      const lastLog = agent.actionLogs[agent.actionLogs.length - 1];
+      if (!lastLog.durationMs) {
+        lastLog.durationMs = now.getTime() - new Date(lastLog.timestamp).getTime();
+      }
+    }
+
     const entry = {
       id: uuidv4(),
       type,
       message,
       error: errorDetail,
-      timestamp: new Date().toISOString()
+      timestamp: now.toISOString()
     };
 
     agent.actionLogs.push(entry);
