@@ -170,6 +170,7 @@ export default function Dashboard({
           {selectedAgentData && (
             <div className="lg:w-1/2 xl:w-2/5 border-l border-dark-700 bg-dark-900/50 overflow-auto">
               <AgentDetail
+                key={selectedAgentData.id}
                 agent={selectedAgentData}
                 agents={agents}
                 projects={projects}
