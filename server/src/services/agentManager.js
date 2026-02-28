@@ -257,12 +257,23 @@ export class AgentManager {
     // IMPORTANT: Skip during tool/delegation continuations (delegationDepth > 0) to avoid
     // losing context mid-task. Only compact on top-level user messages.
     const MAX_RECENT = 10;
+    const COMPACT_TRIGGER = MAX_RECENT + 5; // 15
+    const COMPACT_RESET = MAX_RECENT + 2;   // 12
     if (delegationDepth === 0) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
-      if (nonSummaryMessages.length > MAX_RECENT + 2) {
+
+      if (agent._compactionArmed === undefined) {
+        agent._compactionArmed = true;
+      }
+      if (!agent._compactionArmed && nonSummaryMessages.length <= COMPACT_RESET) {
+        agent._compactionArmed = true;
+      }
+
+      if (agent._compactionArmed && nonSummaryMessages.length > COMPACT_TRIGGER) {
         console.log(`🗜️  [Proactive Compact] "${agent.name}": ${nonSummaryMessages.length} messages — compacting to keep ${MAX_RECENT} recent`);
         if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (${nonSummaryMessages.length} messages)...*\n`);
         await this._compactHistory(agent, MAX_RECENT);
+        agent._compactionArmed = false;
       }
     }
 
@@ -284,6 +295,7 @@ export class AgentManager {
         console.log(`🗜️  [Token Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting`);
         if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (token limit)...*\n`);
         await this._compactHistory(agent, 6);
+        agent._compactionArmed = false;
         // Rebuild messages with compacted history
         messages.length = 0;
         if (systemContent) {
@@ -654,6 +666,7 @@ export class AgentManager {
         try {
           if (streamCallback) streamCallback(`\n⚠️ *Context limit exceeded — compacting conversation and retrying...*\n`);
           await this._compactHistory(agent, 6);
+          agent._compactionArmed = false;
           // Retry the same message (it's already in conversationHistory, so remove the last entry to avoid duplication)
           agent.conversationHistory.pop();
           const retryResult = await this.sendMessage(id, userMessage, streamCallback, delegationDepth, messageMeta);
@@ -1198,6 +1211,7 @@ export class AgentManager {
     if (!agent) return false;
     agent.conversationHistory = [];
     agent.currentThinking = '';
+    delete agent._compactionArmed;
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
@@ -1213,6 +1227,7 @@ export class AgentManager {
     agent.conversationHistory = agent.conversationHistory.slice(0, idx + 1);
     // Remove any stale compaction summary — it refers to messages that may no longer exist
     agent.conversationHistory = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
+    delete agent._compactionArmed;
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return agent.conversationHistory;
