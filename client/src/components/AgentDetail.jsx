@@ -64,6 +64,15 @@ function _findTopLevelCommaUI(text) {
   return -1;
 }
 
+function _stripWrapperQuotes(s) {
+  s = s.trim();
+  if (s.length >= 2) {
+    const f = s[0], l = s[s.length - 1];
+    if ((f === '"' && l === '"') || (f === "'" && l === "'")) return s.slice(1, -1);
+  }
+  return s;
+}
+
 export function cleanToolSyntax(text) {
   if (!text) return text;
   let cleaned = text;
@@ -91,18 +100,18 @@ export function cleanToolSyntax(text) {
     let replacement;
 
     if (toolName === 'run_command') {
-      const cmd = argsString.trim().replace(/^["']+|["']+$/g, '');
+      const cmd = _stripWrapperQuotes(argsString);
       replacement = `\n\`\`\`bash\n$ ${cmd}\n\`\`\`\n`;
     } else if (toolName === 'read_file') {
-      const p = argsString.trim().replace(/^["']+|["']+$/g, '');
+      const p = _stripWrapperQuotes(argsString);
       replacement = `\n> **Reading** \`${p}\`\n`;
     } else if (toolName === 'list_dir') {
-      const p = argsString.trim().replace(/^["']+|["']+$/g, '') || '.';
+      const p = _stripWrapperQuotes(argsString) || '.';
       replacement = `\n> **Listing** \`${p}\`\n`;
     } else if (toolName === 'write_file' || toolName === 'append_file') {
       const commaIdx = _findTopLevelCommaUI(argsString);
       if (commaIdx !== -1) {
-        const p = argsString.slice(0, commaIdx).trim().replace(/^["']+|["']+$/g, '');
+        const p = _stripWrapperQuotes(argsString.slice(0, commaIdx));
         let content = argsString.slice(commaIdx + 1).trim();
         if (content.startsWith('"""') && content.endsWith('"""')) content = content.slice(3, -3);
         replacement = `\n> **Writing** \`${p}\`\n\`\`\`\n${content}\n\`\`\`\n`;
@@ -119,7 +128,7 @@ export function cleanToolSyntax(text) {
         replacement = `\n> **Searching** \`${argsString.trim()}\`\n`;
       }
     } else if (toolName === 'report_error') {
-      const desc = argsString.trim().replace(/^["']+|["']+$/g, '');
+      const desc = _stripWrapperQuotes(argsString);
       replacement = `\n> 🚨 **Error reported:** ${desc}\n`;
     }
 

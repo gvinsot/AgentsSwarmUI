@@ -53,12 +53,19 @@ IMPORTANT:
 - Do NOT add decorative text like "Editing file..." or "Now I'll read..." before tool calls — just call the tool directly
 `;
 
-// Sanitize a tool argument: remove surrounding quotes and normalize paths
+// Sanitize a tool argument: only strip a matching pair of surrounding quotes.
+// e.g. "echo hello" → echo hello   (model-added wrapper)
+//      echo "a,b,c" → echo "a,b,c" (quotes are part of the content — kept)
 function sanitizeArg(arg) {
   if (!arg) return arg;
-  // Remove surrounding double or single quotes
-  arg = arg.replace(/^["']+|["']+$/g, '').trim();
-  return arg;
+  arg = arg.trim();
+  if (arg.length >= 2) {
+    const first = arg[0], last = arg[arg.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      arg = arg.slice(1, -1);
+    }
+  }
+  return arg.trim();
 }
 
 // Normalize a file/dir path: strip leading project base if the LLM passed an absolute path
