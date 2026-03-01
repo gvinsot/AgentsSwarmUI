@@ -422,7 +422,9 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               message={message}
               setMessage={setMessage}
               sending={sending || agent.status === 'busy'}
+              isBusy={agent.status === 'busy'}
               onSend={handleSend}
+              onStop={() => socket?.emit('agent:stop', { agentId: agent.id })}
               onClear={handleClearHistory}
               onTruncate={handleTruncateHistory}
               chatEndRef={chatEndRef}
@@ -454,7 +456,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
 }
 
 // ─── Chat Tab ──────────────────────────────────────────────────────────────
-function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, onSend, onClear, onTruncate, chatEndRef, agentName }) {
+function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -517,13 +519,23 @@ function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending
               disabled={sending}
             />
           </div>
-          <button
-            onClick={onSend}
-            disabled={sending || !message.trim()}
-            className="p-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+          {isBusy ? (
+            <button
+              onClick={onStop}
+              className="p-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-xl transition-colors flex-shrink-0"
+              title="Stop agent"
+            >
+              <StopCircle className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={onSend}
+              disabled={sending || !message.trim()}
+              className="p-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
