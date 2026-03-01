@@ -371,7 +371,7 @@ export class AgentManager {
 
           // ── Incremental delegation detection ──────────────────────
           if (isLeaderStreaming) {
-            const cleanedForParsing = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const cleanedForParsing = fullResponse.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
             const parsed = this._parseDelegations(cleanedForParsing);
             while (detectedCount < parsed.length) {
               const delegation = parsed[detectedCount];
@@ -523,7 +523,8 @@ export class AgentManager {
 
       // Strip <think>...</think> blocks from response before parsing tool calls / delegations
       // These are reasoning tokens some models (Qwen3, etc.) emit inline in content
-      const responseForParsing = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      // Also handles unclosed <think> blocks (model ran out of tokens mid-reasoning)
+      const responseForParsing = fullResponse.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
 
       // Process tool calls if agent has a project (no limit — agent works until done)
       if (agent.project) {
@@ -552,7 +553,7 @@ export class AgentManager {
           } else if (hasRealErrors) {
             continuationPrompt = 'Some tools encountered errors. Try to resolve the issues, use alternative approaches, or use @report_error(description) to escalate the problem to the manager if you cannot resolve it.';
           }
-          
+
           const continuedResponse = await this.sendMessage(
             id,
             `[TOOL RESULTS]\n${resultsSummary}\n\n${continuationPrompt}`,
@@ -562,6 +563,27 @@ export class AgentManager {
           );
           this.setStatus(id, 'idle');
           return continuedResponse;
+        }
+
+        // Nudge mechanism: if agent has a project, produced text but NO tool calls,
+        // and this isn't already a nudge — the agent may have described intent without acting.
+        // Send a follow-up to prompt it to use tools.
+        const isNudge = messageMeta?.type === 'nudge';
+        if (!isNudge && responseForParsing.length > 20 && !isLeaderStreaming) {
+          // Heuristic: response describes intent (contains action verbs / future tense patterns)
+          const intentPatterns = /\b(i('ll| will| am going to|'m going to)|(let me|let's|going to|i'll|je vais|nous allons|on va|je m'en occupe|commençons|voyons))\b/i;
+          if (intentPatterns.test(responseForParsing)) {
+            console.log(`🔄 [Nudge] Agent "${agent.name}" described intent but used no tools — nudging`);
+            const nudgeResponse = await this.sendMessage(
+              id,
+              '[SYSTEM] You described what you plan to do but did not use any tools. Stop describing and START ACTING NOW. Use @read_file, @write_file, @list_dir, @search_files, or @run_command to accomplish your task. Do NOT explain what you will do — just do it.',
+              streamCallback,
+              delegationDepth,
+              { type: 'nudge' }
+            );
+            this.setStatus(id, 'idle');
+            return nudgeResponse;
+          }
         }
       }
 

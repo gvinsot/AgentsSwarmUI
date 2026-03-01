@@ -78,7 +78,8 @@ export function cleanToolSyntax(text) {
   let cleaned = text;
 
   // Remove <think>...</think> reasoning blocks (from reasoning models like Qwen3)
-  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Also handles unclosed <think> blocks (model ran out of tokens mid-reasoning)
+  cleaned = cleaned.replace(/<think>[\s\S]*?(<\/think>|$)/g, '');
 
   // Remove wrapper tags
   cleaned = cleaned.replace(/<\|?\/?tool_call\|?>/gi, '');
@@ -522,7 +523,12 @@ function ChatMessage({ message, index, isLast, onTruncate }) {
     || (!message.type && isUser && message.content?.startsWith('[DELEGATION RESULTS]'));
   const isDelegationTask = message.type === 'delegation-task'
     || (!message.type && isUser && message.content?.startsWith('[TASK from '));
+  const isNudge = message.type === 'nudge'
+    || (!message.type && isUser && message.content?.startsWith('[SYSTEM]'));
   const isSystemMessage = isToolResult || isDelegationResult;
+
+  // Hide internal nudge messages from chat
+  if (isNudge) return null;
 
   // Render tool/delegation results as a collapsible sub-element
   if (isSystemMessage) {
