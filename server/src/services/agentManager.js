@@ -526,6 +526,10 @@ export class AgentManager {
       // Also handles unclosed <think> blocks (model ran out of tokens mid-reasoning)
       const responseForParsing = fullResponse.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
 
+      // Shared nudge detection (used for both tool-using agents and leaders)
+      const isNudge = messageMeta?.type === 'nudge';
+      const intentPatterns = /\b(i('ll| will| am going to|'m going to)|(let me|let's|going to|i'll|je vais|nous allons|on va|je m'en occupe|commençons|voyons|d'abord|ensuite|puis)|je \w+(rai|erai)\b)/i;
+
       // Process tool calls if agent has a project (no limit — agent works until done)
       if (agent.project) {
         const toolResults = await this._processToolCalls(id, responseForParsing, streamCallback, delegationDepth);
@@ -568,10 +572,7 @@ export class AgentManager {
         // Nudge mechanism: if agent has a project, produced text but NO tool calls,
         // and this isn't already a nudge — the agent may have described intent without acting.
         // Send a follow-up to prompt it to use tools.
-        const isNudge = messageMeta?.type === 'nudge';
         if (!isNudge && responseForParsing.length > 20 && !isLeaderStreaming) {
-          // Heuristic: response describes intent (contains action verbs / future tense patterns)
-          const intentPatterns = /\b(i('ll| will| am going to|'m going to)|(let me|let's|going to|i'll|je vais|nous allons|on va|je m'en occupe|commençons|voyons))\b/i;
           if (intentPatterns.test(responseForParsing)) {
             console.log(`🔄 [Nudge] Agent "${agent.name}" described intent but used no tools — nudging`);
             const nudgeResponse = await this.sendMessage(
@@ -688,6 +689,21 @@ export class AgentManager {
           );
           this.setStatus(id, 'idle');
           return synthesisResponse;
+        }
+        // Leader nudge: leader described intent but didn't use @delegate()
+        if (!isNudge && delegationPromises.length === 0 && responseForParsing.length > 20) {
+          if (intentPatterns.test(responseForParsing)) {
+            console.log(`🔄 [Nudge] Leader "${agent.name}" described intent but used no @delegate — nudging`);
+            const nudgeResponse = await this.sendMessage(
+              id,
+              '[SYSTEM] You described what you plan to do but did not actually delegate or take action. Stop planning and ACT NOW. Use @delegate(AgentName, task) to assign work to agents. Do NOT explain what you will do — just do it.',
+              streamCallback,
+              delegationDepth,
+              { type: 'nudge' }
+            );
+            this.setStatus(id, 'idle');
+            return nudgeResponse;
+          }
         }
       } else if (agent.isLeader && delegationDepth >= MAX_DELEGATION_DEPTH) {
         console.log(`⚠️ Max delegation depth (${MAX_DELEGATION_DEPTH}) reached for leader ${agent.name}`);
