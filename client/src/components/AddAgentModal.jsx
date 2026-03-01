@@ -16,7 +16,8 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
     endpoint: 'https://llm-dev.methodinfo.fr',
     apiKey: '',
     temperature: 0.7,
-    maxTokens: 4096,
+    maxTokens: 128000,
+    contextLength: 0,
     icon: '🤖',
     color: '#6366f1',
     project: '',
@@ -244,11 +245,12 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                 </div>
 
                 <div className="col-span-2">
-                  <label className="flex items-center gap-3 cursor-pointer group">
+                  <label className={`flex items-center gap-3 group ${form.isVoice ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                     <input
                       type="checkbox"
                       checked={form.isLeader}
                       onChange={(e) => updateField('isLeader', e.target.checked)}
+                      disabled={form.isVoice}
                       className="w-4 h-4 rounded border-dark-600 bg-dark-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-dark-800"
                     />
                     <div className="flex items-center gap-2">
@@ -256,9 +258,12 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                       <span className="text-sm text-dark-200 group-hover:text-dark-100">Leader Agent</span>
                     </div>
                   </label>
-                  <p className="text-[11px] text-dark-500 mt-1 ml-7">Leader agents orchestrate and coordinate other agents in the swarm</p>
+                  <p className="text-[11px] text-dark-500 mt-1 ml-7">
+                    {form.isVoice ? 'Locked — Voice agents are always leaders' : 'Leader agents orchestrate and coordinate other agents in the swarm'}
+                  </p>
                 </div>
 
+                {(!selectedTemplate || selectedTemplate.isLeader || selectedTemplate.isVoice) && (
                 <div className="col-span-2">
                   <label className="flex items-center gap-3 cursor-pointer group">
                     <input
@@ -270,7 +275,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                         if (isVoice) {
                           updateField('isLeader', true);
                           updateField('provider', 'openai');
-                          updateField('model', 'gpt-realtime');
+                          updateField('model', 'gpt-realtime-1.5');
                         }
                       }}
                       className="w-4 h-4 rounded border-dark-600 bg-dark-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-dark-800"
@@ -282,6 +287,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                   </label>
                   <p className="text-[11px] text-dark-500 mt-1 ml-7">Speech-to-speech agent using OpenAI Realtime API (forces Leader + OpenAI provider)</p>
                 </div>
+                )}
 
                 {form.isVoice && (
                   <div className="col-span-2">
@@ -313,6 +319,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                   <label className="block text-xs text-dark-400 mb-1.5">Provider *</label>
                   <select
                     value={form.provider}
+                    disabled={form.isVoice}
                     onChange={(e) => {
                       updateField('provider', e.target.value);
                       if (e.target.value === 'claude') {
@@ -333,7 +340,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                         updateField('endpoint', 'https://llm-dev.methodinfo.fr');
                       }
                     }}
-                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                    className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 ${form.isVoice ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <option value="ollama">Ollama</option>
                     <option value="claude">Claude (Anthropic)</option>
@@ -341,6 +348,7 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                     <option value="mistral">Mistral AI</option>
                     <option value="vllm">vLLM (Custom Server)</option>
                   </select>
+                  {form.isVoice && <p className="text-[11px] text-dark-500 mt-1">Locked — Voice agents use OpenAI Realtime</p>}
                 </div>
 
                 <div>
@@ -348,8 +356,10 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                   <input
                     type="text" value={form.model}
                     onChange={(e) => updateField('model', e.target.value)}
-                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                    disabled={form.isVoice}
+                    className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs ${form.isVoice ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
+                  {form.isVoice && <p className="text-[11px] text-dark-500 mt-1">Locked — gpt-realtime-1.5</p>}
                 </div>
 
                 {form.provider === 'ollama' && (
@@ -441,7 +451,19 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                   <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
                   <input
                     type="number" value={form.maxTokens}
-                    onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 4096)}
+                    onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 128000)}
+                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-dark-400 mb-1.5">
+                    Context Length <span className="text-dark-500">0 = default</span>
+                  </label>
+                  <input
+                    type="number" value={form.contextLength}
+                    onChange={(e) => updateField('contextLength', parseInt(e.target.value) || 0)}
+                    placeholder="128000"
                     className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                   />
                 </div>

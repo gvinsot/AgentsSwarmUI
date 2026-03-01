@@ -62,7 +62,7 @@ You can delegate multiple tasks at once. After delegations complete, you will re
 - If agents report errors, troubleshoot and retry — don't give up or escalate unless truly stuck
 - Report final results to the user with a clear summary of what was done`,
     temperature: 0.5,
-    maxTokens: 8192,
+    maxTokens: 128000,
   },
   {
     id: 'developer',
@@ -126,7 +126,7 @@ bash deploy-service.sh "{{NomDuProjet}}" 1.0
 
 `,
     temperature: 0.3,
-    maxTokens: 8192,
+    maxTokens: 128000,
   },
   {
     id: 'architect',
@@ -158,7 +158,7 @@ When designing systems:
 5. Design for failure (circuit breakers, retries, fallbacks)
 6. Document architectural decisions with @write_file`,
     temperature: 0.4,
-    maxTokens: 8192,
+    maxTokens: 128000,
   },
   {
     id: 'qa-engineer',
@@ -190,7 +190,7 @@ Testing approach:
 4. Test both happy paths and error scenarios
 5. Run tests with @run_command and report results`,
     temperature: 0.2,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'marketing',
@@ -216,7 +216,7 @@ Communication principles:
 5. Create A/B testing strategies for messaging
 6. Focus on storytelling and emotional connection`,
     temperature: 0.8,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'devops',
@@ -247,7 +247,7 @@ Best practices:
 5. Comprehensive observability (metrics, logs, traces)
 6. Disaster recovery and backup strategies`,
     temperature: 0.3,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'data-analyst',
@@ -273,7 +273,7 @@ Analytical approach:
 5. Validate assumptions with data
 6. Consider data privacy and ethics`,
     temperature: 0.3,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'product-manager',
@@ -299,7 +299,7 @@ Product principles:
 5. Clear communication of priorities and trade-offs
 6. Focus on outcomes over outputs`,
     temperature: 0.5,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'voice-leader',
@@ -310,7 +310,7 @@ Product principles:
     isLeader: true,
     isVoice: true,
     provider: 'openai',
-    model: 'gpt-realtime',
+    model: 'gpt-realtime-1.5',
     description: 'Voice-controlled leader that delegates tasks to agents via speech. Uses OpenAI Realtime API for speech-to-speech communication.',
     instructions: `You are a voice-controlled swarm leader. Users speak to you via microphone and you respond with speech.
 
@@ -340,7 +340,7 @@ When you need an agent to work on something, use the delegate function with:
 - Handle errors gracefully: if an agent fails, try another approach
 - Always give the user a clear status update after delegations complete`,
     temperature: 0.8,
-    maxTokens: 4096,
+    maxTokens: 128000,
   },
   {
     id: 'security',
@@ -372,6 +372,6 @@ Security principles:
 4. Secure by default configuration
 5. After finding issues, use @write_file to fix them`,
     temperature: 0.2,
-    maxTokens: 4096,
+    maxTokens: 128000,
   }
 ];

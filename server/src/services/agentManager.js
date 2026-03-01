@@ -45,7 +45,7 @@ export class AgentManager {
       instructions: config.instructions || 'You are a helpful AI assistant.',
       status: 'idle',
       temperature: config.temperature ?? 0.7,
-      maxTokens: config.maxTokens ?? 4096,
+      maxTokens: config.maxTokens ?? 128000,
       contextLength: config.contextLength ?? 0,
       todoList: config.todoList || [],
       ragDocuments: config.ragDocuments || [],

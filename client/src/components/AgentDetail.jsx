@@ -1809,7 +1809,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
           <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
           <input
             type="number" value={form.maxTokens}
-            onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 4096)}
+            onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 128000)}
             className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
           />
         </div>
