@@ -254,12 +254,13 @@ export class AgentManager {
     }
 
     // ── Proactive compaction: summarize older messages when history exceeds threshold ──
-    // IMPORTANT: Skip during tool/delegation continuations (delegationDepth > 0) to avoid
+    // IMPORTANT: Skip during tool/delegation continuations to avoid
     // losing context mid-task. Only compact on top-level user messages.
     const MAX_RECENT = 10;
     const COMPACT_TRIGGER = MAX_RECENT + 5; // 15
     const COMPACT_RESET = MAX_RECENT + 2;   // 12
-    if (delegationDepth === 0) {
+    const isTopLevelUserMessage = delegationDepth === 0 && !messageMeta;
+    if (isTopLevelUserMessage) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
 
       if (agent._compactionArmed === undefined) {
@@ -288,7 +289,7 @@ export class AgentManager {
 
     // ── Safety net: also compact if token budget is exceeded ──
     // Skip during tool/delegation continuations to avoid breaking mid-task context
-    if (delegationDepth === 0) {
+    if (isTopLevelUserMessage) {
       const contextLimit = agent.contextLength || 8192;
       const estimatedTokens = this._estimateTokens(messages);
       if (estimatedTokens > contextLimit * 0.75 && realMessages.length > MAX_RECENT) {
@@ -524,8 +525,8 @@ export class AgentManager {
       // These are reasoning tokens some models (Qwen3, etc.) emit inline in content
       const responseForParsing = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
-      // Process tool calls if agent has a project (with depth limit)
-      if (agent.project && delegationDepth < MAX_DELEGATION_DEPTH) {
+      // Process tool calls if agent has a project (no limit — agent works until done)
+      if (agent.project) {
         const toolResults = await this._processToolCalls(id, responseForParsing, streamCallback, delegationDepth);
         if (toolResults.length > 0) {
           // Feed tool results back to agent and continue
@@ -556,7 +557,7 @@ export class AgentManager {
             id,
             `[TOOL RESULTS]\n${resultsSummary}\n\n${continuationPrompt}`,
             streamCallback,
-            delegationDepth + 1,
+            delegationDepth,  // Same depth — tool continuation is the same agent working
             { type: 'tool-result', toolResults: toolResults.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.result || undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }
           );
           this.setStatus(id, 'idle');
