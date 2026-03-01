@@ -131,7 +131,7 @@ export default function VoiceChatTab({ agent, socket }) {
       await pc.setLocalDescription(offer);
 
       // 8. Send SDP offer to OpenAI and get answer
-      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
+      const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
