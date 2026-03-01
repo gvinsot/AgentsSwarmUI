@@ -1726,6 +1726,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
             <option value="ollama">Ollama</option>
             <option value="claude">Claude</option>
             <option value="openai">OpenAI</option>
+            <option value="mistral">Mistral AI</option>
             <option value="vllm">vLLM (Custom Server)</option>
           </select>
         </div>

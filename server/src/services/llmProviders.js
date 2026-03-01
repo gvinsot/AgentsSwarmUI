@@ -756,6 +756,92 @@ export class VLLMProvider {
   }
 }
 
+// ─── Mistral AI Provider ────────────────────────────────────────────────────
+export class MistralProvider {
+  constructor(apiKey, model) {
+    this.client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.mistral.ai/v1',
+    });
+    this.model = model || 'mistral-large-latest';
+  }
+
+  async chat(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+    };
+
+    const response = await this.client.chat.completions.create(params);
+
+    return {
+      content: response.choices[0]?.message?.content || '',
+      model: this.model,
+      provider: 'mistral',
+      usage: {
+        inputTokens: response.usage?.prompt_tokens || 0,
+        outputTokens: response.usage?.completion_tokens || 0
+      }
+    };
+  }
+
+  async *chatStream(messages, options = {}) {
+    const params = {
+      model: this.model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens || 4096,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+
+    const stream = await this.client.chat.completions.create(params);
+    let finishReason = null;
+
+    for await (const chunk of stream) {
+      const choice = chunk.choices?.[0];
+      if (choice?.delta?.content) {
+        yield { type: 'text', text: choice.delta.content };
+      }
+      // Reasoning models: emit thinking tokens separately
+      if (choice?.delta?.reasoning_content) {
+        yield { type: 'thinking', text: choice.delta.reasoning_content };
+      }
+      if (choice?.finish_reason) {
+        finishReason = choice.finish_reason;
+      }
+
+      if (chunk.usage) {
+        yield {
+          type: 'done',
+          finishReason: finishReason || 'stop',
+          usage: {
+            inputTokens: chunk.usage.prompt_tokens || 0,
+            outputTokens: chunk.usage.completion_tokens || 0
+          }
+        };
+      }
+    }
+  }
+
+  async ping() {
+    try {
+      const response = await this.client.models.list();
+      return !!response;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // ─── Provider Factory ───────────────────────────────────────────────────────
 export function createProvider(config) {
   switch (config.provider) {
@@ -779,6 +865,11 @@ export function createProvider(config) {
         config.endpoint || process.env.VLLM_BASE_URL || 'http://localhost:8000',
         config.model,
         config.apiKey || process.env.VLLM_API_KEY || ''
+      );
+    case 'mistral':
+      return new MistralProvider(
+        config.apiKey || process.env.MISTRAL_API_KEY,
+        config.model
       );
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
