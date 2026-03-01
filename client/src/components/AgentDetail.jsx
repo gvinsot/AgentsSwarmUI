@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -13,6 +13,7 @@ const TABS = [
   { id: 'todos', label: 'Tasks', icon: CheckSquare },
   { id: 'rag', label: 'RAG', icon: FileText },
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
+  { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'logs', label: 'Action Logs', icon: Activity },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -259,7 +260,7 @@ function RichAssistantContent({ text }) {
   );
 }
 
-export default function AgentDetail({ agent, agents, projects, thinking, streamBuffer, socket, onClose, onRefresh }) {
+export default function AgentDetail({ agent, agents, projects, skills, thinking, streamBuffer, socket, onClose, onRefresh }) {
   const [activeTab, setActiveTab] = useState('chat');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -426,6 +427,9 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
         )}
         {activeTab === 'handoff' && (
           <HandoffTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
+        )}
+        {activeTab === 'skills' && (
+          <SkillsTab agent={agent} skills={skills} onRefresh={onRefresh} />
         )}
         {activeTab === 'logs' && (
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />
@@ -1008,6 +1012,213 @@ function TodoTab({ agent, socket, onRefresh }) {
       {total === 0 && (
         <p className="text-center text-dark-500 text-sm py-8">No tasks yet</p>
       )}
+    </div>
+  );
+}
+
+// ─── Skills Tab ───────────────────────────────────────────────────────────
+function SkillsTab({ agent, skills, onRefresh }) {
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newSkill, setNewSkill] = useState({ name: '', description: '', category: 'coding', icon: '🔧', instructions: '' });
+
+  const agentSkillIds = agent.skills || [];
+  const assignedSkills = skills.filter(s => agentSkillIds.includes(s.id));
+  const availableSkills = skills.filter(s => !agentSkillIds.includes(s.id));
+
+  const categories = ['all', ...new Set(skills.map(s => s.category).filter(Boolean))];
+  const filteredAvailable = categoryFilter === 'all'
+    ? availableSkills
+    : availableSkills.filter(s => s.category === categoryFilter);
+
+  const handleAssign = async (skillId) => {
+    await api.assignSkill(agent.id, skillId);
+    onRefresh();
+  };
+
+  const handleRemove = async (skillId) => {
+    await api.removeSkill(agent.id, skillId);
+    onRefresh();
+  };
+
+  const handleCreate = async () => {
+    if (!newSkill.name.trim() || !newSkill.instructions.trim()) return;
+    await api.createSkill(newSkill);
+    setNewSkill({ name: '', description: '', category: 'coding', icon: '🔧', instructions: '' });
+    setShowCreate(false);
+    onRefresh();
+  };
+
+  const categoryColors = {
+    coding: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    devops: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    writing: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    security: 'bg-red-500/20 text-red-400 border-red-500/30',
+    analysis: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    general: 'bg-dark-500/20 text-dark-300 border-dark-500/30',
+  };
+
+  const getCategoryClass = (cat) => categoryColors[cat] || categoryColors.general;
+
+  return (
+    <div className="p-4 space-y-5 overflow-auto">
+      {/* Assigned skills */}
+      <div>
+        <h3 className="font-medium text-dark-200 text-sm mb-3">
+          Assigned Skills
+          <span className="ml-2 text-dark-400 font-normal">({assignedSkills.length})</span>
+        </h3>
+        {assignedSkills.length > 0 ? (
+          <div className="space-y-2">
+            {assignedSkills.map(skill => (
+              <div key={skill.id} className="flex items-center gap-3 p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 group">
+                <span className="text-lg flex-shrink-0">{skill.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-dark-200">{skill.name}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getCategoryClass(skill.category)}`}>
+                      {skill.category}
+                    </span>
+                  </div>
+                  <p className="text-xs text-dark-400 truncate">{skill.description}</p>
+                </div>
+                <button
+                  onClick={() => handleRemove(skill.id)}
+                  className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                  title="Remove skill"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 border border-dashed border-dark-700 rounded-lg">
+            <Wrench className="w-5 h-5 mx-auto mb-1 text-dark-500 opacity-40" />
+            <p className="text-dark-500 text-xs">No skills assigned</p>
+          </div>
+        )}
+      </div>
+
+      {/* Marketplace */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-medium text-dark-200 text-sm">
+            Available Skills
+            <span className="ml-2 text-dark-400 font-normal">({filteredAvailable.length})</span>
+          </h3>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Category filter chips */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(cat)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors border ${
+                categoryFilter === cat
+                  ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                  : 'bg-dark-800 text-dark-400 border-dark-700 hover:text-dark-200'
+              }`}
+            >
+              {cat === 'all' ? 'All' : cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Create custom skill form */}
+        {showCreate && (
+          <div className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 space-y-2 mb-3 animate-fadeIn">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newSkill.icon}
+                onChange={(e) => setNewSkill(s => ({ ...s, icon: e.target.value }))}
+                className="w-12 px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-center focus:outline-none focus:border-indigo-500"
+                placeholder="🔧"
+              />
+              <input
+                type="text"
+                value={newSkill.name}
+                onChange={(e) => setNewSkill(s => ({ ...s, name: e.target.value }))}
+                className="flex-1 px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
+                placeholder="Skill name"
+              />
+              <select
+                value={newSkill.category}
+                onChange={(e) => setNewSkill(s => ({ ...s, category: e.target.value }))}
+                className="px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-200 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="coding">coding</option>
+                <option value="devops">devops</option>
+                <option value="writing">writing</option>
+                <option value="security">security</option>
+                <option value="analysis">analysis</option>
+                <option value="general">general</option>
+              </select>
+            </div>
+            <input
+              type="text"
+              value={newSkill.description}
+              onChange={(e) => setNewSkill(s => ({ ...s, description: e.target.value }))}
+              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
+              placeholder="Short description"
+            />
+            <textarea
+              value={newSkill.instructions}
+              onChange={(e) => setNewSkill(s => ({ ...s, instructions: e.target.value }))}
+              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 font-mono resize-none"
+              placeholder="Skill instructions (injected into agent prompt)..."
+              rows={5}
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">Cancel</button>
+              <button
+                onClick={handleCreate}
+                disabled={!newSkill.name.trim() || !newSkill.instructions.trim()}
+                className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40"
+              >
+                Create Skill
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Available skills grid */}
+        <div className="space-y-2">
+          {filteredAvailable.map(skill => (
+            <div key={skill.id} className="flex items-center gap-3 p-3 bg-dark-800/30 rounded-lg border border-dark-700/30 hover:border-dark-600 transition-colors">
+              <span className="text-lg flex-shrink-0">{skill.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-dark-300">{skill.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getCategoryClass(skill.category)}`}>
+                    {skill.category}
+                  </span>
+                </div>
+                <p className="text-xs text-dark-500 truncate">{skill.description}</p>
+              </div>
+              <button
+                onClick={() => handleAssign(skill.id)}
+                className="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-md text-xs font-medium transition-colors flex-shrink-0"
+              >
+                Add
+              </button>
+            </div>
+          ))}
+          {filteredAvailable.length === 0 && !showCreate && (
+            <p className="text-center text-dark-500 text-xs py-4">
+              {availableSkills.length === 0 ? 'All skills assigned' : 'No skills in this category'}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

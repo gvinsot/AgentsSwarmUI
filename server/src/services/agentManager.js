@@ -4,11 +4,12 @@ import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
 import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 
 export class AgentManager {
-  constructor(io) {
+  constructor(io, skillManager) {
     this.agents = new Map();
     this.abortControllers = new Map(); // Track ongoing requests by agentId
     this._taskQueues = new Map();       // Per-agent sequential task queue
     this.io = io;
+    this.skillManager = skillManager;
   }
 
   async loadFromDatabase() {
@@ -19,6 +20,7 @@ export class AgentManager {
         agent.status = 'idle';
         agent.currentThinking = '';
         agent.actionLogs = agent.actionLogs || [];
+        agent.skills = agent.skills || [];
         this.agents.set(agent.id, agent);
       }
       console.log(`📂 Loaded ${agents.length} agents from database`);
@@ -45,6 +47,7 @@ export class AgentManager {
       contextLength: config.contextLength ?? 0,
       todoList: config.todoList || [],
       ragDocuments: config.ragDocuments || [],
+      skills: config.skills || [],
       conversationHistory: [],
       actionLogs: [],
       currentThinking: '',
@@ -88,7 +91,7 @@ export class AgentManager {
 
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
-      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'handoffTargets',
+      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'enabled'
     ];
 
@@ -227,6 +230,18 @@ export class AgentManager {
           systemContent += `\n[${doc.name}]:\n${doc.content}\n`;
         }
       }
+      // Append Skills context if available
+      const agentSkills = agent.skills || [];
+      if (agentSkills.length > 0 && this.skillManager) {
+        const resolvedSkills = agentSkills.map(sid => this.skillManager.getById(sid)).filter(Boolean);
+        if (resolvedSkills.length > 0) {
+          systemContent += '\n\n--- Active Skills ---\n';
+          for (const skill of resolvedSkills) {
+            systemContent += `\n[${skill.name}]:\n${skill.instructions}\n`;
+          }
+        }
+      }
+
       // Append todo list context
       if (agent.todoList.length > 0) {
         systemContent += '\n\n--- Current Todo List ---\n';
@@ -1254,6 +1269,28 @@ export class AgentManager {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.ragDocuments = agent.ragDocuments.filter(d => d.id !== docId);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return true;
+  }
+
+  // ─── Skills ────────────────────────────────────────────────────────
+  assignSkill(agentId, skillId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    if (!agent.skills) agent.skills = [];
+    if (agent.skills.includes(skillId)) return agent.skills;
+    agent.skills.push(skillId);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return agent.skills;
+  }
+
+  removeSkill(agentId, skillId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return false;
+    if (!agent.skills) agent.skills = [];
+    agent.skills = agent.skills.filter(id => id !== skillId);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;

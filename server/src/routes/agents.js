@@ -155,5 +155,20 @@ export function agentRoutes(agentManager) {
     res.json({ success: true });
   });
 
+  // ── Skill assignment endpoints ────────────────────────────────────
+  router.post('/:id/skills', (req, res) => {
+    const { skillId } = req.body;
+    if (!skillId) return res.status(400).json({ error: 'skillId required' });
+    const result = agentManager.assignSkill(req.params.id, skillId);
+    if (result === null) return res.status(404).json({ error: 'Agent not found' });
+    res.json({ success: true, skills: result });
+  });
+
+  router.delete('/:id/skills/:skillId', (req, res) => {
+    const success = agentManager.removeSkill(req.params.id, req.params.skillId);
+    if (!success) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  });
+
   return router;
 }

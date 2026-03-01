@@ -10,7 +10,7 @@ import BroadcastPanel from './BroadcastPanel';
 import SwarmOverview from './SwarmOverview';
 
 export default function Dashboard({
-  user, agents, templates, projects, thinkingMap, streamBuffers,
+  user, agents, templates, projects, skills, thinkingMap, streamBuffers,
   onLogout, onRefresh, socket, showToast
 }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -174,6 +174,7 @@ export default function Dashboard({
                 agent={selectedAgentData}
                 agents={agents}
                 projects={projects}
+                skills={skills}
                 thinking={thinkingMap[selectedAgentData.id]}
                 streamBuffer={streamBuffers[selectedAgentData.id]}
                 socket={socket}

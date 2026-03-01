@@ -31,6 +31,18 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       `);
 
       console.log('✅ Agents table ready');
+
+      // Create skills table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS skills (
+          id UUID PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      console.log('✅ Skills table ready');
       return true;
     } catch (err) {
       console.error(`❌ Database connection failed (attempt ${attempt}/${retries}):`, err.message);
@@ -80,6 +92,45 @@ export async function deleteAgentFromDb(id) {
     await pool.query('DELETE FROM agents WHERE id = $1', [id]);
   } catch (err) {
     console.error('Failed to delete agent:', err.message);
+  }
+}
+
+// ── Skills CRUD ──────────────────────────────────────────────────────────────
+
+export async function getAllSkills() {
+  if (!pool) return [];
+
+  try {
+    const result = await pool.query('SELECT data FROM skills ORDER BY created_at');
+    return result.rows.map(row => row.data);
+  } catch (err) {
+    console.error('Failed to load skills:', err.message);
+    return [];
+  }
+}
+
+export async function saveSkill(skill) {
+  if (!pool) return;
+
+  try {
+    await pool.query(
+      `INSERT INTO skills (id, data, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = NOW()`,
+      [skill.id, JSON.stringify(skill)]
+    );
+  } catch (err) {
+    console.error('Failed to save skill:', err.message);
+  }
+}
+
+export async function deleteSkillFromDb(id) {
+  if (!pool) return;
+
+  try {
+    await pool.query('DELETE FROM skills WHERE id = $1', [id]);
+  } catch (err) {
+    console.error('Failed to delete skill:', err.message);
   }
 }
 

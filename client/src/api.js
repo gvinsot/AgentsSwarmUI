@@ -137,6 +137,44 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Skills (marketplace)
+  getSkills: () =>
+    fetch(`${API_BASE}/skills`, { headers: getHeaders() }).then(handleResponse),
+
+  createSkill: (config) =>
+    fetch(`${API_BASE}/skills`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(config)
+    }).then(handleResponse),
+
+  updateSkill: (id, updates) =>
+    fetch(`${API_BASE}/skills/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    }).then(handleResponse),
+
+  deleteSkill: (id) =>
+    fetch(`${API_BASE}/skills/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  // Agent skill assignment
+  assignSkill: (agentId, skillId) =>
+    fetch(`${API_BASE}/agents/${agentId}/skills`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ skillId })
+    }).then(handleResponse),
+
+  removeSkill: (agentId, skillId) =>
+    fetch(`${API_BASE}/agents/${agentId}/skills/${skillId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // Templates
   getTemplates: () =>
     fetch(`${API_BASE}/templates`, { headers: getHeaders() }).then(handleResponse),

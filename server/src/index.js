@@ -8,6 +8,9 @@ import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
+import { SkillManager } from './services/skillManager.js';
+import { skillRoutes } from './routes/skills.js';
+import { BUILTIN_SKILLS } from './data/skills.js';
 import { initDatabase } from './services/database.js';
 
 const app = express();
@@ -27,7 +30,8 @@ const io = new Server(httpServer, {
 });
 
 // Global state
-const agentManager = new AgentManager(io);
+const skillManager = new SkillManager();
+const agentManager = new AgentManager(io, skillManager);
 
 // Middleware
 app.use(cors({
@@ -43,6 +47,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
 app.use('/api/projects', authenticateToken, projectRoutes());
+app.use('/api/skills', authenticateToken, skillRoutes(skillManager));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -73,6 +78,8 @@ const PORT = process.env.PORT || 3001;
 // Initialize database and start server
 async function start() {
   await initDatabase();
+  await skillManager.loadFromDatabase();
+  await skillManager.seedDefaults(BUILTIN_SKILLS);
   await agentManager.loadFromDatabase();
   
   httpServer.listen(PORT, () => {

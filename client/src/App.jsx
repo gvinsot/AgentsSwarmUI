@@ -11,6 +11,7 @@ export default function App() {
   const [agents, setAgents] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [skills, setSkills] = useState([]);
   const [thinkingMap, setThinkingMap] = useState({});
   const [streamBuffers, setStreamBuffers] = useState({});
   const [toasts, setToasts] = useState([]);
@@ -51,29 +52,37 @@ export default function App() {
   const loadData = useCallback(async () => {
     try {
       // Load each resource independently to prevent one failure from blocking others
-      const [agentsResult, templatesResult, projectsResult] = await Promise.allSettled([
+      const [agentsResult, templatesResult, projectsResult, skillsResult] = await Promise.allSettled([
         api.getAgents(),
         api.getTemplates(),
-        api.getProjects()
+        api.getProjects(),
+        api.getSkills()
       ]);
-      
+
       if (agentsResult.status === 'fulfilled') {
         setAgents(agentsResult.value);
       } else {
         console.error('Failed to load agents:', agentsResult.reason);
       }
-      
+
       if (templatesResult.status === 'fulfilled') {
         setTemplates(templatesResult.value);
       } else {
         console.error('Failed to load templates:', templatesResult.reason);
       }
-      
+
       if (projectsResult.status === 'fulfilled') {
         setProjects(projectsResult.value);
       } else {
         console.error('Failed to load projects:', projectsResult.reason);
-        setProjects([]); // Default to empty array
+        setProjects([]);
+      }
+
+      if (skillsResult.status === 'fulfilled') {
+        setSkills(skillsResult.value);
+      } else {
+        console.error('Failed to load skills:', skillsResult.reason);
+        setSkills([]);
       }
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -200,6 +209,7 @@ export default function App() {
         agents={agents}
         templates={templates}
         projects={projects}
+        skills={skills}
         thinkingMap={thinkingMap}
         streamBuffers={streamBuffers}
         onLogout={handleLogout}
