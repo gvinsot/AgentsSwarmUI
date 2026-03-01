@@ -318,54 +318,6 @@ async function searchInFiles(basePath, pattern, query) {
 }
 
 async function runCommand(basePath, command) {
-  // Security: block dangerous commands — comprehensive blocklist
-  const blockedPatterns = [
-    // Destructive file operations
-    /\brm\b/i,                    // rm in any form
-    /\bmkfs\b/i,                  // Format filesystem
-    /\bdd\b\s+if=/i,             // Disk dump
-    /\bshred\b/i,                 // Secure delete
-    /\btruncate\b/i,             // Truncate files
-    // Dangerous network operations (piped to shell)
-    /\b(curl|wget|fetch)\b.*\|/i, // Download piped to anything
-    /\|.*\b(bash|sh|zsh|dash|exec)\b/i, // Pipe into shell
-    // System modification
-    /\bchmod\b.*777/i,           // World-writable permissions
-    /\bchown\b.*root/i,          // Change ownership to root
-    /\buseradd\b/i,              // Add users
-    /\buserdel\b/i,              // Delete users
-    /\bpasswd\b/i,               // Change passwords
-    /\bsudo\b/i,                 // Privilege escalation
-    /\bsu\b\s/i,                 // Switch user
-    // Device/system writes
-    />\s*\/dev\//i,              // Write to device files
-    />\s*\/etc\//i,              // Write to system config
-    />\s*\/proc\//i,             // Write to proc
-    />\s*\/sys\//i,              // Write to sys
-    // Prevent escape from working directory
-    /\bkill\b/i,                 // Kill processes
-    /\bkillall\b/i,              // Kill all processes
-    /\bshutdown\b/i,             // Shutdown system
-    /\breboot\b/i,               // Reboot system
-    /\bsystemctl\b/i,            // Manage services
-    // Environment/shell manipulation
-    /\bexport\b.*(?:PATH|LD_)/i, // Modify critical env vars
-    /\beval\b/i,                 // Dynamic code execution
-    /\bsource\b\s/i,            // Source arbitrary scripts
-    /\b\.\s+\//,                 // Source with dot notation
-    // Crypto mining / reverse shells
-    /\bnc\b\s+-[elp]/i,         // netcat listeners
-    /\bncat\b/i,                 // ncat
-    /\/dev\/tcp\//i,             // Bash TCP device
-    /\bmkfifo\b/i,              // Named pipe (often used in reverse shells)
-  ];
-
-  for (const pattern of blockedPatterns) {
-    if (pattern.test(command)) {
-      return { success: false, error: `Command blocked for security reasons: matches pattern ${pattern}` };
-    }
-  }
-
   try {
     // If RUN_AS_USER is set, wrap the command with runuser to execute as that user
     const runAsUser = process.env.RUN_AS_USER;
