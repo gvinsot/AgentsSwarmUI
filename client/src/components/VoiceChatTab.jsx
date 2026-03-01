@@ -38,33 +38,72 @@ export default function VoiceChatTab({ agent, socket }) {
     setEvents(prev => [...prev, { type, text, time: new Date() }]);
   }, []);
 
+  // ── Request microphone permission ────────────────────────────────
+  const requestMicPermission = useCallback(async () => {
+    // Check if mediaDevices is available (requires HTTPS)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Microphone access requires a secure connection (HTTPS).');
+    }
+
+    // Check current permission state if Permissions API is available
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const permStatus = await navigator.permissions.query({ name: 'microphone' });
+        if (permStatus.state === 'denied') {
+          throw new Error(
+            'Microphone access is blocked. Please open your browser settings and allow microphone access for this site, then try again.'
+          );
+        }
+      } catch (permErr) {
+        // Permissions API may not support 'microphone' query on some browsers — ignore and try getUserMedia directly
+        if (permErr.message.includes('blocked') || permErr.message.includes('settings')) {
+          throw permErr;
+        }
+      }
+    }
+
+    // Request microphone — this triggers the browser permission dialog if state is 'prompt'
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
+  }, []);
+
   // ── Connect to OpenAI Realtime via WebRTC ─────────────────────────
   const connect = useCallback(async () => {
     setStatus(STATUS.CONNECTING);
     setError(null);
 
     try {
-      // 1. Get ephemeral token from our server
+      // 1. Request microphone permission first
+      let stream;
+      try {
+        stream = await requestMicPermission();
+      } catch (micErr) {
+        // Provide user-friendly messages for common permission errors
+        const msg = micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError'
+          ? 'Microphone access denied. Please allow microphone permission in your browser settings and try again.'
+          : micErr.message;
+        throw new Error(msg);
+      }
+      localStreamRef.current = stream;
+
+      // 2. Get ephemeral token from our server
       const tokenData = await api.getRealtimeToken(agent.id);
       const { token } = tokenData;
 
-      // 2. Create RTCPeerConnection
+      // 3. Create RTCPeerConnection
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      // 3. Handle remote audio track (model's voice)
+      // 4. Handle remote audio track (model's voice)
       pc.ontrack = (e) => {
         if (audioRef.current) {
           audioRef.current.srcObject = e.streams[0];
         }
       };
 
-      // 4. Add local microphone track
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStreamRef.current = stream;
+      // 5. Add local microphone track
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-      // 5. Create data channel for events
+      // 6. Create data channel for events
       const dc = pc.createDataChannel('oai-events');
       dcRef.current = dc;
 
@@ -87,11 +126,11 @@ export default function VoiceChatTab({ agent, socket }) {
         addEvent('system', 'Disconnected');
       };
 
-      // 6. Create offer and set local description
+      // 7. Create offer and set local description
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // 7. Send SDP offer to OpenAI and get answer
+      // 8. Send SDP offer to OpenAI and get answer
       const sdpResponse = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2025-06-03', {
         method: 'POST',
         headers: {
@@ -115,7 +154,7 @@ export default function VoiceChatTab({ agent, socket }) {
       addEvent('error', err.message);
       cleanup();
     }
-  }, [agent.id, addEvent]);
+  }, [agent.id, addEvent, requestMicPermission]);
 
   // ── Handle events from the Realtime data channel ──────────────────
   const handleRealtimeEvent = useCallback((event) => {
@@ -236,7 +275,7 @@ export default function VoiceChatTab({ agent, socket }) {
   return (
     <div className="flex flex-col h-full">
       {/* Audio element for remote playback */}
-      <audio ref={audioRef} autoPlay />
+      <audio ref={audioRef} autoPlay playsInline />
 
       {/* Main animation zone */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
