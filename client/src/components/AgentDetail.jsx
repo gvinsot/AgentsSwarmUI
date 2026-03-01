@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
+import VoiceChatTab from './VoiceChatTab';
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
@@ -341,6 +342,12 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
                 }`} />
                 {agent.status}
               </span>
+              {agent.isVoice && (
+                <>
+                  <span className="text-dark-500">·</span>
+                  <span className="text-amber-400 font-medium">Voice</span>
+                </>
+              )}
               <span className="text-dark-500">·</span>
               <span className="text-dark-400 truncate">{agent.provider}/{agent.model}</span>
             </div>
@@ -405,19 +412,23 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
         {activeTab === 'chat' && (
-          <ChatTab
-            history={history}
-            thinking={thinking}
-            streamBuffer={streamBuffer}
-            message={message}
-            setMessage={setMessage}
-            sending={sending || agent.status === 'busy'}
-            onSend={handleSend}
-            onClear={handleClearHistory}
-            onTruncate={handleTruncateHistory}
-            chatEndRef={chatEndRef}
-            agentName={agent.name}
-          />
+          agent.isVoice ? (
+            <VoiceChatTab agent={agent} socket={socket} />
+          ) : (
+            <ChatTab
+              history={history}
+              thinking={thinking}
+              streamBuffer={streamBuffer}
+              message={message}
+              setMessage={setMessage}
+              sending={sending || agent.status === 'busy'}
+              onSend={handleSend}
+              onClear={handleClearHistory}
+              onTruncate={handleTruncateHistory}
+              chatEndRef={chatEndRef}
+              agentName={agent.name}
+            />
+          )
         )}
         {activeTab === 'todos' && (
           <TodoTab agent={agent} socket={socket} onRefresh={onRefresh} />

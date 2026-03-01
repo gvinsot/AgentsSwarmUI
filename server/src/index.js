@@ -10,6 +10,7 @@ import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
 import { skillRoutes } from './routes/skills.js';
+import { realtimeRoutes } from './routes/realtime.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
 import { initDatabase } from './services/database.js';
 
@@ -48,6 +49,7 @@ app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
 app.use('/api/projects', authenticateToken, projectRoutes());
 app.use('/api/skills', authenticateToken, skillRoutes(skillManager));
+app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 
 // Health check
 app.get('/api/health', (req, res) => {

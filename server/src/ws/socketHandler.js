@@ -62,9 +62,24 @@ export function setupSocketHandlers(io, agentManager) {
       if (!fromId || !toId || !context) return;
 
       try {
-        const response = await agentManager.handoff(fromId, toId, context);
+        // Stream the target agent's response in real-time
+        io.emit('agent:stream:start', { agentId: toId });
+
+        const response = await agentManager.handoff(fromId, toId, context, (chunk) => {
+          io.emit('agent:stream:chunk', { agentId: toId, chunk });
+          io.emit('agent:thinking', {
+            agentId: toId,
+            thinking: agentManager.agents.get(toId)?.currentThinking || ''
+          });
+        });
+
+        io.emit('agent:stream:end', { agentId: toId });
+        const agent = agentManager.getById(toId);
+        if (agent) io.emit('agent:updated', agent);
+
         socket.emit('agent:handoff:complete', { fromId, toId, response });
       } catch (err) {
+        io.emit('agent:stream:error', { agentId: toId, error: err.message });
         socket.emit('agent:handoff:error', { error: err.message });
       }
     });
@@ -131,6 +146,70 @@ export function setupSocketHandlers(io, agentManager) {
         if (agent) io.emit('agent:updated', agent);
       } catch (err) {
         socket.emit('agent:stream:error', { agentId, error: err.message });
+      }
+    });
+
+    // ── Voice delegation (Realtime API function call relay) ──────────
+    socket.on('voice:delegate', async (data) => {
+      const { agentId, targetAgentName, task } = data;
+      if (!agentId || !targetAgentName || !task) return;
+
+      try {
+        // Find target agent by name
+        const targetAgent = agentManager.getAll().find(
+          a => a.name.toLowerCase() === targetAgentName.toLowerCase()
+        );
+        if (!targetAgent) {
+          socket.emit('voice:delegate:result', {
+            agentId,
+            targetAgentName,
+            error: `Agent "${targetAgentName}" not found in swarm`,
+            result: null
+          });
+          return;
+        }
+
+        console.log(`🎙️ [Voice Delegate] "${targetAgentName}" ← task: ${task.slice(0, 80)}...`);
+
+        // Stream to the sub-agent's own chat
+        io.emit('agent:stream:start', { agentId: targetAgent.id });
+
+        const leader = agentManager.agents.get(agentId);
+        const leaderName = leader?.name || 'Voice Leader';
+
+        // Create a todo on the target agent
+        agentManager.addTodo(targetAgent.id, `[From ${leaderName}] ${task}`);
+
+        const response = await agentManager.sendMessage(
+          targetAgent.id,
+          `[TASK from ${leaderName}]: ${task}`,
+          (chunk) => {
+            io.emit('agent:stream:chunk', { agentId: targetAgent.id, chunk });
+            io.emit('agent:thinking', {
+              agentId: targetAgent.id,
+              thinking: agentManager.agents.get(targetAgent.id)?.currentThinking || ''
+            });
+          }
+        );
+
+        io.emit('agent:stream:end', { agentId: targetAgent.id });
+        const updatedAgent = agentManager.getById(targetAgent.id);
+        if (updatedAgent) io.emit('agent:updated', updatedAgent);
+
+        socket.emit('voice:delegate:result', {
+          agentId,
+          targetAgentName,
+          error: null,
+          result: response
+        });
+      } catch (err) {
+        console.error(`🎙️ [Voice Delegate] Error: ${err.message}`);
+        socket.emit('voice:delegate:result', {
+          agentId,
+          targetAgentName,
+          error: err.message,
+          result: null
+        });
       }
     });
 

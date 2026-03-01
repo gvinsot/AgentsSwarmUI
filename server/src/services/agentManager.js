@@ -21,6 +21,8 @@ export class AgentManager {
         agent.currentThinking = '';
         agent.actionLogs = agent.actionLogs || [];
         agent.skills = agent.skills || [];
+        agent.isVoice = agent.isVoice || false;
+        agent.voice = agent.voice || 'alloy';
         this.agents.set(agent.id, agent);
       }
       console.log(`📂 Loaded ${agents.length} agents from database`);
@@ -61,7 +63,9 @@ export class AgentManager {
       handoffTargets: config.handoffTargets || [],
       project: config.project || null,
       enabled: config.enabled !== undefined ? config.enabled : true,
-      isLeader: config.isLeader || false,
+      isLeader: config.isLeader || config.isVoice || false,
+      isVoice: config.isVoice || false,
+      voice: config.voice || 'alloy',
       template: config.template || null,
       color: config.color || this._randomColor(),
       icon: config.icon || '🤖',
@@ -92,7 +96,7 @@ export class AgentManager {
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'handoffTargets',
-      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'enabled'
+      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'voice', 'enabled'
     ];
 
     for (const key of allowed) {
@@ -1103,7 +1107,7 @@ export class AgentManager {
   }
 
   // ─── Handoff ────────────────────────────────────────────────────────
-  async handoff(fromId, toId, context) {
+  async handoff(fromId, toId, context, streamCallback) {
     const fromAgent = this.agents.get(fromId);
     const toAgent = this.agents.get(toId);
     if (!fromAgent || !toAgent) throw new Error('Agent not found');
@@ -1118,7 +1122,7 @@ export class AgentManager {
       context
     });
 
-    return this.sendMessage(toId, handoffMessage);
+    return this.sendMessage(toId, handoffMessage, streamCallback);
   }
 
   // ─── Action Logs ──────────────────────────────────────────────────
@@ -1294,6 +1298,53 @@ export class AgentManager {
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
+  }
+
+  // ─── Voice Agent Instructions ────────────────────────────────────
+  buildVoiceInstructions(agentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+
+    let instructions = agent.instructions || 'You are a helpful voice assistant.';
+
+    // Inject available agents for delegation
+    const availableAgents = Array.from(this.agents.values())
+      .filter(a => a.id !== agentId && a.enabled !== false)
+      .map(a => `- ${a.name} (${a.role}): ${a.description || 'No description'}`);
+
+    if (availableAgents.length > 0) {
+      instructions += `\n\n--- Available Swarm Agents ---\nYou can delegate tasks to these agents using the "delegate" function. Call it with the agent's name and a detailed task description.\n${availableAgents.join('\n')}\n\nWhen you need an agent to work on something, use the delegate function. The result will be provided back to you and you should summarize it vocally.`;
+    }
+
+    // Append RAG context
+    if (agent.ragDocuments && agent.ragDocuments.length > 0) {
+      instructions += '\n\n--- Reference Documents ---\n';
+      for (const doc of agent.ragDocuments) {
+        instructions += `\n[${doc.name}]:\n${doc.content}\n`;
+      }
+    }
+
+    // Append Skills context
+    const agentSkills = agent.skills || [];
+    if (agentSkills.length > 0 && this.skillManager) {
+      const resolvedSkills = agentSkills.map(sid => this.skillManager.getById(sid)).filter(Boolean);
+      if (resolvedSkills.length > 0) {
+        instructions += '\n\n--- Active Skills ---\n';
+        for (const skill of resolvedSkills) {
+          instructions += `\n[${skill.name}]:\n${skill.instructions}\n`;
+        }
+      }
+    }
+
+    // Append todo list context
+    if (agent.todoList && agent.todoList.length > 0) {
+      instructions += '\n\n--- Current Todo List ---\n';
+      for (const todo of agent.todoList) {
+        instructions += `- [${todo.done ? 'x' : ' '}] ${todo.text}\n`;
+      }
+    }
+
+    return instructions;
   }
 
   // ─── Clear Conversation ────────────────────────────────────────────

@@ -175,6 +175,14 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Realtime (Voice)
+  getRealtimeToken: (agentId) =>
+    fetch(`${API_BASE}/realtime/token`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ agentId })
+    }).then(handleResponse),
+
   // Templates
   getTemplates: () =>
     fetch(`${API_BASE}/templates`, { headers: getHeaders() }).then(handleResponse),

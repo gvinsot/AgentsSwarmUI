@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Cpu, Search, FolderCode, Crown } from 'lucide-react';
+import { X, Cpu, Search, FolderCode, Crown, Mic } from 'lucide-react';
 import { api } from '../api';
 
 export default function AddAgentModal({ templates, projects, onClose, onCreated }) {
@@ -21,6 +21,8 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
     color: '#6366f1',
     project: '',
     isLeader: false,
+    isVoice: false,
+    voice: 'alloy',
   });
   const [creating, setCreating] = useState(false);
 
@@ -41,7 +43,11 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
       maxTokens: template.maxTokens,
       icon: template.icon,
       color: template.color,
-      isLeader: template.isLeader || false,
+      isLeader: template.isLeader || template.isVoice || false,
+      isVoice: template.isVoice || false,
+      voice: template.isVoice ? 'alloy' : prev.voice,
+      ...(template.provider ? { provider: template.provider } : {}),
+      ...(template.model ? { model: template.model } : {}),
     }));
     setSelectedTemplate(template);
     setStep('custom');
@@ -252,6 +258,50 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                   </label>
                   <p className="text-[11px] text-dark-500 mt-1 ml-7">Leader agents orchestrate and coordinate other agents in the swarm</p>
                 </div>
+
+                <div className="col-span-2">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={form.isVoice}
+                      onChange={(e) => {
+                        const isVoice = e.target.checked;
+                        updateField('isVoice', isVoice);
+                        if (isVoice) {
+                          updateField('isLeader', true);
+                          updateField('provider', 'openai');
+                          updateField('model', 'gpt-realtime');
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-dark-600 bg-dark-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-dark-800"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-amber-400" />
+                      <span className="text-sm text-dark-200 group-hover:text-dark-100">Voice Agent</span>
+                    </div>
+                  </label>
+                  <p className="text-[11px] text-dark-500 mt-1 ml-7">Speech-to-speech agent using OpenAI Realtime API (forces Leader + OpenAI provider)</p>
+                </div>
+
+                {form.isVoice && (
+                  <div className="col-span-2">
+                    <label className="block text-xs text-dark-400 mb-1.5">Voice</label>
+                    <select
+                      value={form.voice}
+                      onChange={(e) => updateField('voice', e.target.value)}
+                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="alloy">Alloy</option>
+                      <option value="ash">Ash</option>
+                      <option value="ballad">Ballad</option>
+                      <option value="coral">Coral</option>
+                      <option value="echo">Echo</option>
+                      <option value="sage">Sage</option>
+                      <option value="shimmer">Shimmer</option>
+                      <option value="verse">Verse</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="col-span-2 border-t border-dark-700 pt-4">
                   <h4 className="text-xs font-medium text-dark-300 mb-3 flex items-center gap-2">
