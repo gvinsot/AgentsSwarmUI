@@ -16,6 +16,8 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS}
       - HOST_CODE_PATH=${HOST_CODE_PATH}
       - DATABASE_URL=${DATABASE_URL}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - RUN_AS_USER=${RUN_AS_USER}
     volumes:
       - ${HOST_CODE_PATH}/AgentsSwarmUI/server/src:/app/src
       - ${HOST_CODE_PATH}:/projects  # Writable for agent tools
