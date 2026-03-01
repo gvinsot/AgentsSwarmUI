@@ -324,9 +324,9 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
     <div className="flex flex-col h-[calc(100vh-64px)] animate-slideIn">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{agent.icon}</span>
-          <div>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-2xl flex-shrink-0">{agent.icon}</span>
+          <div className="min-w-0">
             <h2 className="font-bold text-dark-100">{agent.name}</h2>
             <div className="flex items-center gap-2 text-xs">
               <span className={`inline-flex items-center gap-1 ${
@@ -340,11 +340,29 @@ export default function AgentDetail({ agent, agents, projects, thinking, streamB
                 {agent.status}
               </span>
               <span className="text-dark-500">·</span>
-              <span className="text-dark-400">{agent.provider}/{agent.model}</span>
+              <span className="text-dark-400 truncate">{agent.provider}/{agent.model}</span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Project selector — auto-saves */}
+          <div className="flex items-center gap-1.5">
+            <FolderCode className="w-3.5 h-3.5 text-dark-500 flex-shrink-0" />
+            <select
+              value={agent.project || ''}
+              onChange={async (e) => {
+                await api.updateAgent(agent.id, { project: e.target.value });
+                onRefresh();
+              }}
+              className="px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500 max-w-[160px]"
+              title="Working project"
+            >
+              <option value="">No project</option>
+              {projects?.map(p => (
+                <option key={p.name} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+          </div>
           {agent.status === 'busy' && socket && (
             <button
               onClick={() => socket.emit('agent:stop', { agentId: agent.id })}
