@@ -1,20 +1,3 @@
-import { readdir, readFile, writeFile, access, stat, mkdir, realpath } from 'fs/promises';
-import { join, dirname, relative } from 'path';
-import { constants } from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
-
-const PROJECTS_BASE = '/projects';
-
-// Allowed paths outside the agent's own project directory.
-// Supports exact paths and glob-style wildcards (trailing /*).
-const ALLOWED_EXTERNAL_PATHS = [
-  '/projects/LogsCrawler/PROMPT_PROJECTS.md',
-  '/projects/LogsCrawler/*',
-];
-
 // Tool definitions that will be injected into agent prompts
 export const TOOL_DEFINITIONS = `
 --- AVAILABLE TOOLS ---
@@ -36,7 +19,7 @@ You can interact with project files using these commands. Use the exact format s
 @search_files(pattern, query) - Search for text in files matching a glob pattern
   Example: @search_files(*.js, function authenticate)
 
-@run_command(command) - Run a shell command in the project directory (read-only safe commands only)
+@run_command(command) - Run a shell command in the project directory
   Example: @run_command(npm test)
   Example: @run_command(grep -r "TODO" src/)
 
@@ -48,19 +31,10 @@ You can interact with project files using these commands. Use the exact format s
 
 @report_error(description) - Report an error or problem back to the leader/manager agent
   Use this when you encounter a blocking issue you cannot resolve yourself.
-  The error will be escalated to the leader agent and displayed in the UI.
-  Example: @report_error(Cannot compile the project: missing dependency 'express'. Please install it or update package.json.)
+  Example: @report_error(Cannot compile: missing dependency 'express'.)
 
 @git_commit_push(message) - Stage all changes, commit with the given message, and push to remote
   Example: @git_commit_push(feat: add user authentication)
-
-@build_image(version) - Build and push Docker images for the current project to the registry
-  Runs the standard build-push pipeline (builds from devops/docker-compose.swarm.yml, tags, pushes to registry)
-  Example: @build_image(1.0)
-
-@deploy_service(version) - Deploy the current project to the Docker Swarm cluster
-  Runs pre-deployment hooks, updates image tags, deploys the stack, runs post-deployment hooks
-  Example: @deploy_service(1.0)
 
 IMPORTANT:
 - File paths are relative to the project root
@@ -69,12 +43,11 @@ IMPORTANT:
 - After making changes, verify by reading the file
 - Each tool call MUST be on its own line, with an empty line before and after it
 - Do NOT add decorative text like "Editing file..." or "Now I'll read..." before tool calls — just call the tool directly
-- NEVER stop yourself with messages like "[Agent stopped after N turns]" or "I'll stop here" — you have NO turn limit. Keep working until the task is fully complete. Use as many tool calls as needed.
+- NEVER stop yourself with messages like "[Agent stopped after N turns]" or "I'll stop here" — you have NO turn limit. Keep working until the task is fully complete.
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
 `;
 
 // Sanitize a tool argument: only strip a matching pair of surrounding quotes.
-// e.g. "echo hello" → echo hello   (model-added wrapper)
-//      echo "a,b,c" → echo "a,b,c" (quotes are part of the content — kept)
 function sanitizeArg(arg) {
   if (!arg) return arg;
   arg = arg.trim();
@@ -87,71 +60,66 @@ function sanitizeArg(arg) {
   return arg.trim();
 }
 
-// Normalize a file/dir path: strip leading project base if the LLM passed an absolute path
-function normalizePath(pathArg, basePath) {
+// Normalize path: strip absolute prefixes the LLM might hallucinate
+function normalizePath(pathArg) {
   let p = sanitizeArg(pathArg);
-  // If the LLM passed an absolute path like /projects/Securator/src, make it relative
-  if (p.startsWith(basePath)) {
-    p = relative(basePath, p) || '.';
-  } else if (p.startsWith(PROJECTS_BASE + '/')) {
-    p = relative(basePath, join(PROJECTS_BASE, p.slice(PROJECTS_BASE.length + 1))) || '.';
-  } else if (p.startsWith('/')) {
-    // Any other absolute path — try to make it relative, fallback to stripping the leading /
-    p = p.replace(/^\/+/, '');
-  }
+  // Strip /workspace/<project>/ or /projects/<project>/ prefixes
+  p = p.replace(/^\/workspace\/[^/]+\//, '');
+  p = p.replace(/^\/projects\/[^/]+\//, '');
+  // Strip any remaining leading slashes
+  if (p.startsWith('/')) p = p.replace(/^\/+/, '');
   return p || '.';
 }
 
-// Execute a tool command and return the result
-export async function executeTool(toolName, args, projectPath) {
-  // report_error doesn't need project access — handle it early
+/**
+ * Execute a tool command using the sandbox container.
+ * @param {string} toolName
+ * @param {string[]} args
+ * @param {string} projectPath - project name
+ * @param {import('./sandboxManager.js').SandboxManager} sandboxMgr
+ * @param {string} agentId
+ */
+export async function executeTool(toolName, args, projectPath, sandboxMgr, agentId) {
+  // report_error doesn't need sandbox access
   if (toolName === 'report_error') {
     const description = args[0] || 'Unknown error';
     return { success: true, result: `Error reported: ${description}`, isErrorReport: true };
   }
 
-  const basePath = join(PROJECTS_BASE, projectPath);
-  
-  // Verify project exists
-  try {
-    await access(basePath, constants.R_OK);
-  } catch {
-    return { success: false, error: `Project path not accessible: ${projectPath}` };
+  if (!sandboxMgr || !agentId) {
+    return { success: false, error: 'Sandbox not available' };
   }
-  
-  // Sanitize all arguments
+
+  if (!sandboxMgr.hasSandbox(agentId)) {
+    return { success: false, error: 'No sandbox running. Assign a project first.' };
+  }
+
   const cleanArgs = args.map(a => sanitizeArg(a));
-  
-  console.log(`🔧 [Tool] ${toolName}(${cleanArgs.map(a => a?.length > 100 ? a.slice(0, 100) + '...' : a).join(', ')}) | project=${projectPath} | basePath=${basePath}`);
-  
+
+  console.log(`🔧 [Tool] ${toolName}(${cleanArgs.map(a => a?.length > 100 ? a.slice(0, 100) + '...' : a).join(', ')}) | agent=${agentId.slice(0, 8)} project=${projectPath}`);
+
   try {
     switch (toolName) {
       case 'read_file':
-        return await readFileFromProject(basePath, normalizePath(cleanArgs[0], basePath));
-      
+        return await toolReadFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]));
+
       case 'write_file':
-        return await writeFileToProject(basePath, normalizePath(cleanArgs[0], basePath), cleanArgs[1]);
-      
+        return await toolWriteFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
+
       case 'list_dir':
-        return await listDirectory(basePath, normalizePath(cleanArgs[0] || '.', basePath));
-      
+        return await toolListDir(sandboxMgr, agentId, normalizePath(cleanArgs[0] || '.'));
+
       case 'search_files':
-        return await searchInFiles(basePath, cleanArgs[0], cleanArgs[1]);
-      
+        return await toolSearchFiles(sandboxMgr, agentId, cleanArgs[0], cleanArgs[1]);
+
       case 'run_command':
-        return await runCommand(basePath, cleanArgs[0]);
-      
+        return await toolRunCommand(sandboxMgr, agentId, cleanArgs[0]);
+
       case 'append_file':
-        return await appendToFile(basePath, normalizePath(cleanArgs[0], basePath), cleanArgs[1]);
+        return await toolAppendFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
 
       case 'git_commit_push':
-        return await gitCommitPush(basePath, cleanArgs[0]);
-
-      case 'build_image':
-        return await buildImage(projectPath, cleanArgs[0]);
-
-      case 'deploy_service':
-        return await deployService(projectPath, cleanArgs[0]);
+        return await toolGitCommitPush(sandboxMgr, agentId, cleanArgs[0]);
 
       default:
         return { success: false, error: `Unknown tool: ${toolName}` };
@@ -161,302 +129,96 @@ export async function executeTool(toolName, args, projectPath) {
   }
 }
 
-// Check if a path matches the allowed external paths list
-function isAllowedExternalPath(fullPath) {
-  for (const pattern of ALLOWED_EXTERNAL_PATHS) {
-    if (pattern.endsWith('/*')) {
-      // Glob: /some/dir/* allows anything under /some/dir/
-      const prefix = pattern.slice(0, -1); // remove trailing *
-      if (fullPath.startsWith(prefix) || fullPath === prefix.slice(0, -1)) return true;
-    } else {
-      if (fullPath === pattern) return true;
-    }
-  }
-  return false;
-}
+// ─── Tool implementations (all via sandbox) ────────────────────────────────
 
-// Security: resolve symlinks and verify the real path is within basePath
-// (or matches ALLOWED_EXTERNAL_PATHS)
-async function assertPathWithinBase(fullPath, basePath) {
-  // First check the logical path (catches ../ traversal)
-  if (!fullPath.startsWith(basePath)) {
-    // Allow explicitly whitelisted external paths
-    if (isAllowedExternalPath(fullPath)) return;
-    throw new Error('Path traversal not allowed');
-  }
-  // Then resolve symlinks and check the real path
+async function toolReadFile(sandboxMgr, agentId, filePath) {
   try {
-    const realFullPath = await realpath(fullPath);
-    const realBasePath = await realpath(basePath);
-    if (!realFullPath.startsWith(realBasePath)) {
-      if (isAllowedExternalPath(realFullPath)) return;
-      throw new Error('Path traversal not allowed (symlink escape)');
-    }
-  } catch (err) {
-    // File doesn't exist yet (write_file) — check parent directory instead
-    if (err.code === 'ENOENT') {
-      const parentDir = dirname(fullPath);
-      try {
-        const realParent = await realpath(parentDir);
-        const realBase = await realpath(basePath);
-        if (!realParent.startsWith(realBase)) {
-          if (isAllowedExternalPath(fullPath)) return;
-          throw new Error('Path traversal not allowed (symlink escape)');
-        }
-      } catch (parentErr) {
-        if (parentErr.code === 'ENOENT') return; // Parent will be created by mkdir
-        throw parentErr;
-      }
-    } else if (err.message?.includes('traversal')) {
-      throw err;
-    }
-    // Other errors (e.g., permission denied) — let the actual operation handle them
-  }
-}
-
-async function readFileFromProject(basePath, filePath) {
-  const fullPath = join(basePath, filePath);
-
-  // Security: ensure path is within project (resolves symlinks)
-  await assertPathWithinBase(fullPath, basePath);
-  
-  try {
-    const content = await readFile(fullPath, 'utf-8');
-    const stats = await stat(fullPath);
-    return { 
-      success: true, 
+    const content = await sandboxMgr.readFile(agentId, filePath);
+    const lines = content.split('\n').length;
+    return {
+      success: true,
       result: content,
-      meta: { path: filePath, size: stats.size, lines: content.split('\n').length }
+      meta: { path: filePath, size: content.length, lines }
     };
   } catch (err) {
-    if (err.code === 'ENOENT') {
+    if (err.message.includes('No such file')) {
       return { success: false, error: `File not found: ${filePath}` };
     }
     throw err;
   }
 }
 
-async function writeFileToProject(basePath, filePath, content) {
-  const fullPath = join(basePath, filePath);
-
-  // Security: ensure path is within project (resolves symlinks)
-  await assertPathWithinBase(fullPath, basePath);
-  
-  // Create directory if needed
-  const dir = dirname(fullPath);
-  await mkdir(dir, { recursive: true });
-  
-  await writeFile(fullPath, content, 'utf-8');
-  const stats = await stat(fullPath);
-  
-  return { 
-    success: true, 
-    result: `File written: ${filePath} (${stats.size} bytes)`,
-    meta: { path: filePath, size: stats.size }
+async function toolWriteFile(sandboxMgr, agentId, filePath, content) {
+  await sandboxMgr.writeFile(agentId, filePath, content);
+  return {
+    success: true,
+    result: `File written: ${filePath} (${content.length} bytes)`,
+    meta: { path: filePath, size: content.length }
   };
 }
 
-async function listDirectory(basePath, dirPath) {
-  const fullPath = join(basePath, dirPath);
-
-  // Security: ensure path is within project (resolves symlinks)
-  await assertPathWithinBase(fullPath, basePath);
-  
-  const entries = await readdir(fullPath, { withFileTypes: true });
-  const items = entries
-    .filter(e => !e.name.startsWith('.'))
-    .map(e => ({
-      name: e.name,
-      type: e.isDirectory() ? 'dir' : 'file'
-    }))
-    .sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  
-  const result = items.map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.name}`).join('\n');
-  return { 
-    success: true, 
-    result: result || '(empty directory)',
-    meta: { path: dirPath, count: items.length }
+async function toolListDir(sandboxMgr, agentId, dirPath) {
+  const output = await sandboxMgr.listDir(agentId, dirPath);
+  return {
+    success: true,
+    result: output || '(empty directory)',
+    meta: { path: dirPath }
   };
 }
 
-async function searchInFiles(basePath, pattern, query) {
-  // Use grep for searching (available on Linux/Docker)
-  // Security: use execFile with argument arrays to prevent shell injection
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const execFileAsync = promisify(execFile);
-
-  try {
-    // Phase 1: find matching files
-    const { stdout } = await execFileAsync(
-      'grep', ['-r', '-l', '-i', '--include', pattern, '--', query, '.'],
-      { cwd: basePath, timeout: 10000, maxBuffer: 1024 * 512 }
-    ).catch(err => {
-      if (err.code === 1) return { stdout: '' }; // grep returns 1 when no matches
-      throw err;
-    });
-
-    const files = stdout.trim().split('\n').filter(Boolean).slice(0, 20);
-
-    if (files.length === 0) {
-      return { success: true, result: 'No matches found' };
-    }
-
-    // Phase 2: get context for each match (first 5 files)
-    const results = [];
-    for (const file of files.slice(0, 5)) {
-      const cleanPath = file.replace('./', '');
-      try {
-        const { stdout: grepOut } = await execFileAsync(
-          'grep', ['-n', '-i', '-m', '5', '--', query, file],
-          { cwd: basePath, timeout: 5000 }
-        );
-        results.push(`📄 ${cleanPath}:\n${grepOut.trim()}`);
-      } catch {
-        results.push(`📄 ${cleanPath}`);
-      }
-    }
-
-    if (files.length > 5) {
-      results.push(`... and ${files.length - 5} more files`);
-    }
-
-    return {
-      success: true,
-      result: results.join('\n\n'),
-      meta: { matches: files.length, query }
-    };
-  } catch (err) {
-    if (err.code === 1) {
-      return { success: true, result: 'No matches found' };
-    }
-    return { success: false, error: err.message };
-  }
+async function toolSearchFiles(sandboxMgr, agentId, pattern, query) {
+  const output = await sandboxMgr.searchFiles(agentId, pattern, query);
+  return {
+    success: true,
+    result: output || 'No matches found',
+    meta: { query }
+  };
 }
 
-async function runCommand(basePath, command) {
+async function toolRunCommand(sandboxMgr, agentId, command) {
   try {
-    // If RUN_AS_USER is set, wrap the command with runuser to execute as that user
-    const runAsUser = process.env.RUN_AS_USER;
-    const actualCommand = runAsUser
-      ? `runuser -l ${runAsUser} -c ${JSON.stringify(`cd ${basePath} && ${command}`)}`
-      : command;
-
-    const { stdout, stderr } = await execAsync(actualCommand, {
-      cwd: basePath,
-      timeout: 30000,
-      maxBuffer: 1024 * 1024, // 1MB
-      shell: '/bin/bash',
-      env: { ...process.env, PATH: process.env.PATH } // Don't leak extra env vars
-    });
-
-    const output = stdout || stderr || '(no output)';
+    const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: 30000 });
+    const output = (stdout || stderr || '(no output)').slice(0, 10000);
     return {
       success: true,
-      result: output.slice(0, 10000), // Limit output size
-      meta: { command, truncated: output.length > 10000 }
+      result: output,
+      meta: { command, truncated: (stdout || '').length > 10000 }
     };
   } catch (err) {
     return {
       success: false,
       error: err.message,
-      result: err.stderr || err.stdout
+      result: err.stderr || err.stdout || ''
     };
   }
 }
 
-async function appendToFile(basePath, filePath, content) {
-  const fullPath = join(basePath, filePath);
-
-  // Security: ensure path is within project (resolves symlinks)
-  await assertPathWithinBase(fullPath, basePath);
-  
-  // Create directory if needed
-  const dir = dirname(fullPath);
-  await mkdir(dir, { recursive: true });
-  
-  // Read existing content if file exists
-  let existing = '';
-  try {
-    existing = await readFile(fullPath, 'utf-8');
-  } catch {
-    // File doesn't exist, that's fine
-  }
-  
-  const newContent = existing + (existing.endsWith('\n') ? '' : '\n') + content;
-  await writeFile(fullPath, newContent, 'utf-8');
-  
-  return { 
-    success: true, 
+async function toolAppendFile(sandboxMgr, agentId, filePath, content) {
+  await sandboxMgr.appendFile(agentId, filePath, content);
+  return {
+    success: true,
     result: `Content appended to: ${filePath}`,
     meta: { path: filePath }
   };
 }
 
-const SCRIPTS_PATH = '/projects/LogsCrawler/scripts';
-
-async function gitCommitPush(basePath, message) {
+async function toolGitCommitPush(sandboxMgr, agentId, message) {
   const safeMsg = (message || 'update').replace(/"/g, '\\"');
-  const cmd = `cd "${basePath}" && git add -A && git commit -m "${safeMsg}" && git push`;
   try {
-    const runAsUser = process.env.RUN_AS_USER;
-    const actualCmd = runAsUser
-      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
-      : cmd;
-    const { stdout, stderr } = await execAsync(actualCmd, {
-      cwd: basePath,
-      timeout: 60000,
-      maxBuffer: 1024 * 1024,
-      shell: '/bin/bash'
-    });
+    const { stdout, stderr } = await sandboxMgr.exec(
+      agentId,
+      `git add -A && git commit -m "${safeMsg}" && git push`,
+      { timeout: 60000 }
+    );
     return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 10000) };
   } catch (err) {
     return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 5000) };
   }
 }
 
-async function buildImage(projectPath, version) {
-  if (!version) return { success: false, error: 'Version is required (e.g., 1.0)' };
-  const cmd = `cd "${SCRIPTS_PATH}" && bash build-push.sh "${projectPath}" "${version}"`;
-  try {
-    const runAsUser = process.env.RUN_AS_USER;
-    const actualCmd = runAsUser
-      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
-      : cmd;
-    const { stdout, stderr } = await execAsync(actualCmd, {
-      timeout: 600000, // 10 min for builds
-      maxBuffer: 5 * 1024 * 1024,
-      shell: '/bin/bash'
-    });
-    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 20000) };
-  } catch (err) {
-    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 10000) };
-  }
-}
+// ─── Tool Call Parsing ──────────────────────────────────────────────────────
 
-async function deployService(projectPath, version) {
-  if (!version) return { success: false, error: 'Version is required (e.g., 1.0)' };
-  const cmd = `cd "${SCRIPTS_PATH}" && bash deploy-service.sh "${projectPath}" "${version}"`;
-  try {
-    const runAsUser = process.env.RUN_AS_USER;
-    const actualCmd = runAsUser
-      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
-      : cmd;
-    const { stdout, stderr } = await execAsync(actualCmd, {
-      timeout: 300000, // 5 min for deploy
-      maxBuffer: 5 * 1024 * 1024,
-      shell: '/bin/bash'
-    });
-    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 20000) };
-  } catch (err) {
-    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 10000) };
-  }
-}
-
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'git_commit_push', 'build_image', 'deploy_service'];
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'git_commit_push'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -478,10 +240,6 @@ function jsonToToolCall(name, args) {
       return { tool: 'report_error', args: [args.description || args.message || args.error || ''] };
     case 'git_commit_push':
       return { tool: 'git_commit_push', args: [args.message || args.msg || ''] };
-    case 'build_image':
-      return { tool: 'build_image', args: [args.version || ''] };
-    case 'deploy_service':
-      return { tool: 'deploy_service', args: [args.version || ''] };
     default:
       return null;
   }
@@ -489,11 +247,6 @@ function jsonToToolCall(name, args) {
 
 // ── Balanced parsing helpers ─────────────────────────────────────────────────
 
-/**
- * Starting right after an opening '(', find the index of the matching ')'.
- * Tracks triple-quotes ("""), double quotes, single quotes, escape sequences,
- * and nested parentheses.  Returns -1 if unbalanced.
- */
 function _findBalancedClose(text, start) {
   let depth = 1;
   let inTripleQuote = false;
@@ -501,24 +254,14 @@ function _findBalancedClose(text, start) {
   let inSingleQuote = false;
 
   for (let i = start; i < text.length; i++) {
-    // Triple-quote toggle (check before single double-quote)
     if (text[i] === '"' && text[i + 1] === '"' && text[i + 2] === '"') {
       if (inTripleQuote) { inTripleQuote = false; i += 2; continue; }
       if (!inDoubleQuote && !inSingleQuote) { inTripleQuote = true; i += 2; continue; }
     }
     if (inTripleQuote) continue;
-
-    // Escape sequences inside quotes
-    if (text[i] === '\\' && (inDoubleQuote || inSingleQuote) && i + 1 < text.length) {
-      i++; continue;
-    }
-
-    // Double-quote toggle
+    if (text[i] === '\\' && (inDoubleQuote || inSingleQuote) && i + 1 < text.length) { i++; continue; }
     if (text[i] === '"' && !inSingleQuote) { inDoubleQuote = !inDoubleQuote; continue; }
-    // Single-quote toggle
     if (text[i] === "'" && !inDoubleQuote) { inSingleQuote = !inSingleQuote; continue; }
-
-    // Parentheses tracking — only outside quotes
     if (!inDoubleQuote && !inSingleQuote) {
       if (text[i] === '(') depth++;
       else if (text[i] === ')') {
@@ -530,10 +273,6 @@ function _findBalancedClose(text, start) {
   return -1;
 }
 
-/**
- * Find the index of the first comma that sits at the top level —
- * i.e. not inside quotes or nested parentheses.
- */
 function _findTopLevelComma(text) {
   let inTripleQuote = false;
   let inDoubleQuote = false;
@@ -546,11 +285,9 @@ function _findTopLevelComma(text) {
       if (!inDoubleQuote && !inSingleQuote) { inTripleQuote = true; i += 2; continue; }
     }
     if (inTripleQuote) continue;
-
     if (text[i] === '\\' && (inDoubleQuote || inSingleQuote)) { i++; continue; }
     if (text[i] === '"' && !inSingleQuote) { inDoubleQuote = !inDoubleQuote; continue; }
     if (text[i] === "'" && !inDoubleQuote) { inSingleQuote = !inSingleQuote; continue; }
-
     if (!inDoubleQuote && !inSingleQuote) {
       if (text[i] === '(') depth++;
       if (text[i] === ')') depth--;
@@ -565,19 +302,15 @@ export function parseToolCalls(response) {
   const toolCalls = [];
 
   // ── Phase 1: Parse <tool_call> JSON blocks ──────────────────────────
-  // Many Ollama models (Qwen, DeepSeek, Mistral, etc.) emit tool calls as JSON
-  // inside <tool_call>...</tool_call> tags.
   const jsonCallPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi;
   let jm;
   while ((jm = jsonCallPattern.exec(response)) !== null) {
     const content = jm[1].trim();
-    // Skip if content looks like our @tool() format (handled in phase 2)
     if (content.startsWith('@')) continue;
     try {
       const parsed = JSON.parse(content);
       const name = parsed.name || parsed.function?.name || parsed.tool;
       let args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
-      // Some models stringify the arguments
       if (typeof args === 'string') {
         try { args = JSON.parse(args); } catch { args = {}; }
       }
@@ -589,18 +322,17 @@ export function parseToolCalls(response) {
         }
       }
     } catch {
-      // Not valid JSON — will be handled in phase 2
+      // Not valid JSON
     }
   }
 
   // ── Phase 2: Parse @tool(args) with balanced parenthesis tracking ───
-  // Handles nested quotes, parentheses, and escaped characters correctly.
   const cleaned = response
-    .replace(/<\|?\/?tool_call\|?>/gi, '')    // <tool_call>, </tool_call>, <|tool_call|>, etc.
-    .replace(/<\|?\/?tool_use\|?>/gi, '')     // <tool_use> variants
-    .replace(/\[TOOL_CALLS?\]/gi, '');        // [TOOL_CALL] / [TOOL_CALLS] markers
+    .replace(/<\|?\/?tool_call\|?>/gi, '')
+    .replace(/<\|?\/?tool_use\|?>/gi, '')
+    .replace(/\[TOOL_CALLS?\]/gi, '');
 
-  const SINGLE_ARG_TOOLS = ['read_file', 'list_dir', 'run_command', 'report_error', 'git_commit_push', 'build_image', 'deploy_service'];
+  const SINGLE_ARG_TOOLS = ['read_file', 'list_dir', 'run_command', 'report_error', 'git_commit_push'];
   const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files'];
   const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...MULTI_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');
@@ -609,24 +341,19 @@ export function parseToolCalls(response) {
   while ((startMatch = toolStartPattern.exec(cleaned)) !== null) {
     const toolName = startMatch[1].toLowerCase();
     const argsStart = startMatch.index + startMatch[0].length;
-
-    // Find the matching closing ')' using balanced tracking
     const closeIdx = _findBalancedClose(cleaned, argsStart);
-    if (closeIdx === -1) continue; // unbalanced — skip
+    if (closeIdx === -1) continue;
 
     const argsString = cleaned.slice(argsStart, closeIdx);
     let args;
 
     if (SINGLE_ARG_TOOLS.includes(toolName)) {
-      // Single argument: the entire content between parens
       args = [sanitizeArg(argsString.trim())];
     } else {
-      // Multi-arg (write_file, append_file, search_files): split at first top-level comma
       const commaIdx = _findTopLevelComma(argsString);
       if (commaIdx !== -1) {
         const first = argsString.slice(0, commaIdx).trim();
         let second = argsString.slice(commaIdx + 1).trim();
-        // Strip triple-quote delimiters for write_file/append_file content
         if (second.startsWith('"""') && second.endsWith('"""')) {
           second = second.slice(3, -3);
         }
@@ -636,15 +363,12 @@ export function parseToolCalls(response) {
       }
     }
 
-    // Dedup: check if this tool call was already parsed in phase 1
     const isDuplicate = toolCalls.some(
       tc => tc.tool === toolName && tc.args[0] === args[0]
     );
     if (!isDuplicate) {
       toolCalls.push({ tool: toolName, args });
     }
-
-    // Advance regex past this match to avoid partial re-matches
     toolStartPattern.lastIndex = closeIdx + 1;
   }
 
@@ -652,7 +376,6 @@ export function parseToolCalls(response) {
   if (toolCalls.length > 0) {
     console.log(`🔧 [ToolParse] Found ${toolCalls.length} tool call(s): ${toolCalls.map(t => `@${t.tool}(${(t.args[0] || '').slice(0, 60)}${(t.args[0] || '').length > 60 ? '...' : ''})`).join(', ')}`);
   } else {
-    // Check if there are tool-like patterns that we failed to parse
     const rawToolMentions = (response.match(/@(read_file|write_file|list_dir|search_files|run_command|append_file)/gi) || []).length;
     const toolCallTags = (response.match(/<tool_call>/gi) || []).length;
     if (rawToolMentions > 0 || toolCallTags > 0) {

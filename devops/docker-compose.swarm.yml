@@ -10,19 +10,22 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS}
-      - HOST_CODE_PATH=${HOST_CODE_PATH}
       - DATABASE_URL=${DATABASE_URL}
-      - RUN_AS_USER=${RUN_AS_USER}
-      - RUN_AS_UID=${RUN_AS_UID}
-      - RUN_AS_GID=${RUN_AS_GID}
       - GIT_USER_NAME=${GIT_USER_NAME}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL}
+      - SANDBOX_IMAGE=${DOCKER_REGISTRY_URL}/agentswarm-sandbox:latest
+      - SSH_KEYS_HOST_PATH=${SSH_KEYS_HOST_PATH}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_USER=${GITHUB_USER}
+      - MCP_ENDPOINT=http://swarm-manager:8000/ai/mcp
     volumes:
-      - ${HOST_CODE_PATH}:/projects  # Writable for agent tools
-      - /home/gildas/.ssh:/root/.ssh:ro  # SSH keys for GitHub access
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker CLI access
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker CLI for sandbox management
+      - ${SSH_KEYS_HOST_PATH}:/root/.ssh:ro  # SSH keys (also mounted into sandboxes)
     networks:
       - proxy
       - postgresqlcluster_internal
@@ -96,6 +99,14 @@ services:
         - "traefik.http.routers.agentswarm-frontend-http.entrypoints=web"
         - "traefik.http.routers.agentswarm-frontend-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.agentswarm-frontend-http.service=noop@internal"
+
+  sandbox:
+    image: ${DOCKER_REGISTRY_URL}/agentswarm-sandbox:latest
+    build:
+      context: ..
+      dockerfile: server/sandbox.Dockerfile
+    deploy:
+      replicas: 0  # Never deployed as a service — only built and pushed to registry
 
 networks:
   proxy:

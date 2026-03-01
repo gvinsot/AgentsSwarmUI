@@ -292,40 +292,48 @@ MAINTENANCE:
     builtin: true,
     instructions: `You know how to integrate and deploy projects on the Swarm cluster.
 
+Build and deploy operations are managed via MCP tools (available through the swarm-manager service).
+
 ## DEPLOYMENT TOOLS
 
 @git_commit_push(message) — Stage all changes, commit, and push to remote
   Example: @git_commit_push(feat: add deployment config)
 
-@build_image(version) — Build and push Docker images to the registry
-  Example: @build_image(1.0)
-
-@deploy_service(version) — Deploy the service stack to Docker Swarm
-  Example: @deploy_service(1.0)
+MCP tools (call via the MCP endpoint):
+- list_stacks() — List all deployed stacks and their services
+- build_stack(stack_name, version) — Build and push Docker images for a stack
+- deploy_stack(stack_name, version) — Deploy a stack to Docker Swarm
+- get_action_status(action_id) — Check progress of a build or deploy action
+- list_containers(stack_name) — List running containers for a stack
+- list_computers() — List available Swarm nodes
+- search_logs(stack_name, query, since) — Search service logs
 
 ## DEPLOYMENT WORKFLOW
 
 1. FIRST TIME SETUP — If the project has no devops/ folder yet:
-   - Read the setup guide: @read_file(/projects/LogsCrawler/PROMPT_PROJECTS.md)
+   - Read the existing project structure and understand what needs to be containerized
    - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts
    - Commit and push: @git_commit_push(feat: add deployment config)
 
 2. BUILD — Build and push Docker images:
-   @build_image(1.0)
+   - Use the MCP build_stack tool with the project name and version
    - Images are built from devops/docker-compose.swarm.yml
-   - Tagged with semantic version (auto-incremented patch) and pushed to registry.methodinfo.fr
+   - Tagged with semantic version and pushed to the registry
+   - Check build progress with get_action_status
    - Fix any build errors before proceeding
 
 3. DEPLOY — Deploy to the Swarm cluster:
-   @deploy_service(1.0)
-   - Runs devops/docker-compose.pre.sh if present
-   - Updates image tags and deploys with docker stack deploy
-   - Runs devops/docker-compose.post.sh if present
+   - Use the MCP deploy_stack tool with the project name and version
+   - Check deploy progress with get_action_status
+   - Verify services are running with list_stacks or list_containers
 
 ## MONITORING
-- Check services: @run_command(docker stack services <stack-name>)
-- View logs: @run_command(docker service logs -f <stack-name>_<service>)
-- Check replicas: @run_command(docker service ps <stack-name>_<service>)`
+- Use list_stacks() and list_containers() to check service health
+- Use search_logs() to investigate issues
+- Use list_computers() to check node availability
+
+## IMPORTANT
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
   },
   {
     id: 'skill-basic-tools',
@@ -353,7 +361,8 @@ WORKFLOW:
 IMPORTANT:
 - Each tool call MUST be on its own line
 - Do NOT add decorative text before tool calls — just call the tool directly
-- NEVER stop yourself — keep working until the task is fully complete`
+- NEVER stop yourself — keep working until the task is fully complete
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
   },
   {
     id: 'skill-delegation',

@@ -1,17 +1,17 @@
 import { v4 as uuidv4 } from 'uuid';
-import { readdir, access } from 'fs/promises';
-import { constants } from 'fs';
 import { createProvider } from './llmProviders.js';
 import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
 import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
+import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
 
 export class AgentManager {
-  constructor(io, skillManager) {
+  constructor(io, skillManager, sandboxManager) {
     this.agents = new Map();
     this.abortControllers = new Map(); // Track ongoing requests by agentId
     this._taskQueues = new Map();       // Per-agent sequential task queue
     this.io = io;
     this.skillManager = skillManager;
+    this.sandboxManager = sandboxManager;
   }
 
   async loadFromDatabase() {
@@ -124,6 +124,12 @@ export class AgentManager {
   delete(id) {
     const agent = this.agents.get(id);
     if (!agent) return false;
+    // Destroy sandbox container
+    if (this.sandboxManager) {
+      this.sandboxManager.destroySandbox(id).catch(err => {
+        console.error(`Failed to destroy sandbox for agent ${id}:`, err.message);
+      });
+    }
     this.agents.delete(id);
     deleteAgentFromDb(id); // Remove from database
     this._emit('agent:deleted', { id });
@@ -288,11 +294,12 @@ export class AgentManager {
       
       // Inject tool definitions and project working directory
       if (agent.project) {
-        systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nAll project files are located in /projects/${agent.project}/ — you MUST only read and write files within this directory.`;
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nUse relative paths from the project root.`;
+        systemContent += `\nIMPORTANT: Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`;
         systemContent += `\n${TOOL_DEFINITIONS}`;
         systemContent += `\nAlways use these tools to read, analyze, and modify code. Do not just discuss - take action!`;
       } else {
-        systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is selected. All projects are available under /projects/ — explore this directory to find the relevant project.`;
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is selected. Ask to be assigned to a project before using file or command tools.`;
       }
 
       // For Ollama models: suppress native/built-in tool calling (e.g. gpt-oss harmony tools)
@@ -1062,6 +1069,20 @@ export class AgentManager {
     
     console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project})`);
 
+    // Ensure sandbox container is running with the correct project
+    if (agent.project && this.sandboxManager) {
+      try {
+        const gitUrl = await getProjectGitUrl(agent.project);
+        if (gitUrl) {
+          await this.sandboxManager.ensureSandbox(agentId, agent.project, gitUrl);
+        } else {
+          console.warn(`⚠️  [Sandbox] No git URL found for project "${agent.project}"`);
+        }
+      } catch (err) {
+        console.error(`⚠️  [Sandbox] Failed to ensure sandbox for ${agent.name}:`, err.message);
+      }
+    }
+
     const results = [];
     for (const call of toolCalls) {
       // ── Handle @report_error() specially ─────────────────────────────
@@ -1115,7 +1136,7 @@ export class AgentManager {
           args: call.args
         });
 
-        const result = await executeTool(call.tool, call.args, agent.project);
+        const result = await executeTool(call.tool, call.args, agent.project, this.sandboxManager, agentId);
         results.push({
           tool: call.tool,
           args: call.args,
@@ -1463,23 +1484,8 @@ export class AgentManager {
    */
   async _listAvailableProjects() {
     try {
-      let basePath = '/projects';
-      try {
-        await access(basePath, constants.R_OK);
-      } catch {
-        basePath = process.env.HOST_CODE_PATH;
-        if (!basePath) return [];
-        try {
-          await access(basePath, constants.R_OK);
-        } catch {
-          return [];
-        }
-      }
-      const entries = await readdir(basePath, { withFileTypes: true });
-      return entries
-        .filter(e => e.isDirectory() && !e.name.startsWith('.'))
-        .map(e => e.name)
-        .sort();
+      const repos = await listStarredRepos();
+      return repos.map(r => r.name).sort();
     } catch {
       return [];
     }

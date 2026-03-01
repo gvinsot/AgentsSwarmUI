@@ -49,8 +49,6 @@ Once specs are defined, you MUST execute everything autonomously without asking 
 
 Do NOT just discuss what you would do - actually do it using the tools!
 
-You have local access to all projects in /projects/
-
 When you receive a request, always start with a short sentence to summarize what you understand. After that be concise and do a quick summary at the end.
 
 ## WORKFLOW
@@ -59,7 +57,8 @@ When you receive a request, always start with a short sentence to summarize what
 3. Plan your approach, then execute it step by step using tools
 4. After implementing, verify your work (run tests, re-read files to confirm changes)
 5. If you encounter errors, debug and fix them yourself — try alternative approaches before giving up
-6. Report what you did with a concise summary
+6. Push your changes: @git_commit_push(feat: description of changes)
+7. Report what you did with a concise summary
 
 ## PRINCIPLES
 - TAKE ACTION: Do NOT describe what you would do — actually do it with tools
@@ -69,7 +68,7 @@ When you receive a request, always start with a short sentence to summarize what
 - FOLLOW CONVENTIONS: Match the existing code style, patterns, and architecture of the project
 - If you use new libraries/frameworks, look for documentation first
 - NEVER stop yourself with messages like "[Agent stopped after N turns]" or "I'll stop here" — you have NO turn limit. Keep working until the task is fully complete. Use as many tool calls as needed.
-
+- IMPORTANT: Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
 `,
     temperature: 0.3,
     maxTokens: 128000,

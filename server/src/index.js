@@ -9,6 +9,7 @@ import { projectRoutes } from './routes/projects.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
+import { SandboxManager } from './services/sandboxManager.js';
 import { skillRoutes } from './routes/skills.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
@@ -32,7 +33,8 @@ const io = new Server(httpServer, {
 
 // Global state
 const skillManager = new SkillManager();
-const agentManager = new AgentManager(io, skillManager);
+const sandboxManager = new SandboxManager();
+const agentManager = new AgentManager(io, skillManager, sandboxManager);
 
 // Middleware
 app.use(cors({
@@ -83,13 +85,25 @@ async function start() {
   await skillManager.loadFromDatabase();
   await skillManager.seedDefaults(BUILTIN_SKILLS);
   await agentManager.loadFromDatabase();
-  
+
+  // Clean up orphaned sandbox containers from previous runs
+  await sandboxManager.cleanupOrphans();
+
   httpServer.listen(PORT, () => {
     console.log(`\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
     console.log(`   WebSocket ready for connections`);
     console.log(`   Default login: admin / swarm2026\n`);
   });
 }
+
+// Graceful shutdown: destroy all sandbox containers
+async function shutdown() {
+  console.log('\n🛑 Shutting down — destroying sandbox containers...');
+  await sandboxManager.destroyAll();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 start().catch(err => {
   console.error('Failed to start server:', err);
