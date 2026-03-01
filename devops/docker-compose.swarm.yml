@@ -18,6 +18,8 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - RUN_AS_USER=${RUN_AS_USER}
+      - RUN_AS_UID=${RUN_AS_UID}
+      - RUN_AS_GID=${RUN_AS_GID}
       - GIT_USER_NAME=${GIT_USER_NAME}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL}
     volumes:
