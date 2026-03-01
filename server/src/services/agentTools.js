@@ -51,6 +51,17 @@ You can interact with project files using these commands. Use the exact format s
   The error will be escalated to the leader agent and displayed in the UI.
   Example: @report_error(Cannot compile the project: missing dependency 'express'. Please install it or update package.json.)
 
+@git_commit_push(message) - Stage all changes, commit with the given message, and push to remote
+  Example: @git_commit_push(feat: add user authentication)
+
+@build_image(version) - Build and push Docker images for the current project to the registry
+  Runs the standard build-push pipeline (builds from devops/docker-compose.swarm.yml, tags, pushes to registry)
+  Example: @build_image(1.0)
+
+@deploy_service(version) - Deploy the current project to the Docker Swarm cluster
+  Runs pre-deployment hooks, updates image tags, deploys the stack, runs post-deployment hooks
+  Example: @deploy_service(1.0)
+
 IMPORTANT:
 - File paths are relative to the project root
 - Always read files before modifying them
@@ -132,7 +143,16 @@ export async function executeTool(toolName, args, projectPath) {
       
       case 'append_file':
         return await appendToFile(basePath, normalizePath(cleanArgs[0], basePath), cleanArgs[1]);
-      
+
+      case 'git_commit_push':
+        return await gitCommitPush(basePath, cleanArgs[0]);
+
+      case 'build_image':
+        return await buildImage(projectPath, cleanArgs[0]);
+
+      case 'deploy_service':
+        return await deployService(projectPath, cleanArgs[0]);
+
       default:
         return { success: false, error: `Unknown tool: ${toolName}` };
     }
@@ -376,7 +396,67 @@ async function appendToFile(basePath, filePath, content) {
   };
 }
 
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error'];
+const SCRIPTS_PATH = '/projects/LogsCrawler/scripts';
+
+async function gitCommitPush(basePath, message) {
+  const safeMsg = (message || 'update').replace(/"/g, '\\"');
+  const cmd = `cd "${basePath}" && git add -A && git commit -m "${safeMsg}" && git push`;
+  try {
+    const runAsUser = process.env.RUN_AS_USER;
+    const actualCmd = runAsUser
+      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
+      : cmd;
+    const { stdout, stderr } = await execAsync(actualCmd, {
+      cwd: basePath,
+      timeout: 60000,
+      maxBuffer: 1024 * 1024,
+      shell: '/bin/bash'
+    });
+    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 10000) };
+  } catch (err) {
+    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 5000) };
+  }
+}
+
+async function buildImage(projectPath, version) {
+  if (!version) return { success: false, error: 'Version is required (e.g., 1.0)' };
+  const cmd = `cd "${SCRIPTS_PATH}" && bash build-push.sh "${projectPath}" "${version}"`;
+  try {
+    const runAsUser = process.env.RUN_AS_USER;
+    const actualCmd = runAsUser
+      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
+      : cmd;
+    const { stdout, stderr } = await execAsync(actualCmd, {
+      timeout: 600000, // 10 min for builds
+      maxBuffer: 5 * 1024 * 1024,
+      shell: '/bin/bash'
+    });
+    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 20000) };
+  } catch (err) {
+    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 10000) };
+  }
+}
+
+async function deployService(projectPath, version) {
+  if (!version) return { success: false, error: 'Version is required (e.g., 1.0)' };
+  const cmd = `cd "${SCRIPTS_PATH}" && bash deploy-service.sh "${projectPath}" "${version}"`;
+  try {
+    const runAsUser = process.env.RUN_AS_USER;
+    const actualCmd = runAsUser
+      ? `runuser -l ${runAsUser} -c ${JSON.stringify(cmd)}`
+      : cmd;
+    const { stdout, stderr } = await execAsync(actualCmd, {
+      timeout: 300000, // 5 min for deploy
+      maxBuffer: 5 * 1024 * 1024,
+      shell: '/bin/bash'
+    });
+    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 20000) };
+  } catch (err) {
+    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 10000) };
+  }
+}
+
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'git_commit_push', 'build_image', 'deploy_service'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -396,6 +476,12 @@ function jsonToToolCall(name, args) {
       return { tool: 'search_files', args: [args.pattern || args.glob || '*', args.query || args.search || ''] };
     case 'report_error':
       return { tool: 'report_error', args: [args.description || args.message || args.error || ''] };
+    case 'git_commit_push':
+      return { tool: 'git_commit_push', args: [args.message || args.msg || ''] };
+    case 'build_image':
+      return { tool: 'build_image', args: [args.version || ''] };
+    case 'deploy_service':
+      return { tool: 'deploy_service', args: [args.version || ''] };
     default:
       return null;
   }
@@ -514,7 +600,7 @@ export function parseToolCalls(response) {
     .replace(/<\|?\/?tool_use\|?>/gi, '')     // <tool_use> variants
     .replace(/\[TOOL_CALLS?\]/gi, '');        // [TOOL_CALL] / [TOOL_CALLS] markers
 
-  const SINGLE_ARG_TOOLS = ['read_file', 'list_dir', 'run_command', 'report_error'];
+  const SINGLE_ARG_TOOLS = ['read_file', 'list_dir', 'run_command', 'report_error', 'git_commit_push', 'build_image', 'deploy_service'];
   const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files'];
   const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...MULTI_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');

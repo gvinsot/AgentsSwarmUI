@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, PhoneOff, RefreshCw, Loader2 } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, RefreshCw, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { api } from '../api';
 
 const STATUS = {
@@ -25,6 +25,7 @@ const STATUS_LABELS = {
 export default function VoiceChatTab({ agent, socket }) {
   const [status, setStatus] = useState(STATUS.DISCONNECTED);
   const [muted, setMuted] = useState(false);
+  const [speakerOff, setSpeakerOff] = useState(false);
   const [error, setError] = useState(null);
   const [delegationTarget, setDelegationTarget] = useState(null);
   const [events, setEvents] = useState([]); // timeline of voice events
@@ -240,6 +241,14 @@ export default function VoiceChatTab({ agent, socket }) {
     }
   }, [muted]);
 
+  // ── Speaker On/Off ──────────────────────────────────────────────
+  const toggleSpeaker = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = !speakerOff;
+      setSpeakerOff(!speakerOff);
+    }
+  }, [speakerOff]);
+
   // ── Cleanup ───────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
     if (dcRef.current) {
@@ -371,6 +380,18 @@ export default function VoiceChatTab({ agent, socket }) {
                 title={muted ? 'Unmute' : 'Mute'}
               >
                 {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              </button>
+
+              <button
+                onClick={toggleSpeaker}
+                className={`p-3 rounded-full transition-colors ${
+                  speakerOff
+                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                    : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+                }`}
+                title={speakerOff ? 'Activer le haut-parleur' : 'Couper le haut-parleur'}
+              >
+                {speakerOff ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </button>
 
               <button

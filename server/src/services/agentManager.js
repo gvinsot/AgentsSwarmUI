@@ -248,6 +248,8 @@ export class AgentManager {
         systemContent += `\n- @get_project(AgentName) — Check which project an agent is currently assigned to.`;
         systemContent += `\n- @clear_context(AgentName) — Clear an agent's entire conversation history, giving them a fresh start.`;
         systemContent += `\n- @rollback(AgentName, X) — Remove the last X messages from an agent's conversation history.`;
+        systemContent += `\n- @stop_agent(AgentName) — Stop an agent's current task immediately.`;
+        systemContent += `\n- @list_projects() — List all available projects.`;
         if (projectNames.length > 0) {
           systemContent += `\nAvailable projects: ${projectNames.join(', ')}`;
         }
@@ -830,6 +832,37 @@ export class AgentManager {
           console.log(`⏪ [Rollback] Removed last ${removeCount} message(s) from ${targetAgent.name} (${historyLen} → ${newLength})`);
           if (streamCallback) streamCallback(`\n⏪ Rolled back ${removeCount} message(s) from ${targetAgent.name} (${historyLen} → ${newLength} messages)\n`);
         }
+
+        // ── Process @list_projects commands ──────────────────────────────
+        if (/@list_projects\s*\(\s*\)/i.test(responseForParsing)) {
+          const projectNames = await this._listAvailableProjects();
+          if (projectNames.length > 0) {
+            console.log(`📂 [List Projects] ${projectNames.length} projects found`);
+            if (streamCallback) streamCallback(`\n📂 Available projects: ${projectNames.join(', ')}\n`);
+          } else {
+            if (streamCallback) streamCallback(`\n📂 No projects found\n`);
+          }
+        }
+
+        // ── Process @stop_agent commands ─────────────────────────────────
+        const stopAgentCommands = this._parseStopAgent(responseForParsing);
+        for (const cmd of stopAgentCommands) {
+          const targetAgent = Array.from(this.agents.values()).find(
+            a => a.name.toLowerCase() === cmd.targetAgentName.toLowerCase() && a.id !== id && a.enabled !== false
+          );
+          if (!targetAgent) {
+            console.log(`⚠️  [Stop Agent] Agent "${cmd.targetAgentName}" not found`);
+            if (streamCallback) streamCallback(`\n⚠️ Agent "${cmd.targetAgentName}" not found in swarm\n`);
+            continue;
+          }
+          const stopped = this.stopAgent(targetAgent.id);
+          if (stopped) {
+            console.log(`🛑 [Stop Agent] Stopped ${targetAgent.name}`);
+            if (streamCallback) streamCallback(`\n🛑 Stopped agent ${targetAgent.name}\n`);
+          } else {
+            if (streamCallback) streamCallback(`\n⚠️ ${targetAgent.name} is not currently busy\n`);
+          }
+        }
       }
 
       this.setStatus(id, 'idle');
@@ -1231,6 +1264,35 @@ export class AgentManager {
 
     const results = [];
     const re = /@clear_context\s*\(/gi;
+    let reMatch;
+    while ((reMatch = re.exec(text)) !== null) {
+      if (isInsideCodeBlock(reMatch.index)) continue;
+      const startAfterParen = reMatch.index + reMatch[0].length;
+      const closeIdx = text.indexOf(')', startAfterParen);
+      if (closeIdx === -1) continue;
+      const targetAgentName = text.slice(startAfterParen, closeIdx).trim().replace(/^["']|["']$/g, '');
+      if (targetAgentName) {
+        results.push({ targetAgentName });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Parse @stop_agent(AgentName) commands from leader output.
+   * Returns array of { targetAgentName }.
+   */
+  _parseStopAgent(text) {
+    const codeBlockRanges = [];
+    const cbRe = /```[\s\S]*?```|`[^`]*`/g;
+    let cbMatch;
+    while ((cbMatch = cbRe.exec(text)) !== null) {
+      codeBlockRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length });
+    }
+    const isInsideCodeBlock = (pos) => codeBlockRanges.some(r => pos >= r.start && pos < r.end);
+
+    const results = [];
+    const re = /@stop_agent\s*\(/gi;
     let reMatch;
     while ((reMatch = re.exec(text)) !== null) {
       if (isInsideCodeBlock(reMatch.index)) continue;

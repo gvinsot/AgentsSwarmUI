@@ -292,26 +292,40 @@ MAINTENANCE:
     builtin: true,
     instructions: `You know how to integrate and deploy projects on the Swarm cluster.
 
-DEPLOYMENT METHODOLOGY:
+## DEPLOYMENT TOOLS
+
+@git_commit_push(message) — Stage all changes, commit, and push to remote
+  Example: @git_commit_push(feat: add deployment config)
+
+@build_image(version) — Build and push Docker images to the registry
+  Example: @build_image(1.0)
+
+@deploy_service(version) — Deploy the service stack to Docker Swarm
+  Example: @deploy_service(1.0)
+
+## DEPLOYMENT WORKFLOW
+
 1. FIRST TIME SETUP — If the project has no devops/ folder yet:
-   - Read and follow the instructions in /projects/LogsCrawler/PROMPT_PROJECTS.md
-   - This will scaffold the necessary Docker and deployment configuration
+   - Read the setup guide: @read_file(/projects/LogsCrawler/PROMPT_PROJECTS.md)
+   - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts
+   - Commit and push: @git_commit_push(feat: add deployment config)
 
-2. COMMIT & PUSH your changes to the repository:
-   @run_command(git add -A && git commit -m "feat: deployment setup" && git push)
+2. BUILD — Build and push Docker images:
+   @build_image(1.0)
+   - Images are built from devops/docker-compose.swarm.yml
+   - Tagged with semantic version (auto-incremented patch) and pushed to registry.methodinfo.fr
+   - Fix any build errors before proceeding
 
-3. BUILD & PUSH the Docker image:
-   @run_command(cd /projects/LogsCrawler/scripts && bash build-push.sh "{{ProjectName}}" 1.0 main)
-   - Replace {{ProjectName}} with the actual project name
-   - If there are errors, fix them before proceeding
+3. DEPLOY — Deploy to the Swarm cluster:
+   @deploy_service(1.0)
+   - Runs devops/docker-compose.pre.sh if present
+   - Updates image tags and deploys with docker stack deploy
+   - Runs devops/docker-compose.post.sh if present
 
-4. DEPLOY the service:
-   @run_command(cd /projects/LogsCrawler/scripts && bash deploy-service.sh "{{ProjectName}}" 1.0)
-
-IMPORTANT:
-- Always ensure the project builds successfully before deploying
-- Check logs after deployment to verify the service is healthy
-- Use docker service ls and docker service logs to monitor`
+## MONITORING
+- Check services: @run_command(docker stack services <stack-name>)
+- View logs: @run_command(docker service logs -f <stack-name>_<service>)
+- Check replicas: @run_command(docker service ps <stack-name>_<service>)`
   },
   {
     id: 'skill-basic-tools',
@@ -370,10 +384,14 @@ Example:
 @get_project(AgentName) — Check which project an agent is currently working on.
 @clear_context(AgentName) — Clear an agent's conversation history for a fresh start.
 @rollback(AgentName, X) — Remove the last X messages from an agent's history.
+@stop_agent(AgentName) — Stop an agent's current task immediately.
+@list_projects() — List all available projects.
 
 Examples:
 @get_project(Developer)
 @clear_context(QA Engineer)
-@rollback(Developer, 4)`
+@rollback(Developer, 4)
+@stop_agent(Developer)
+@list_projects()`
   },
 ];
