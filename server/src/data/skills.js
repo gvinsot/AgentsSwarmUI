@@ -283,4 +283,97 @@ MAINTENANCE:
 - Mark deprecated features clearly
 - Include last-updated dates`
   },
+  {
+    id: 'skill-swarm-devops',
+    name: 'Swarm DevOps',
+    description: 'Deploy projects to the Docker Swarm cluster using the standard build & deploy pipeline',
+    category: 'devops',
+    icon: '🚀',
+    builtin: true,
+    instructions: `You know how to integrate and deploy projects on the Swarm cluster.
+
+DEPLOYMENT METHODOLOGY:
+1. FIRST TIME SETUP — If the project has no devops/ folder yet:
+   - Read and follow the instructions in /projects/LogsCrawler/PROMPT_PROJECTS.md
+   - This will scaffold the necessary Docker and deployment configuration
+
+2. COMMIT & PUSH your changes to the repository:
+   @run_command(git add -A && git commit -m "feat: deployment setup" && git push)
+
+3. BUILD & PUSH the Docker image:
+   @run_command(cd /projects/LogsCrawler/scripts && bash build-push.sh "{{ProjectName}}" 1.0 main)
+   - Replace {{ProjectName}} with the actual project name
+   - If there are errors, fix them before proceeding
+
+4. DEPLOY the service:
+   @run_command(cd /projects/LogsCrawler/scripts && bash deploy-service.sh "{{ProjectName}}" 1.0)
+
+IMPORTANT:
+- Always ensure the project builds successfully before deploying
+- Check logs after deployment to verify the service is healthy
+- Use docker service ls and docker service logs to monitor`
+  },
+  {
+    id: 'skill-basic-tools',
+    name: 'Basic Tools',
+    description: 'Essential tools for reading, writing, searching files and running commands',
+    category: 'general',
+    icon: '🔧',
+    builtin: true,
+    instructions: `## TOOLS — USE THEM, DON'T JUST TALK
+- @read_file(path) — examine existing code
+- @list_dir(path) — explore project structure
+- @write_file(path, """content""") — create or update files
+- @search_files(pattern, query) — find relevant code
+- @run_command(command) — run tests, builds, git commands, etc.
+- Use @run_command to execute git commands
+
+WORKFLOW:
+1. Always start by exploring the project structure with @list_dir(.)
+2. Read existing files before modifying them with @read_file(path)
+3. Write changes with @write_file(path, """content""")
+4. Verify your changes by reading the file back
+5. Run tests or builds with @run_command(npm test) or similar
+6. Use @search_files(*.js, keyword) to find relevant code across the project
+
+IMPORTANT:
+- Each tool call MUST be on its own line
+- Do NOT add decorative text before tool calls — just call the tool directly
+- NEVER stop yourself — keep working until the task is fully complete`
+  },
+  {
+    id: 'skill-delegation',
+    name: 'Delegation & Management',
+    description: 'Delegate tasks to other agents, assign projects, and manage agent context',
+    category: 'general',
+    icon: '👥',
+    builtin: true,
+    instructions: `You can delegate tasks to other agents and manage them.
+
+## DELEGATION
+@delegate(AgentName, "detailed task description with specific file paths when possible")
+
+Examples:
+@delegate(Developer, "Read the auth module at src/auth/ and implement password reset functionality")
+@delegate(Security Analyst, "Scan the codebase for SQL injection vulnerabilities and fix any found")
+@delegate(QA Engineer, "Write unit tests for the user service and run them")
+
+You can delegate multiple tasks at once. After delegations complete, you will receive the results and should synthesize them.
+
+## PROJECT ASSIGNMENT
+@assign_project(AgentName, "project_name") — Assign an agent to a project so they can use file and command tools on it. Context is automatically saved and restored per-project.
+
+Example:
+@assign_project(Developer, "MyWebApp")
+
+## AGENT MANAGEMENT
+@get_project(AgentName) — Check which project an agent is currently working on.
+@clear_context(AgentName) — Clear an agent's conversation history for a fresh start.
+@rollback(AgentName, X) — Remove the last X messages from an agent's history.
+
+Examples:
+@get_project(Developer)
+@clear_context(QA Engineer)
+@rollback(Developer, 4)`
+  },
 ];

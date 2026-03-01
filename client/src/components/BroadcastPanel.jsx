@@ -352,15 +352,13 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], soc
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        {!skill.builtin && (
-                          <button
-                            onClick={() => handleDelete(skill.id)}
-                            className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors"
-                            title="Delete skill"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDelete(skill.id)}
+                          className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors"
+                          title="Delete skill"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   )}

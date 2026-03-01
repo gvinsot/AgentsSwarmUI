@@ -35,12 +35,16 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Create skills table if not exists
       await pool.query(`
         CREATE TABLE IF NOT EXISTS skills (
-          id UUID PRIMARY KEY,
+          id TEXT PRIMARY KEY,
           data JSONB NOT NULL,
           created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Migrate existing UUID column to TEXT if needed
+      await pool.query(`
+        ALTER TABLE skills ALTER COLUMN id TYPE TEXT
+      `).catch(() => {});
 
       console.log('✅ Skills table ready');
       return true;
