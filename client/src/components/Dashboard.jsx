@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
   RefreshCw, Zap, Settings, MessageSquare
@@ -8,6 +8,7 @@ import AgentDetail from './AgentDetail';
 import AddAgentModal from './AddAgentModal';
 import BroadcastPanel from './BroadcastPanel';
 import SwarmOverview from './SwarmOverview';
+import ActiveVoiceIndicator from './ActiveVoiceIndicator';
 
 export default function Dashboard({
   user, agents, templates, projects, skills, mcpServers, thinkingMap, streamBuffers,
@@ -17,6 +18,15 @@ export default function Dashboard({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // grid | list
+  const [detailActiveTab, setDetailActiveTab] = useState('chat');
+  const [requestedTab, setRequestedTab] = useState(null);
+
+  const handleNavigateToVoiceAgent = useCallback((agentId) => {
+    setSelectedAgent(agentId);
+    setRequestedTab('chat');
+    // Clear requestedTab after it's consumed
+    setTimeout(() => setRequestedTab(null), 100);
+  }, []);
 
   // Sort agents with 'Swarm Leaders' role first
   const sortedAgents = [...agents].sort((a, b) => {
@@ -192,6 +202,8 @@ export default function Dashboard({
                 onClose={() => setSelectedAgent(null)}
                 onSelectAgent={setSelectedAgent}
                 onRefresh={onRefresh}
+                onActiveTabChange={setDetailActiveTab}
+                requestedTab={requestedTab}
               />
             </div>
           )}
@@ -211,6 +223,14 @@ export default function Dashboard({
           }}
         />
       )}
+
+      {/* Voice session floating indicator */}
+      <ActiveVoiceIndicator
+        agents={sortedAgents}
+        selectedAgentId={selectedAgent}
+        activeTab={detailActiveTab}
+        onNavigateToAgent={handleNavigateToVoiceAgent}
+      />
     </div>
   );
 }

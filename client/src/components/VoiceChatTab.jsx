@@ -1,291 +1,31 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, MicOff, PhoneOff, RefreshCw, Loader2, Volume2, VolumeX } from 'lucide-react';
-import { api } from '../api';
+import { useVoiceSession, STATUS, STATUS_LABELS } from '../contexts/VoiceSessionContext';
 
-const STATUS = {
-  DISCONNECTED: 'disconnected',
-  CONNECTING: 'connecting',
-  CONNECTED: 'connected',
-  LISTENING: 'listening',
-  SPEAKING: 'speaking',
-  DELEGATING: 'delegating',
-  ERROR: 'error',
-};
+export default function VoiceChatTab({ agent }) {
+  const voice = useVoiceSession();
 
-const STATUS_LABELS = {
-  [STATUS.DISCONNECTED]: 'Disconnected',
-  [STATUS.CONNECTING]: 'Connecting...',
-  [STATUS.CONNECTED]: 'Connected — ready',
-  [STATUS.LISTENING]: 'Listening...',
-  [STATUS.SPEAKING]: 'Speaking...',
-  [STATUS.DELEGATING]: 'Delegating...',
-  [STATUS.ERROR]: 'Error',
-};
+  const isThisAgent = voice.isSessionForAgent(agent.id);
+  const isOtherAgentActive = voice.isActive && !isThisAgent;
 
-export default function VoiceChatTab({ agent, socket }) {
-  const [status, setStatus] = useState(STATUS.DISCONNECTED);
-  const [muted, setMuted] = useState(false);
-  const [speakerOff, setSpeakerOff] = useState(false);
-  const [error, setError] = useState(null);
-  const [delegationTarget, setDelegationTarget] = useState(null);
-  const [events, setEvents] = useState([]); // timeline of voice events
+  // When this agent's session is active, use voice state; otherwise show disconnected
+  const status = isThisAgent ? voice.status : STATUS.DISCONNECTED;
+  const isActive = isThisAgent && voice.isActive;
+  const error = isThisAgent ? voice.error : null;
+  const delegationTarget = isThisAgent ? voice.delegationTarget : null;
+  const events = isThisAgent ? voice.events : [];
 
-  const pcRef = useRef(null);
-  const dcRef = useRef(null);
-  const audioRef = useRef(null);
-  const localStreamRef = useRef(null);
+  const handleConnect = () => {
+    voice.connect(agent.id);
+  };
 
-  const addEvent = useCallback((type, text) => {
-    setEvents(prev => [...prev, { type, text, time: new Date() }]);
-  }, []);
-
-  // ── Request microphone permission ────────────────────────────────
-  const requestMicPermission = useCallback(async () => {
-    // Check if mediaDevices is available (requires HTTPS)
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Microphone access requires a secure connection (HTTPS).');
-    }
-
-    // Check current permission state if Permissions API is available
-    if (navigator.permissions && navigator.permissions.query) {
-      try {
-        const permStatus = await navigator.permissions.query({ name: 'microphone' });
-        if (permStatus.state === 'denied') {
-          throw new Error(
-            'Microphone access is blocked. Please open your browser settings and allow microphone access for this site, then try again.'
-          );
-        }
-      } catch (permErr) {
-        // Permissions API may not support 'microphone' query on some browsers — ignore and try getUserMedia directly
-        if (permErr.message.includes('blocked') || permErr.message.includes('settings')) {
-          throw permErr;
-        }
-      }
-    }
-
-    // Request microphone — this triggers the browser permission dialog if state is 'prompt'
-    return await navigator.mediaDevices.getUserMedia({ audio: true });
-  }, []);
-
-  // ── Connect to OpenAI Realtime via WebRTC ─────────────────────────
-  const connect = useCallback(async () => {
-    setStatus(STATUS.CONNECTING);
-    setError(null);
-
-    try {
-      // 1. Request microphone permission first
-      let stream;
-      try {
-        stream = await requestMicPermission();
-      } catch (micErr) {
-        // Provide user-friendly messages for common permission errors
-        const msg = micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError'
-          ? 'Microphone access denied. Please allow microphone permission in your browser settings and try again.'
-          : micErr.message;
-        throw new Error(msg);
-      }
-      localStreamRef.current = stream;
-
-      // 2. Get ephemeral token from our server
-      const tokenData = await api.getRealtimeToken(agent.id);
-      const { token, model } = tokenData;
-
-      // 3. Create RTCPeerConnection
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
-
-      // 4. Handle remote audio track (model's voice)
-      pc.ontrack = (e) => {
-        if (audioRef.current) {
-          audioRef.current.srcObject = e.streams[0];
-        }
-      };
-
-      // 5. Add local microphone track
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-      // 6. Create data channel for events
-      const dc = pc.createDataChannel('oai-events');
-      dcRef.current = dc;
-
-      dc.onopen = () => {
-        setStatus(STATUS.CONNECTED);
-        addEvent('system', 'Connected to voice agent');
-      };
-
-      dc.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          handleRealtimeEvent(event);
-        } catch (err) {
-          console.warn('Failed to parse realtime event:', err);
-        }
-      };
-
-      dc.onclose = () => {
-        setStatus(STATUS.DISCONNECTED);
-        addEvent('system', 'Disconnected');
-      };
-
-      // 7. Create offer and set local description
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // 8. Send SDP offer to OpenAI and get answer
-      const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/sdp'
-        },
-        body: offer.sdp
-      });
-
-      if (!sdpResponse.ok) {
-        throw new Error(`WebRTC SDP exchange failed: ${sdpResponse.status}`);
-      }
-
-      const answerSdp = await sdpResponse.text();
-      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-
-    } catch (err) {
-      console.error('Voice connect error:', err);
-      setError(err.message);
-      setStatus(STATUS.ERROR);
-      addEvent('error', err.message);
-      cleanup();
-    }
-  }, [agent.id, addEvent, requestMicPermission]);
-
-  // ── Handle events from the Realtime data channel ──────────────────
-  const handleRealtimeEvent = useCallback((event) => {
-    const type = event.type;
-
-    if (type === 'input_audio_buffer.speech_started') {
-      setStatus(STATUS.LISTENING);
-    } else if (type === 'input_audio_buffer.speech_stopped') {
-      setStatus(STATUS.CONNECTED);
-    } else if (type === 'response.audio.delta') {
-      setStatus(STATUS.SPEAKING);
-    } else if (type === 'response.audio.done') {
-      setStatus(STATUS.CONNECTED);
-    } else if (type === 'response.function_call_arguments.done') {
-      // Function call completed — handle delegation
-      if (event.name === 'delegate') {
-        try {
-          const args = JSON.parse(event.arguments);
-          handleDelegation(event.call_id, args.agent_name, args.task);
-        } catch (err) {
-          console.error('Failed to parse delegate args:', err);
-        }
-      }
-    } else if (type === 'error') {
-      setError(event.error?.message || 'Unknown error');
-      addEvent('error', event.error?.message || 'Unknown error');
-    }
-  }, [addEvent]);
-
-  // ── Handle delegation function calls ──────────────────────────────
-  const handleDelegation = useCallback(async (callId, agentName, task) => {
-    setStatus(STATUS.DELEGATING);
-    setDelegationTarget(agentName);
-    addEvent('delegation', `Delegating to ${agentName}: ${task}`);
-
-    // Relay delegation to server via Socket.IO
-    if (socket) {
-      socket.emit('voice:delegate', {
-        agentId: agent.id,
-        targetAgentName: agentName,
-        task
-      });
-
-      // Listen for result
-      const handler = (data) => {
-        if (data.agentId !== agent.id) return;
-        socket.off('voice:delegate:result', handler);
-
-        setDelegationTarget(null);
-        setStatus(STATUS.CONNECTED);
-
-        const resultText = data.error
-          ? `Error from ${agentName}: ${data.error}`
-          : data.result || 'Task completed (no details)';
-
-        addEvent('delegation-result', `${agentName}: ${resultText.slice(0, 200)}`);
-
-        // Send function call output back via data channel
-        if (dcRef.current?.readyState === 'open') {
-          dcRef.current.send(JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'function_call_output',
-              call_id: callId,
-              output: resultText.slice(0, 4000)
-            }
-          }));
-          // Trigger the model to respond to the function result
-          dcRef.current.send(JSON.stringify({ type: 'response.create' }));
-        }
-      };
-      socket.on('voice:delegate:result', handler);
-    }
-  }, [agent.id, socket, addEvent]);
-
-  // ── Mute/Unmute ───────────────────────────────────────────────────
-  const toggleMute = useCallback(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = muted; // toggle
-      });
-      setMuted(!muted);
-    }
-  }, [muted]);
-
-  // ── Speaker On/Off ──────────────────────────────────────────────
-  const toggleSpeaker = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.muted = !speakerOff;
-      setSpeakerOff(!speakerOff);
-    }
-  }, [speakerOff]);
-
-  // ── Cleanup ───────────────────────────────────────────────────────
-  const cleanup = useCallback(() => {
-    if (dcRef.current) {
-      dcRef.current.close();
-      dcRef.current = null;
-    }
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
-    }
-    if (audioRef.current) {
-      audioRef.current.srcObject = null;
-    }
-  }, []);
-
-  const disconnect = useCallback(() => {
-    cleanup();
-    setStatus(STATUS.DISCONNECTED);
-    addEvent('system', 'Session ended');
-  }, [cleanup, addEvent]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => cleanup();
-  }, [cleanup]);
-
-  const isActive = status !== STATUS.DISCONNECTED && status !== STATUS.ERROR;
+  const handleSwitchSession = () => {
+    voice.disconnect();
+    // Small delay to allow cleanup before reconnecting
+    setTimeout(() => voice.connect(agent.id), 150);
+  };
 
   return (
     <div className="flex flex-col h-full">
-      {/* Audio element for remote playback */}
-      <audio ref={audioRef} autoPlay playsInline />
-
       {/* Main animation zone */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
         {/* Central orb animation */}
@@ -361,41 +101,58 @@ export default function VoiceChatTab({ agent, socket }) {
         {/* Controls */}
         <div className="flex items-center gap-3">
           {!isActive ? (
-            <button
-              onClick={connect}
-              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors font-medium"
-            >
-              <Mic className="w-5 h-5" />
-              Start Voice Session
-            </button>
+            <div className="flex flex-col items-center gap-3">
+              {isOtherAgentActive ? (
+                <>
+                  <p className="text-dark-400 text-sm text-center">
+                    A voice session is active on another agent.
+                  </p>
+                  <button
+                    onClick={handleSwitchSession}
+                    className="flex items-center gap-2 px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-full transition-colors font-medium"
+                  >
+                    <RefreshCw className="w-5 h-5" />
+                    Switch Voice Session Here
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleConnect}
+                  className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors font-medium"
+                >
+                  <Mic className="w-5 h-5" />
+                  Start Voice Session
+                </button>
+              )}
+            </div>
           ) : (
             <>
               <button
-                onClick={toggleMute}
+                onClick={voice.toggleMute}
                 className={`p-3 rounded-full transition-colors ${
-                  muted
+                  voice.muted
                     ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                     : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
                 }`}
-                title={muted ? 'Unmute' : 'Mute'}
+                title={voice.muted ? 'Unmute' : 'Mute'}
               >
-                {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                {voice.muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
               </button>
 
               <button
-                onClick={toggleSpeaker}
+                onClick={voice.toggleSpeaker}
                 className={`p-3 rounded-full transition-colors ${
-                  speakerOff
+                  voice.speakerOff
                     ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                     : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
                 }`}
-                title={speakerOff ? 'Activer le haut-parleur' : 'Couper le haut-parleur'}
+                title={voice.speakerOff ? 'Activer le haut-parleur' : 'Couper le haut-parleur'}
               >
-                {speakerOff ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                {voice.speakerOff ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </button>
 
               <button
-                onClick={() => { disconnect(); connect(); }}
+                onClick={voice.reconnect}
                 className="p-3 rounded-full bg-dark-700 text-dark-300 hover:bg-dark-600 transition-colors"
                 title="Reconnect"
               >
@@ -403,7 +160,7 @@ export default function VoiceChatTab({ agent, socket }) {
               </button>
 
               <button
-                onClick={disconnect}
+                onClick={voice.disconnect}
                 className="p-3 rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                 title="End session"
               >

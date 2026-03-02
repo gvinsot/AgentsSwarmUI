@@ -3,6 +3,7 @@ import { connectSocket, disconnectSocket, getSocket } from './socket';
 import { api } from './api';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
+import { VoiceSessionProvider } from './contexts/VoiceSessionContext';
 import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 
 export default function App() {
@@ -16,7 +17,6 @@ export default function App() {
   const [thinkingMap, setThinkingMap] = useState({});
   const [streamBuffers, setStreamBuffers] = useState({});
   const [toasts, setToasts] = useState([]);
-  const [activeVoiceAgentId, setActiveVoiceAgentId] = useState(null);
 
   const showToast = useCallback((message, type = 'error', duration = 5000) => {
     const id = Date.now();
@@ -147,17 +147,6 @@ export default function App() {
       console.log('Handoff:', data);
     });
 
-    sock.on('voice:session:started', ({ agentId }) => {
-      setActiveVoiceAgentId(agentId || null);
-    });
-
-    sock.on('voice:agent:changed', ({ agentId }) => {
-      setActiveVoiceAgentId(agentId || null);
-    });
-
-    sock.on('voice:session:ended', () => {
-      setActiveVoiceAgentId(null);
-    });
   }, [loadData, showToast]);
 
   useEffect(() => {
@@ -191,16 +180,7 @@ export default function App() {
     disconnectSocket();
     setUser(null);
     setAgents([]);
-    setActiveVoiceAgentId(null);
   };
-
-  const handleVoiceAgentChange = useCallback((agentId) => {
-    setActiveVoiceAgentId(agentId || null);
-    const sock = getSocket();
-    if (sock) {
-      sock.emit('voice:agent:change', { agentId: agentId || null });
-    }
-  }, []);
 
   if (loading) {
     return (
@@ -218,7 +198,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <VoiceSessionProvider socket={getSocket()} agents={agents}>
       <Dashboard
         user={user}
         agents={agents}
@@ -232,8 +212,6 @@ export default function App() {
         onRefresh={loadData}
         socket={getSocket()}
         showToast={showToast}
-        activeVoiceAgentId={activeVoiceAgentId}
-        onVoiceAgentChange={handleVoiceAgentChange}
       />
 
       <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-md">
@@ -259,6 +237,6 @@ export default function App() {
           </div>
         ))}
       </div>
-    </>
+    </VoiceSessionProvider>
   );
 }

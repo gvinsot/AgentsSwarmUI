@@ -270,8 +270,27 @@ function RichAssistantContent({ text }) {
   );
 }
 
-export default function AgentDetail({ agent, agents, projects, skills, mcpServers = [], thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh }) {
+export default function AgentDetail({ agent, agents, projects, skills, mcpServers = [], thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh, onActiveTabChange, requestedTab }) {
   const [activeTab, setActiveTab] = useState('chat');
+
+  // Notify parent of active tab changes
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    onActiveTabChange?.(tabId);
+  };
+
+  // Notify parent of initial tab on mount
+  useEffect(() => {
+    onActiveTabChange?.('chat');
+  }, []);
+
+  // Handle requested tab from parent (e.g., from voice indicator navigation)
+  useEffect(() => {
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab);
+      onActiveTabChange?.(requestedTab);
+    }
+  }, [requestedTab]);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [history, setHistory] = useState([]);
@@ -423,7 +442,7 @@ export default function AgentDetail({ agent, agents, projects, skills, mcpServer
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-indigo-500 text-indigo-400'
@@ -441,7 +460,7 @@ export default function AgentDetail({ agent, agents, projects, skills, mcpServer
       <div className="flex-1 overflow-auto">
         {activeTab === 'chat' && (
           agent.isVoice ? (
-            <VoiceChatTab agent={agent} socket={socket} />
+            <VoiceChatTab agent={agent} />
           ) : (
             <ChatTab
               history={history}
