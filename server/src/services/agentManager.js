@@ -337,6 +337,7 @@ export class AgentManager {
         if (projectNames.length > 0) {
           systemContent += `\nAvailable projects: ${projectNames.join(', ')}`;
         }
+        systemContent += `\n\n⚠️ IMPORTANT: Before delegating tasks, ensure each agent has a project assigned. Agents without a project work at the workspace root and cannot access project files correctly. Use @assign_project(AgentName, "project_name") for any agent marked [no project] above before delegating code-related tasks to them. The system will auto-assign when possible, but explicit assignment is preferred.`;
       }
       
       // Append RAG context if available
@@ -385,7 +386,7 @@ export class AgentManager {
       if (agent.project) {
         systemContent += `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nUse relative paths from the project root.`;
       } else {
-        systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is assigned. You have access to ALL projects in your workspace. Use @list_dir(.) to discover available projects, then use project-name/path for files (e.g. @read_file(my-project/src/index.js)).`;
+        systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is assigned yet. Use @list_dir(.) to discover available projects. IMPORTANT: You MUST navigate into a project folder before working. Always prefix paths with the project name (e.g. @read_file(my-project/src/index.js), @list_dir(my-project/src)). Do NOT create or modify files at the workspace root — always work inside a project directory.`;
       }
       systemContent += `\nIMPORTANT: Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`;
       systemContent += `\n${TOOL_DEFINITIONS}`;
@@ -536,6 +537,23 @@ export class AgentManager {
                   Promise.resolve({ agentName: delegation.agentName, response: null, error: `Agent "${delegation.agentName}" not found or disabled in swarm` })
                 );
                 continue;
+              }
+
+              // ── Auto-propagate project to target agent if it has none ──
+              if (!targetAgent.project) {
+                // Try leader's project first, then fall back to only available project
+                let projectToAssign = agent.project;
+                if (!projectToAssign) {
+                  const availableProjects = await this._listAvailableProjects();
+                  if (availableProjects.length === 1) {
+                    projectToAssign = availableProjects[0];
+                  }
+                }
+                if (projectToAssign) {
+                  this.update(targetAgent.id, { project: projectToAssign });
+                  console.log(`📁 [Auto-assign] ${targetAgent.name} → project "${projectToAssign}" (inherited during delegation)`);
+                  if (streamCallback) streamCallback(`\n📁 Auto-assigned ${targetAgent.name} to project "${projectToAssign}"\n`);
+                }
               }
 
               console.log(`⚡ [Incremental] Detected delegation #${detectedCount}: ${delegation.agentName} — enqueuing`);
