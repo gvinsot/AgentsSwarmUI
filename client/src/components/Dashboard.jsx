@@ -18,10 +18,10 @@ export default function Dashboard({
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // grid | list
 
-  // Sort agents with 'swarm manager' role first
+  // Sort agents with 'Swarm Leaders' role first
   const sortedAgents = [...agents].sort((a, b) => {
-    if (a.role === 'swarm manager' && b.role !== 'swarm manager') return -1;
-    if (a.role !== 'swarm manager' && b.role === 'swarm manager') return 1;
+    if (a.role === 'Swarm Leaders' && b.role !== 'Swarm Leaders') return -1;
+    if (a.role !== 'Swarm Leaders' && b.role === 'Swarm Leaders') return 1;
     return 0;
   });
 
