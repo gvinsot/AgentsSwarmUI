@@ -9,6 +9,14 @@ import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
 import VoiceChatTab from './VoiceChatTab';
 
+
+const TODO_STATUS_META = {
+  pending: { label: 'Pending', dot: 'bg-amber-400', text: 'text-amber-300', ring: 'ring-amber-500/30 bg-amber-500/10' },
+  in_progress: { label: 'In Progress', dot: 'bg-blue-400 animate-pulse', text: 'text-blue-300', ring: 'ring-blue-500/30 bg-blue-500/10' },
+  error: { label: 'Error', dot: 'bg-red-400', text: 'text-red-300', ring: 'ring-red-500/30 bg-red-500/10' },
+  done: { label: 'Completed', dot: 'bg-emerald-400', text: 'text-emerald-300', ring: 'ring-emerald-500/30 bg-emerald-500/10' }
+};
+
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'todos', label: 'Tasks', icon: CheckSquare },
@@ -888,6 +896,8 @@ function TodoItem({ todo, executing, agentStatus, onToggle, onExecute, onDelete 
   const isInProgress = todo.status === 'in_progress';
   const isError = todo.status === 'error';
   const isPending = todo.status === 'pending' || !todo.status;
+  const statusKey = todo.status || 'pending';
+  const statusMeta = TODO_STATUS_META[statusKey] || TODO_STATUS_META.pending;
 
   const borderClass = isInProgress
     ? 'border-amber-500/50 bg-amber-500/5'
