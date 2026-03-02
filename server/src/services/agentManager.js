@@ -644,8 +644,8 @@ export class AgentManager {
       const isNudge = messageMeta?.type === 'nudge';
       const intentPatterns = /\b(i('ll| will| am going to|'m going to)|(let me|let's|going to|i'll|je vais|nous allons|on va|je m'en occupe|commençons|voyons|d'abord|ensuite|puis))\b|je [^ ]+(rai|erai)\b/i;
 
-      // Process tool calls if agent has a project (no limit — agent works until done)
-      if (agent.project) {
+      // Process tool calls if agent has a project OR MCP servers (no limit — agent works until done)
+      if (agent.project || agent.mcpServers?.length > 0) {
         const toolResults = await this._processToolCalls(id, responseForParsing, streamCallback, delegationDepth);
         if (toolResults.length > 0) {
           // Feed tool results back to agent and continue
@@ -683,15 +683,18 @@ export class AgentManager {
           return continuedResponse;
         }
 
-        // Nudge mechanism: if agent has a project, produced text but NO tool calls,
+        // Nudge mechanism: if agent has tools available, produced text but NO tool calls,
         // and this isn't already a nudge — the agent may have described intent without acting.
         // Send a follow-up to prompt it to use tools.
         if (!isNudge && responseForParsing.length > 20 && !isLeaderStreaming) {
           if (intentPatterns.test(responseForParsing)) {
             console.log(`🔄 [Nudge] Agent "${agent.name}" described intent but used no tools — nudging`);
+            const nudgeMessage = agent.project
+              ? '[SYSTEM] You described what you plan to do but did not use any tools. Stop describing and START ACTING NOW. Use @read_file, @write_file, @list_dir, @search_files, or @run_command to accomplish your task. Do NOT explain what you will do — just do it.'
+              : '[SYSTEM] You described what you plan to do but did not use any tools. Stop describing and START ACTING NOW. Use your available @mcp_call tools to accomplish your task. Do NOT explain what you will do — just do it.';
             const nudgeResponse = await this.sendMessage(
               id,
-              '[SYSTEM] You described what you plan to do but did not use any tools. Stop describing and START ACTING NOW. Use @read_file, @write_file, @list_dir, @search_files, or @run_command to accomplish your task. Do NOT explain what you will do — just do it.',
+              nudgeMessage,
               streamCallback,
               delegationDepth,
               { type: 'nudge' }
