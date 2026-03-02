@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { X, Cpu, Search, FolderCode, Crown, Mic } from 'lucide-react';
+import { X, Cpu, Search, FolderCode, Crown, Mic, Copy } from 'lucide-react';
 import { api } from '../api';
 
-export default function AddAgentModal({ templates, projects, onClose, onCreated }) {
+export default function AddAgentModal({ templates, projects, agents = [], onClose, onCreated }) {
   const [step, setStep] = useState('choose'); // choose | template | custom
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -314,6 +314,42 @@ export default function AddAgentModal({ templates, projects, onClose, onCreated 
                     <Cpu className="w-3.5 h-3.5" /> LLM Configuration
                   </h4>
                 </div>
+
+                {agents.length > 0 && (
+                  <div className="col-span-2">
+                    <label className="block text-xs text-dark-400 mb-1.5 flex items-center gap-1.5">
+                      <Copy className="w-3 h-3" /> Import config from existing agent
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const source = agents.find(a => a.id === e.target.value);
+                        if (source) {
+                          setForm(prev => ({
+                            ...prev,
+                            provider: source.provider || prev.provider,
+                            model: source.model || prev.model,
+                            endpoint: source.endpoint || prev.endpoint,
+                            apiKey: source.apiKey || prev.apiKey,
+                            temperature: source.temperature ?? prev.temperature,
+                            maxTokens: source.maxTokens ?? prev.maxTokens,
+                            contextLength: source.contextLength ?? prev.contextLength,
+                          }));
+                        }
+                        e.target.value = '';
+                      }}
+                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>Select an agent to copy its LLM settings...</option>
+                      {agents.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.icon} {a.name} — {a.provider}/{a.model}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-dark-500 mt-1">Copies provider, model, endpoint, API key, temperature, max tokens and context length</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs text-dark-400 mb-1.5">Provider *</label>

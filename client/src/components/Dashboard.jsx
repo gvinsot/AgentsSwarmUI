@@ -203,6 +203,7 @@ export default function Dashboard({
         <AddAgentModal
           templates={templates}
           projects={projects}
+          agents={agents}
           onClose={() => setShowAddModal(false)}
           onCreated={(agent) => {
             setShowAddModal(false);
