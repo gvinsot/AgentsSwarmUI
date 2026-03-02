@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Radio, Send, Loader2, FolderOpen, ChevronDown, StopCircle, Wrench, Plus, Pencil, Trash2, Check, Zap, MessageSquareOff, ScrollText, Plug, RefreshCw, ChevronRight } from 'lucide-react';
+import { X, Globe, Send, Loader2, FolderOpen, ChevronDown, StopCircle, Wrench, Plus, Pencil, Trash2, Check, Zap, MessageSquareOff, ScrollText, Plug, RefreshCw, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cleanToolSyntax } from './AgentDetail';
 import { api } from '../api';
@@ -15,7 +15,7 @@ const categoryColors = {
 const getCategoryClass = (cat) => categoryColors[cat] || categoryColors.general;
 
 const TABS = [
-  { id: 'broadcast', label: 'Broadcast', icon: Radio },
+  { id: 'broadcast', label: 'Global', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'actions', label: 'Actions', icon: Zap },
@@ -88,7 +88,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
     };
 
     const handleError = (data) => {
-      console.error('Broadcast error:', data.error);
+      console.error('Global error:', data.error);
       setSending(false);
     };
 
@@ -255,7 +255,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-dark-700 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Radio className="w-4 h-4 text-amber-400" />
+            <Globe className="w-4 h-4 text-amber-400" />
             <h3 className="font-semibold text-dark-100 text-sm">Control Panel</h3>
             <span className="text-xs text-dark-400">({agents.length} agents)</span>
           </div>
@@ -376,7 +376,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                   className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-dark-900 font-medium rounded-xl disabled:opacity-40 transition-colors flex items-center gap-2 self-end"
                 >
                   {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  <span className="hidden sm:inline">{sending ? 'Sending...' : 'Broadcast'}</span>
+                  <span className="hidden sm:inline">{sending ? 'Sending...' : 'Global'}</span>
                 </button>
               </div>
             </div>

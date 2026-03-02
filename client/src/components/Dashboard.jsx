@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  LogOut, Plus, Radio, LayoutGrid, List,
+  LogOut, Plus, Globe, LayoutGrid, List,
   RefreshCw, Zap, Settings, MessageSquare
 } from 'lucide-react';
 import AgentCard from './AgentCard';
@@ -67,8 +67,8 @@ export default function Dashboard({
                   : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100'
               }`}
             >
-              <Radio className="w-4 h-4" />
-              <span className="hidden sm:inline">Broadcast</span>
+              <Globe className="w-4 h-4" />
+              <span className="hidden sm:inline">Global</span>
             </button>
             <button
               onClick={onRefresh}
