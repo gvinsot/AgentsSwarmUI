@@ -17,16 +17,19 @@ export class MCPClient {
   /**
    * Connect to an MCP server. Tries Streamable HTTP first, falls back to SSE.
    * @param {string} url — MCP server endpoint (e.g. http://host:8000/ai/mcp)
+   * @param {object} [options]
+   * @param {Record<string,string>} [options.headers] — extra HTTP headers (e.g. Authorization)
    * @returns {{ serverInfo, tools[] }}
    */
-  async connect(url) {
+  async connect(url, { headers } = {}) {
     await this.close();
 
     const parsedUrl = new URL(url);
+    const requestInit = headers ? { headers } : undefined;
 
     // Try Streamable HTTP transport first
     try {
-      this.transport = new StreamableHTTPClientTransport(parsedUrl);
+      this.transport = new StreamableHTTPClientTransport(parsedUrl, { requestInit });
       this.client = new Client({ name: this.clientName, version: '1.0.0' });
       await this.client.connect(this.transport);
       console.log(`🔌 [MCP] Connected via Streamable HTTP to ${url}`);
@@ -35,7 +38,7 @@ export class MCPClient {
       console.log(`🔌 [MCP] Streamable HTTP failed for ${url}, trying SSE fallback...`);
       try {
         await this.close();
-        this.transport = new SSEClientTransport(parsedUrl);
+        this.transport = new SSEClientTransport(parsedUrl, { requestInit, eventSourceInit: { fetch: (u, init) => fetch(u, { ...init, ...requestInit }) } });
         this.client = new Client({ name: this.clientName, version: '1.0.0' });
         await this.client.connect(this.transport);
         console.log(`🔌 [MCP] Connected via SSE to ${url}`);

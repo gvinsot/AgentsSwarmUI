@@ -167,9 +167,9 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
   // ── MCP handlers ──────────────────────────────────────────────────
 
   const [showMcpCreate, setShowMcpCreate] = useState(false);
-  const [newMcp, setNewMcp] = useState({ name: '', url: '', description: '', icon: '🔌' });
+  const [newMcp, setNewMcp] = useState({ name: '', url: '', description: '', icon: '🔌', apiKey: '' });
   const [editingMcp, setEditingMcp] = useState(null);
-  const [editMcpForm, setEditMcpForm] = useState({ name: '', url: '', description: '', icon: '' });
+  const [editMcpForm, setEditMcpForm] = useState({ name: '', url: '', description: '', icon: '', apiKey: '' });
   const [expandedMcp, setExpandedMcp] = useState(null);
   const [connectingMcp, setConnectingMcp] = useState(null);
 
@@ -177,7 +177,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
     if (!newMcp.name.trim() || !newMcp.url.trim()) return;
     try {
       await api.createMcpServer(newMcp);
-      setNewMcp({ name: '', url: '', description: '', icon: '🔌' });
+      setNewMcp({ name: '', url: '', description: '', icon: '🔌', apiKey: '' });
       setShowMcpCreate(false);
       if (onRefresh) onRefresh();
     } catch (err) { console.error('Failed to create MCP server:', err); }
@@ -185,13 +185,17 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
 
   const startMcpEdit = (server) => {
     setEditingMcp(server.id);
-    setEditMcpForm({ name: server.name, url: server.url, description: server.description || '', icon: server.icon || '🔌' });
+    setEditMcpForm({ name: server.name, url: server.url, description: server.description || '', icon: server.icon || '🔌', apiKey: '' });
+    // apiKey starts empty in edit form — user types new key to change, leave blank to keep existing
   };
 
   const saveMcpEdit = async () => {
     if (!editingMcp || !editMcpForm.name.trim() || !editMcpForm.url.trim()) return;
     try {
-      await api.updateMcpServer(editingMcp, editMcpForm);
+      const payload = { ...editMcpForm };
+      // Only send apiKey if user typed a new one (blank = keep existing)
+      if (!payload.apiKey) delete payload.apiKey;
+      await api.updateMcpServer(editingMcp, payload);
       setEditingMcp(null);
       if (onRefresh) onRefresh();
     } catch (err) { console.error('Failed to update MCP server:', err); }
@@ -607,6 +611,14 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                     className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500"
                     placeholder="Short description"
                   />
+                  <input
+                    type="password"
+                    value={newMcp.apiKey}
+                    onChange={(e) => setNewMcp(s => ({ ...s, apiKey: e.target.value }))}
+                    className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500 font-mono"
+                    placeholder="API Key (optional — Bearer token)"
+                    autoComplete="off"
+                  />
                   <div className="flex gap-2 justify-end">
                     <button onClick={() => setShowMcpCreate(false)} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">Cancel</button>
                     <button
@@ -653,6 +665,14 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                           onChange={(e) => setEditMcpForm(f => ({ ...f, description: e.target.value }))}
                           className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500"
                           placeholder="Short description"
+                        />
+                        <input
+                          type="password"
+                          value={editMcpForm.apiKey}
+                          onChange={(e) => setEditMcpForm(f => ({ ...f, apiKey: e.target.value }))}
+                          className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500 font-mono"
+                          placeholder={server.hasApiKey ? 'API Key set — leave blank to keep, or type new key' : 'API Key (optional — Bearer token)'}
+                          autoComplete="off"
                         />
                         <div className="flex gap-2 justify-end">
                           <button onClick={() => setEditingMcp(null)} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">Cancel</button>

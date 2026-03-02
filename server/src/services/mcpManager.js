@@ -86,6 +86,7 @@ export class MCPManager {
       url: config.url || '',
       description: config.description || '',
       icon: config.icon || '🔌',
+      apiKey: config.apiKey || '',
       builtin: false,
       enabled: config.enabled !== false,
       tools: [],
@@ -110,8 +111,9 @@ export class MCPManager {
     const server = this.servers.get(id);
     if (!server) return null;
 
-    const allowed = ['name', 'url', 'description', 'icon', 'enabled'];
+    const allowed = ['name', 'url', 'description', 'icon', 'enabled', 'apiKey'];
     const urlChanged = updates.url !== undefined && updates.url !== server.url;
+    const apiKeyChanged = updates.apiKey !== undefined && updates.apiKey !== server.apiKey;
 
     for (const key of allowed) {
       if (updates[key] !== undefined) {
@@ -121,8 +123,8 @@ export class MCPManager {
     server.updatedAt = new Date().toISOString();
     await saveMcpServer(server);
 
-    // Reconnect if URL changed or enabled toggled
-    if (urlChanged || updates.enabled !== undefined) {
+    // Reconnect if URL, apiKey, or enabled changed
+    if (urlChanged || apiKeyChanged || updates.enabled !== undefined) {
       if (server.enabled && server.url) {
         this.connect(id).catch(() => {});
       } else {
@@ -158,7 +160,11 @@ export class MCPManager {
 
     try {
       const client = new MCPClient('AgentSwarm');
-      const { tools } = await client.connect(server.url);
+      const connectOpts = {};
+      if (server.apiKey) {
+        connectOpts.headers = { Authorization: `Bearer ${server.apiKey}` };
+      }
+      const { tools } = await client.connect(server.url, connectOpts);
 
       this.clients.set(id, client);
       server.tools = tools.map(t => ({
