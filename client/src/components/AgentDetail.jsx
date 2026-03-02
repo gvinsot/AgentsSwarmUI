@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Plug
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -15,6 +15,7 @@ const TABS = [
   { id: 'rag', label: 'RAG', icon: FileText },
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
   { id: 'skills', label: 'Skills', icon: Wrench },
+  { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'logs', label: 'Action Logs', icon: Activity },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -261,7 +262,7 @@ function RichAssistantContent({ text }) {
   );
 }
 
-export default function AgentDetail({ agent, agents, projects, skills, thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh }) {
+export default function AgentDetail({ agent, agents, projects, skills, mcpServers = [], thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh }) {
   const [activeTab, setActiveTab] = useState('chat');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -462,6 +463,9 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
         )}
         {activeTab === 'skills' && (
           <SkillsTab agent={agent} skills={skills} onRefresh={onRefresh} />
+        )}
+        {activeTab === 'mcp' && (
+          <McpTab agent={agent} mcpServers={mcpServers} onRefresh={onRefresh} />
         )}
         {activeTab === 'logs' && (
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />
@@ -1257,6 +1261,111 @@ function SkillsTab({ agent, skills, onRefresh }) {
           {filteredAvailable.length === 0 && !showCreate && (
             <p className="text-center text-dark-500 text-xs py-4">
               {availableSkills.length === 0 ? 'All skills assigned' : 'No skills in this category'}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MCP Tab ──────────────────────────────────────────────────────────────
+function McpTab({ agent, mcpServers, onRefresh }) {
+  const agentMcpIds = agent.mcpServers || [];
+  const assignedServers = mcpServers.filter(s => agentMcpIds.includes(s.id));
+  const availableServers = mcpServers.filter(s => !agentMcpIds.includes(s.id));
+
+  const statusColors = {
+    connected: 'bg-emerald-500',
+    connecting: 'bg-amber-500 animate-pulse',
+    error: 'bg-red-500',
+    disconnected: 'bg-dark-500',
+  };
+
+  const handleAssign = async (serverId) => {
+    await api.assignMcpServer(agent.id, serverId);
+    onRefresh();
+  };
+
+  const handleRemove = async (serverId) => {
+    await api.removeMcpServer(agent.id, serverId);
+    onRefresh();
+  };
+
+  return (
+    <div className="p-4 space-y-5 overflow-auto">
+      {/* Assigned MCP servers */}
+      <div>
+        <h3 className="font-medium text-dark-200 text-sm mb-3">
+          Assigned MCP Servers
+          <span className="ml-2 text-dark-400 font-normal">({assignedServers.length})</span>
+        </h3>
+        {assignedServers.length > 0 ? (
+          <div className="space-y-2">
+            {assignedServers.map(server => (
+              <div key={server.id} className="flex items-center gap-3 p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 group">
+                <span className="text-lg flex-shrink-0">{server.icon || '🔌'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-dark-200">{server.name}</span>
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[server.status] || statusColors.disconnected}`} />
+                    <span className="text-[10px] text-dark-500">{server.status}</span>
+                  </div>
+                  <p className="text-xs text-dark-400 truncate">
+                    {server.tools?.length || 0} tool{(server.tools?.length || 0) !== 1 ? 's' : ''}
+                    {server.description ? ` — ${server.description}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRemove(server.id)}
+                  className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                  title="Remove MCP server"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 border border-dashed border-dark-700 rounded-lg">
+            <Plug className="w-5 h-5 mx-auto mb-1 text-dark-500 opacity-40" />
+            <p className="text-dark-500 text-xs">No MCP servers assigned</p>
+          </div>
+        )}
+      </div>
+
+      {/* Available MCP servers */}
+      <div>
+        <h3 className="font-medium text-dark-200 text-sm mb-3">
+          Available MCP Servers
+          <span className="ml-2 text-dark-400 font-normal">({availableServers.length})</span>
+        </h3>
+        <div className="space-y-2">
+          {availableServers.map(server => (
+            <div key={server.id} className="flex items-center gap-3 p-3 bg-dark-800/30 rounded-lg border border-dark-700/30 hover:border-dark-600 transition-colors">
+              <span className="text-lg flex-shrink-0">{server.icon || '🔌'}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-dark-300">{server.name}</span>
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[server.status] || statusColors.disconnected}`} />
+                  <span className="text-[10px] text-dark-500">{server.status}</span>
+                </div>
+                <p className="text-xs text-dark-500 truncate">
+                  {server.tools?.length || 0} tool{(server.tools?.length || 0) !== 1 ? 's' : ''}
+                  {server.description ? ` — ${server.description}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => handleAssign(server.id)}
+                className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-md text-xs font-medium transition-colors flex-shrink-0"
+              >
+                Add
+              </button>
+            </div>
+          ))}
+          {availableServers.length === 0 && (
+            <p className="text-center text-dark-500 text-xs py-4">
+              {mcpServers.length === 0 ? 'No MCP servers configured — add one in Control Panel' : 'All servers assigned'}
             </p>
           )}
         </div>

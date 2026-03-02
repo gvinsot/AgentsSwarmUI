@@ -170,5 +170,20 @@ export function agentRoutes(agentManager) {
     res.json({ success: true });
   });
 
+  // ── MCP server assignment endpoints ─────────────────────────────
+  router.post('/:id/mcp-servers', (req, res) => {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ error: 'serverId required' });
+    const result = agentManager.assignMcpServer(req.params.id, serverId);
+    if (result === null) return res.status(404).json({ error: 'Agent not found' });
+    res.json({ success: true, mcpServers: result });
+  });
+
+  router.delete('/:id/mcp-servers/:serverId', (req, res) => {
+    const success = agentManager.removeMcpServer(req.params.id, req.params.serverId);
+    if (!success) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  });
+
   return router;
 }

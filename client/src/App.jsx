@@ -12,6 +12,7 @@ export default function App() {
   const [templates, setTemplates] = useState([]);
   const [projects, setProjects] = useState([]);
   const [skills, setSkills] = useState([]);
+  const [mcpServers, setMcpServers] = useState([]);
   const [thinkingMap, setThinkingMap] = useState({});
   const [streamBuffers, setStreamBuffers] = useState({});
   const [toasts, setToasts] = useState([]);
@@ -33,11 +34,12 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [agentsResult, templatesResult, projectsResult, skillsResult] = await Promise.allSettled([
+      const [agentsResult, templatesResult, projectsResult, skillsResult, mcpResult] = await Promise.allSettled([
         api.getAgents(),
         api.getTemplates(),
         api.getProjects(),
-        api.getSkills()
+        api.getSkills(),
+        api.getMcpServers()
       ]);
 
       if (agentsResult.status === 'fulfilled') {
@@ -64,6 +66,13 @@ export default function App() {
       } else {
         console.error('Failed to load skills:', skillsResult.reason);
         setSkills([]);
+      }
+
+      if (mcpResult.status === 'fulfilled') {
+        setMcpServers(mcpResult.value);
+      } else {
+        console.error('Failed to load MCP servers:', mcpResult.reason);
+        setMcpServers([]);
       }
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -216,6 +225,7 @@ export default function App() {
         templates={templates}
         projects={projects}
         skills={skills}
+        mcpServers={mcpServers}
         thinkingMap={thinkingMap}
         streamBuffers={streamBuffers}
         onLogout={handleLogout}

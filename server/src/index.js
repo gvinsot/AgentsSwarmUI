@@ -10,9 +10,12 @@ import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
 import { SandboxManager } from './services/sandboxManager.js';
+import { MCPManager } from './services/mcpManager.js';
 import { skillRoutes } from './routes/skills.js';
+import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
+import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase } from './services/database.js';
 
 const app = express();
@@ -34,7 +37,8 @@ const io = new Server(httpServer, {
 // Global state
 const skillManager = new SkillManager();
 const sandboxManager = new SandboxManager();
-const agentManager = new AgentManager(io, skillManager, sandboxManager);
+const mcpManager = new MCPManager();
+const agentManager = new AgentManager(io, skillManager, sandboxManager, mcpManager);
 
 // Middleware
 app.use(cors({
@@ -51,6 +55,7 @@ app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
 app.use('/api/projects', authenticateToken, projectRoutes());
 app.use('/api/skills', authenticateToken, skillRoutes(skillManager));
+app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 
 // Health check
@@ -84,6 +89,9 @@ async function start() {
   await initDatabase();
   await skillManager.loadFromDatabase();
   await skillManager.seedDefaults(BUILTIN_SKILLS);
+  await mcpManager.loadFromDatabase();
+  await mcpManager.seedDefaults(BUILTIN_MCP_SERVERS);
+  await mcpManager.connectAll();
   await agentManager.loadFromDatabase();
 
   // Clean up orphaned sandbox containers from previous runs
@@ -98,7 +106,8 @@ async function start() {
 
 // Graceful shutdown: destroy all sandbox containers
 async function shutdown() {
-  console.log('\n🛑 Shutting down — destroying sandbox containers...');
+  console.log('\n🛑 Shutting down — disconnecting MCP servers, destroying sandbox containers...');
+  await mcpManager.disconnectAll();
   await sandboxManager.destroyAll();
   process.exit(0);
 }

@@ -5,13 +5,14 @@ import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
 
 export class AgentManager {
-  constructor(io, skillManager, sandboxManager) {
+  constructor(io, skillManager, sandboxManager, mcpManager = null) {
     this.agents = new Map();
     this.abortControllers = new Map(); // Track ongoing requests by agentId
     this._taskQueues = new Map();       // Per-agent sequential task queue
     this.io = io;
     this.skillManager = skillManager;
     this.sandboxManager = sandboxManager;
+    this.mcpManager = mcpManager;
   }
 
   async loadFromDatabase() {
@@ -23,6 +24,7 @@ export class AgentManager {
         agent.currentThinking = '';
         agent.actionLogs = agent.actionLogs || [];
         agent.skills = agent.skills || [];
+        agent.mcpServers = agent.mcpServers || [];
         agent.isVoice = agent.isVoice || false;
         agent.voice = agent.voice || 'alloy';
         agent.projectContexts = agent.projectContexts || {};
@@ -53,6 +55,7 @@ export class AgentManager {
       todoList: config.todoList || [],
       ragDocuments: config.ragDocuments || [],
       skills: config.skills || [],
+      mcpServers: config.mcpServers || [],
       conversationHistory: [],
       actionLogs: [],
       currentThinking: '',
@@ -99,7 +102,7 @@ export class AgentManager {
 
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
-      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'handoffTargets',
+      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'voice', 'enabled'
     ];
 
@@ -280,6 +283,20 @@ export class AgentManager {
           systemContent += '\n\n--- Active Skills ---\n';
           for (const skill of resolvedSkills) {
             systemContent += `\n[${skill.name}]:\n${skill.instructions}\n`;
+          }
+        }
+      }
+
+      // Append MCP tools context if available
+      const agentMcpIds = agent.mcpServers || [];
+      if (agentMcpIds.length > 0 && this.mcpManager) {
+        const mcpTools = this.mcpManager.getToolsForAgent(agentMcpIds);
+        if (mcpTools.length > 0) {
+          systemContent += '\n\n--- MCP Tools ---\n';
+          systemContent += 'Call these tools using @mcp_call(server, tool, {"arg": "value"}) syntax.\n\n';
+          for (const t of mcpTools) {
+            const schema = t.inputSchema?.properties ? JSON.stringify(t.inputSchema.properties) : '{}';
+            systemContent += `@mcp_call(${t.serverName}, ${t.name}, ${schema}) — ${t.description || ''}\n`;
           }
         }
       }
@@ -1006,33 +1023,53 @@ export class AgentManager {
     if (!agent) return [];
     
     if (!agent.project) {
-      // Even without a project, @report_error should still work
-      const errorReportCalls = parseToolCalls(response).filter(c => c.tool === 'report_error');
-      if (errorReportCalls.length > 0) {
+      // Even without a project, @report_error and @mcp_call should still work
+      const noProjectCalls = parseToolCalls(response).filter(c => c.tool === 'report_error' || c.tool === 'mcp_call');
+      if (noProjectCalls.length > 0) {
         const results = [];
-        for (const call of errorReportCalls) {
-          const errorDescription = call.args[0] || 'Unknown error';
-          console.log(`🚨 [Error Report] Agent "${agent.name}" (no project) reports: ${errorDescription.slice(0, 200)}`);
-          this._emit('agent:error:report', {
-            agentId,
-            agentName: agent.name,
-            description: errorDescription,
-            timestamp: new Date().toISOString()
-          });
-          if (streamCallback) {
-            streamCallback(`\n\n🚨 **Error reported by ${agent.name}:** ${errorDescription}\n`);
+        for (const call of noProjectCalls) {
+          if (call.tool === 'report_error') {
+            const errorDescription = call.args[0] || 'Unknown error';
+            console.log(`🚨 [Error Report] Agent "${agent.name}" (no project) reports: ${errorDescription.slice(0, 200)}`);
+            this._emit('agent:error:report', {
+              agentId,
+              agentName: agent.name,
+              description: errorDescription,
+              timestamp: new Date().toISOString()
+            });
+            if (streamCallback) {
+              streamCallback(`\n\n🚨 **Error reported by ${agent.name}:** ${errorDescription}\n`);
+            }
+            results.push({
+              tool: 'report_error',
+              args: call.args,
+              success: true,
+              result: `Error reported: ${errorDescription}`,
+              isErrorReport: true
+            });
+          } else if (call.tool === 'mcp_call' && this.mcpManager) {
+            const [serverName, toolName, argsJson] = call.args;
+            const mcpLabel = `MCP: ${serverName} → ${toolName}`;
+            agent.currentThinking = mcpLabel;
+            this._emit('agent:thinking', { agentId, thinking: mcpLabel });
+            this._emit('agent:tool:start', { agentId, agentName: agent.name, tool: 'mcp_call', args: call.args });
+            try {
+              const parsedArgs = typeof argsJson === 'string' ? JSON.parse(argsJson) : (argsJson || {});
+              const mcpResult = await this.mcpManager.callToolByName(serverName, toolName, parsedArgs);
+              if (streamCallback) {
+                const icon = mcpResult.success ? '✓' : '✗';
+                streamCallback(`\n${icon} ${mcpLabel}\n`);
+              }
+              results.push({ tool: 'mcp_call', args: call.args, ...mcpResult });
+            } catch (mcpErr) {
+              if (streamCallback) streamCallback(`\n✗ ${mcpLabel}: ${mcpErr.message}\n`);
+              results.push({ tool: 'mcp_call', args: call.args, success: false, error: mcpErr.message });
+            }
           }
-          results.push({
-            tool: 'report_error',
-            args: call.args,
-            success: true,
-            result: `Error reported: ${errorDescription}`,
-            isErrorReport: true
-          });
         }
         return results;
       }
-      
+
       // Check if the response contains tool-like patterns — warn if tools are used without a project
       const hasToolSyntax = /@(read_file|write_file|list_dir|search_files|run_command|append_file)\s*\(/i.test(response)
         || /<tool_call>/i.test(response);
@@ -1110,6 +1147,34 @@ export class AgentManager {
           result: `Error reported: ${errorDescription}`,
           isErrorReport: true
         });
+        continue;
+      }
+
+      // ── Handle @mcp_call() — delegate to MCP server ────────────────
+      if (call.tool === 'mcp_call') {
+        const [serverName, toolName, argsJson] = call.args;
+        const mcpLabel = `MCP: ${serverName} → ${toolName}`;
+        agent.currentThinking = mcpLabel;
+        this._emit('agent:thinking', { agentId, thinking: mcpLabel });
+        this._emit('agent:tool:start', { agentId, agentName: agent.name, tool: 'mcp_call', args: call.args });
+
+        try {
+          const parsedArgs = typeof argsJson === 'string' ? JSON.parse(argsJson) : (argsJson || {});
+          const mcpResult = await this.mcpManager.callToolByName(serverName, toolName, parsedArgs);
+
+          if (streamCallback) {
+            const icon = mcpResult.success ? '✓' : '✗';
+            streamCallback(`\n${icon} ${mcpLabel}\n`);
+          }
+
+          results.push({ tool: 'mcp_call', args: call.args, ...mcpResult });
+          this._emit('agent:tool:result', { agentId, tool: 'mcp_call', args: call.args, success: mcpResult.success, preview: (mcpResult.result || '').slice(0, 300) });
+        } catch (mcpErr) {
+          console.error(`❌ [MCP] Agent "${agent.name}" mcp_call failed: ${mcpErr.message}`);
+          if (streamCallback) streamCallback(`\n✗ ${mcpLabel}: ${mcpErr.message}\n`);
+          results.push({ tool: 'mcp_call', args: call.args, success: false, error: mcpErr.message });
+          this._emit('agent:tool:error', { agentId, tool: 'mcp_call', error: mcpErr.message });
+        }
         continue;
       }
 
@@ -1763,6 +1828,28 @@ export class AgentManager {
     if (!agent) return false;
     if (!agent.skills) agent.skills = [];
     agent.skills = agent.skills.filter(id => id !== skillId);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return true;
+  }
+
+  // ─── MCP Servers ──────────────────────────────────────────────────
+  assignMcpServer(agentId, serverId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    if (!agent.mcpServers) agent.mcpServers = [];
+    if (agent.mcpServers.includes(serverId)) return agent.mcpServers;
+    agent.mcpServers.push(serverId);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return agent.mcpServers;
+  }
+
+  removeMcpServer(agentId, serverId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return false;
+    if (!agent.mcpServers) agent.mcpServers = [];
+    agent.mcpServers = agent.mcpServers.filter(id => id !== serverId);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;

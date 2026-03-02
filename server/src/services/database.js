@@ -47,6 +47,18 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       `).catch(() => {});
 
       console.log('✅ Skills table ready');
+
+      // Create mcp_servers table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+          id TEXT PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      console.log('✅ MCP servers table ready');
       return true;
     } catch (err) {
       console.error(`❌ Database connection failed (attempt ${attempt}/${retries}):`, err.message);
@@ -135,6 +147,45 @@ export async function deleteSkillFromDb(id) {
     await pool.query('DELETE FROM skills WHERE id = $1', [id]);
   } catch (err) {
     console.error('Failed to delete skill:', err.message);
+  }
+}
+
+// ── MCP Servers CRUD ────────────────────────────────────────────────────────
+
+export async function getAllMcpServers() {
+  if (!pool) return [];
+
+  try {
+    const result = await pool.query('SELECT data FROM mcp_servers ORDER BY created_at');
+    return result.rows.map(row => row.data);
+  } catch (err) {
+    console.error('Failed to load MCP servers:', err.message);
+    return [];
+  }
+}
+
+export async function saveMcpServer(server) {
+  if (!pool) return;
+
+  try {
+    await pool.query(
+      `INSERT INTO mcp_servers (id, data, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = NOW()`,
+      [server.id, JSON.stringify(server)]
+    );
+  } catch (err) {
+    console.error('Failed to save MCP server:', err.message);
+  }
+}
+
+export async function deleteMcpServerFromDb(id) {
+  if (!pool) return;
+
+  try {
+    await pool.query('DELETE FROM mcp_servers WHERE id = $1', [id]);
+  } catch (err) {
+    console.error('Failed to delete MCP server:', err.message);
   }
 }
 

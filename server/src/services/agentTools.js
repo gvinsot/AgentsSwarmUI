@@ -220,7 +220,7 @@ async function toolGitCommitPush(sandboxMgr, agentId, message) {
 
 // ─── Tool Call Parsing ──────────────────────────────────────────────────────
 
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'git_commit_push'];
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'git_commit_push', 'mcp_call'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -242,6 +242,8 @@ function jsonToToolCall(name, args) {
       return { tool: 'report_error', args: [args.description || args.message || args.error || ''] };
     case 'git_commit_push':
       return { tool: 'git_commit_push', args: [args.message || args.msg || ''] };
+    case 'mcp_call':
+      return { tool: 'mcp_call', args: [args.server || args.serverName || '', args.tool || args.toolName || '', JSON.stringify(args.arguments || args.args || {})] };
     default:
       return null;
   }
@@ -336,7 +338,8 @@ export function parseToolCalls(response) {
 
   const SINGLE_ARG_TOOLS = ['read_file', 'list_dir', 'run_command', 'report_error', 'git_commit_push'];
   const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files'];
-  const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...MULTI_ARG_TOOLS];
+  const THREE_ARG_TOOLS = ['mcp_call'];
+  const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');
   let startMatch;
 
@@ -351,6 +354,23 @@ export function parseToolCalls(response) {
 
     if (SINGLE_ARG_TOOLS.includes(toolName)) {
       args = [sanitizeArg(argsString.trim())];
+    } else if (THREE_ARG_TOOLS.includes(toolName)) {
+      // @mcp_call(server, tool, {json}) — split into 3 args
+      const firstComma = _findTopLevelComma(argsString);
+      if (firstComma !== -1) {
+        const first = argsString.slice(0, firstComma).trim();
+        const rest = argsString.slice(firstComma + 1).trim();
+        const secondComma = _findTopLevelComma(rest);
+        if (secondComma !== -1) {
+          const second = rest.slice(0, secondComma).trim();
+          const third = rest.slice(secondComma + 1).trim();
+          args = [sanitizeArg(first), sanitizeArg(second), third];
+        } else {
+          args = [sanitizeArg(first), sanitizeArg(rest), '{}'];
+        }
+      } else {
+        args = [sanitizeArg(argsString.trim()), '', '{}'];
+      }
     } else {
       const commaIdx = _findTopLevelComma(argsString);
       if (commaIdx !== -1) {

@@ -175,6 +175,50 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // MCP Servers
+  getMcpServers: () =>
+    fetch(`${API_BASE}/mcp-servers`, { headers: getHeaders() }).then(handleResponse),
+
+  createMcpServer: (config) =>
+    fetch(`${API_BASE}/mcp-servers`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(config)
+    }).then(handleResponse),
+
+  updateMcpServer: (id, updates) =>
+    fetch(`${API_BASE}/mcp-servers/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    }).then(handleResponse),
+
+  deleteMcpServer: (id) =>
+    fetch(`${API_BASE}/mcp-servers/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  connectMcpServer: (id) =>
+    fetch(`${API_BASE}/mcp-servers/${id}/connect`, {
+      method: 'POST',
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  // Agent MCP server assignment
+  assignMcpServer: (agentId, serverId) =>
+    fetch(`${API_BASE}/agents/${agentId}/mcp-servers`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ serverId })
+    }).then(handleResponse),
+
+  removeMcpServer: (agentId, serverId) =>
+    fetch(`${API_BASE}/agents/${agentId}/mcp-servers/${serverId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // Realtime (Voice)
   getRealtimeToken: (agentId) =>
     fetch(`${API_BASE}/realtime/token`, {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Radio, Send, Loader2, FolderOpen, ChevronDown, StopCircle, Wrench, Plus, Pencil, Trash2, Check, Zap, MessageSquareOff, ScrollText } from 'lucide-react';
+import { X, Radio, Send, Loader2, FolderOpen, ChevronDown, StopCircle, Wrench, Plus, Pencil, Trash2, Check, Zap, MessageSquareOff, ScrollText, Plug, RefreshCw, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cleanToolSyntax } from './AgentDetail';
 import { api } from '../api';
@@ -17,6 +17,7 @@ const getCategoryClass = (cat) => categoryColors[cat] || categoryColors.general;
 const TABS = [
   { id: 'broadcast', label: 'Broadcast', icon: Radio },
   { id: 'skills', label: 'Skills', icon: Wrench },
+  { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'actions', label: 'Actions', icon: Zap },
 ];
 
@@ -50,7 +51,14 @@ function ConfirmButton({ onConfirm, disabled, icon: Icon, label, confirmLabel = 
   );
 }
 
-export default function BroadcastPanel({ agents, projects = [], skills = [], socket, onClose, onRefresh }) {
+const statusColors = {
+  connected: 'bg-emerald-500',
+  connecting: 'bg-amber-500 animate-pulse',
+  error: 'bg-red-500',
+  disconnected: 'bg-dark-500',
+};
+
+export default function BroadcastPanel({ agents, projects = [], skills = [], mcpServers = [], socket, onClose, onRefresh }) {
   const [tab, setTab] = useState('broadcast');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -156,6 +164,56 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], soc
     } catch (err) { console.error('Failed to create skill:', err); }
   };
 
+  // ── MCP handlers ──────────────────────────────────────────────────
+
+  const [showMcpCreate, setShowMcpCreate] = useState(false);
+  const [newMcp, setNewMcp] = useState({ name: '', url: '', description: '', icon: '🔌' });
+  const [editingMcp, setEditingMcp] = useState(null);
+  const [editMcpForm, setEditMcpForm] = useState({ name: '', url: '', description: '', icon: '' });
+  const [expandedMcp, setExpandedMcp] = useState(null);
+  const [connectingMcp, setConnectingMcp] = useState(null);
+
+  const handleCreateMcp = async () => {
+    if (!newMcp.name.trim() || !newMcp.url.trim()) return;
+    try {
+      await api.createMcpServer(newMcp);
+      setNewMcp({ name: '', url: '', description: '', icon: '🔌' });
+      setShowMcpCreate(false);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to create MCP server:', err); }
+  };
+
+  const startMcpEdit = (server) => {
+    setEditingMcp(server.id);
+    setEditMcpForm({ name: server.name, url: server.url, description: server.description || '', icon: server.icon || '🔌' });
+  };
+
+  const saveMcpEdit = async () => {
+    if (!editingMcp || !editMcpForm.name.trim() || !editMcpForm.url.trim()) return;
+    try {
+      await api.updateMcpServer(editingMcp, editMcpForm);
+      setEditingMcp(null);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to update MCP server:', err); }
+  };
+
+  const handleDeleteMcp = async (id) => {
+    try {
+      await api.deleteMcpServer(id);
+      if (editingMcp === id) setEditingMcp(null);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to delete MCP server:', err); }
+  };
+
+  const handleConnectMcp = async (id) => {
+    setConnectingMcp(id);
+    try {
+      await api.connectMcpServer(id);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to connect MCP server:', err); }
+    finally { setConnectingMcp(null); }
+  };
+
   // ── Actions handlers ────────────────────────────────────────────────
 
   const handleClearAllChats = useCallback(async () => {
@@ -220,6 +278,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], soc
                 <Icon className="w-3.5 h-3.5" />
                 {t.label}
                 {t.id === 'skills' && <span className="text-xs opacity-60">({skills.length})</span>}
+                {t.id === 'mcp' && <span className="text-xs opacity-60">({mcpServers.length})</span>}
                 {t.id === 'actions' && busyCount > 0 && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 )}
@@ -491,6 +550,194 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], soc
                 ))}
                 {skills.length === 0 && (
                   <p className="text-center text-dark-500 text-xs py-8">No skills created yet</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── MCP TAB ─────────────────────────────────────── */}
+          {tab === 'mcp' && (
+            <div className="flex-1 flex flex-col min-h-0 p-5 gap-3">
+              {/* Header */}
+              <div className="flex items-center justify-between flex-shrink-0">
+                <h4 className="text-sm font-medium text-dark-200 flex items-center gap-2">
+                  <Plug className="w-4 h-4 text-emerald-400" />
+                  MCP Servers
+                  <span className="text-dark-400 font-normal">({mcpServers.length})</span>
+                </h4>
+                <button
+                  onClick={() => { setShowMcpCreate(!showMcpCreate); setEditingMcp(null); }}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New
+                </button>
+              </div>
+
+              {/* Create form */}
+              {showMcpCreate && (
+                <div className="p-3 bg-dark-800/50 rounded-lg border border-emerald-500/30 space-y-2 flex-shrink-0 animate-fadeIn">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newMcp.icon}
+                      onChange={(e) => setNewMcp(s => ({ ...s, icon: e.target.value }))}
+                      className="w-12 px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-center focus:outline-none focus:border-emerald-500"
+                      placeholder="🔌"
+                    />
+                    <input
+                      type="text"
+                      value={newMcp.name}
+                      onChange={(e) => setNewMcp(s => ({ ...s, name: e.target.value }))}
+                      className="flex-1 px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500"
+                      placeholder="Server name"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={newMcp.url}
+                    onChange={(e) => setNewMcp(s => ({ ...s, url: e.target.value }))}
+                    className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500 font-mono"
+                    placeholder="http://host:port/path"
+                  />
+                  <input
+                    type="text"
+                    value={newMcp.description}
+                    onChange={(e) => setNewMcp(s => ({ ...s, description: e.target.value }))}
+                    className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="Short description"
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setShowMcpCreate(false)} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">Cancel</button>
+                    <button
+                      onClick={handleCreateMcp}
+                      disabled={!newMcp.name.trim() || !newMcp.url.trim()}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-40"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* MCP server list (scrollable) */}
+              <div className="flex-1 overflow-auto min-h-0 space-y-1.5">
+                {mcpServers.map(server => (
+                  <div key={server.id}>
+                    {editingMcp === server.id ? (
+                      <div className="p-3 bg-dark-800/50 rounded-lg border border-emerald-500/30 space-y-2 animate-fadeIn">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={editMcpForm.icon}
+                            onChange={(e) => setEditMcpForm(f => ({ ...f, icon: e.target.value }))}
+                            className="w-12 px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-center focus:outline-none focus:border-emerald-500"
+                          />
+                          <input
+                            type="text"
+                            value={editMcpForm.name}
+                            onChange={(e) => setEditMcpForm(f => ({ ...f, name: e.target.value }))}
+                            className="flex-1 px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          value={editMcpForm.url}
+                          onChange={(e) => setEditMcpForm(f => ({ ...f, url: e.target.value }))}
+                          className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 font-mono focus:outline-none focus:border-emerald-500"
+                          placeholder="http://host:port/path"
+                        />
+                        <input
+                          type="text"
+                          value={editMcpForm.description}
+                          onChange={(e) => setEditMcpForm(f => ({ ...f, description: e.target.value }))}
+                          className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500"
+                          placeholder="Short description"
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => setEditingMcp(null)} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">Cancel</button>
+                          <button
+                            onClick={saveMcpEdit}
+                            disabled={!editMcpForm.name.trim() || !editMcpForm.url.trim()}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm disabled:opacity-40"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-dark-800/30 rounded-lg border border-dark-700/30 hover:border-dark-600 transition-colors group">
+                        <div className="flex items-center gap-3">
+                          <span className="text-base flex-shrink-0">{server.icon || '🔌'}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-dark-200">{server.name}</span>
+                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[server.status] || statusColors.disconnected}`} title={server.status} />
+                              <span className="text-[10px] text-dark-500">{server.status}</span>
+                              {server.builtin && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-400 border border-dark-600">builtin</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-dark-500 truncate">{server.description || server.url}</p>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                            <button
+                              onClick={() => handleConnectMcp(server.id)}
+                              disabled={connectingMcp === server.id}
+                              className="p-1.5 text-dark-400 hover:text-emerald-400 rounded-md hover:bg-dark-700 transition-colors"
+                              title="Reconnect"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${connectingMcp === server.id ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => startMcpEdit(server)}
+                              className="p-1.5 text-dark-400 hover:text-emerald-400 rounded-md hover:bg-dark-700 transition-colors"
+                              title="Edit server"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMcp(server.id)}
+                              className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors"
+                              title="Delete server"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setExpandedMcp(expandedMcp === server.id ? null : server.id)}
+                              className="p-1.5 text-dark-400 hover:text-dark-200 rounded-md hover:bg-dark-700 transition-colors"
+                              title="Show tools"
+                            >
+                              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedMcp === server.id ? 'rotate-90' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+                        {/* Expanded tool list */}
+                        {expandedMcp === server.id && server.tools && server.tools.length > 0 && (
+                          <div className="mt-2 ml-8 space-y-1 animate-fadeIn">
+                            <p className="text-[10px] text-dark-500 uppercase tracking-wider font-medium">
+                              {server.tools.length} tool{server.tools.length !== 1 ? 's' : ''}
+                            </p>
+                            {server.tools.map((tool, i) => (
+                              <div key={i} className="px-2.5 py-1.5 bg-dark-800/50 rounded border border-dark-700/30">
+                                <span className="text-xs font-mono text-emerald-400">{tool.name}</span>
+                                {tool.description && (
+                                  <p className="text-[11px] text-dark-500 mt-0.5">{tool.description}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {expandedMcp === server.id && (!server.tools || server.tools.length === 0) && (
+                          <p className="mt-2 ml-8 text-xs text-dark-500 italic">No tools discovered — try reconnecting</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {mcpServers.length === 0 && (
+                  <p className="text-center text-dark-500 text-xs py-8">No MCP servers configured</p>
                 )}
               </div>
             </div>
