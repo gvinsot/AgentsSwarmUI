@@ -296,7 +296,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
               {/* Project selector */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <FolderOpen className="w-3.5 h-3.5 text-dark-400" />
-                <span className="text-xs text-dark-400">Project:</span>
+                <span className="text-xs text-dark-400">Assign all agents to :</span>
                 <div className="relative">
                   <select
                     value={currentProject || ''}
