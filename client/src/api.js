@@ -15,6 +15,7 @@ async function handleResponse(res) {
 }
 
 export const api = {
+  // Auth
   login: (username, password) =>
     fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
@@ -25,6 +26,7 @@ export const api = {
   verify: () =>
     fetch(`${API_BASE}/auth/verify`, { headers: getHeaders() }).then(handleResponse),
 
+  // Agents
   getAgents: () =>
     fetch(`${API_BASE}/agents`, { headers: getHeaders() }).then(handleResponse),
 
@@ -94,6 +96,7 @@ export const api = {
       body: JSON.stringify({ project })
     }).then(handleResponse),
 
+  // Todos
   addTodo: (agentId, text) =>
     fetch(`${API_BASE}/agents/${agentId}/todos`, {
       method: 'POST',
@@ -113,12 +116,14 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Action Logs
   clearActionLogs: (agentId) =>
     fetch(`${API_BASE}/agents/${agentId}/action-logs`, {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),
 
+  // RAG
   addRagDoc: (agentId, name, content) =>
     fetch(`${API_BASE}/agents/${agentId}/rag`, {
       method: 'POST',
@@ -132,52 +137,31 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
-  getPlugins: () =>
-    fetch(`${API_BASE}/plugins`, { headers: getHeaders() }).then(handleResponse),
-
+  // Skills (marketplace)
   getSkills: () =>
-    fetch(`${API_BASE}/plugins`, { headers: getHeaders() }).then(handleResponse),
-
-  createPlugin: (config) =>
-    fetch(`${API_BASE}/plugins`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(config)
-    }).then(handleResponse),
-
-  updatePlugin: (id, updates) =>
-    fetch(`${API_BASE}/plugins/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(updates)
-    }).then(handleResponse),
-
-  deletePlugin: (id) =>
-    fetch(`${API_BASE}/plugins/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
+    fetch(`${API_BASE}/skills`, { headers: getHeaders() }).then(handleResponse),
 
   createSkill: (config) =>
-    fetch(`${API_BASE}/plugins`, {
+    fetch(`${API_BASE}/skills`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(config)
     }).then(handleResponse),
 
   updateSkill: (id, updates) =>
-    fetch(`${API_BASE}/plugins/${id}`, {
+    fetch(`${API_BASE}/skills/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(updates)
     }).then(handleResponse),
 
   deleteSkill: (id) =>
-    fetch(`${API_BASE}/plugins/${id}`, {
+    fetch(`${API_BASE}/skills/${id}`, {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Agent skill assignment
   assignSkill: (agentId, skillId) =>
     fetch(`${API_BASE}/agents/${agentId}/skills`, {
       method: 'POST',
@@ -191,6 +175,7 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // MCP Servers
   getMcpServers: () =>
     fetch(`${API_BASE}/mcp-servers`, { headers: getHeaders() }).then(handleResponse),
 
@@ -220,6 +205,7 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Agent MCP server assignment
   assignMcpServer: (agentId, serverId) =>
     fetch(`${API_BASE}/agents/${agentId}/mcp-servers`, {
       method: 'POST',
@@ -233,18 +219,7 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
-  attachMcpToPlugin: (pluginId, mcpId) =>
-    fetch(`${API_BASE}/plugins/${pluginId}/mcps/${mcpId}`, {
-      method: 'POST',
-      headers: getHeaders()
-    }).then(handleResponse),
-
-  detachMcpFromPlugin: (pluginId, mcpId) =>
-    fetch(`${API_BASE}/plugins/${pluginId}/mcps/${mcpId}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
-
+  // Realtime (Voice)
   getRealtimeToken: (agentId) =>
     fetch(`${API_BASE}/realtime/token`, {
       method: 'POST',
@@ -252,9 +227,11 @@ export const api = {
       body: JSON.stringify({ agentId })
     }).then(handleResponse),
 
+  // Templates
   getTemplates: () =>
     fetch(`${API_BASE}/templates`, { headers: getHeaders() }).then(handleResponse),
 
+  // Projects
   getProjects: () =>
     fetch(`${API_BASE}/projects`, { headers: getHeaders() }).then(handleResponse),
 };
