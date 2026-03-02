@@ -14,7 +14,12 @@ RUN apk add --no-cache \
     ripgrep \
     fd \
     less \
-    patch diffutils
+    patch diffutils \
+    docker-cli docker-cli-compose
+
+# kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && mv kubectl /usr/local/bin/
 
 # GitHub SSH host keys
 RUN mkdir -p /root/.ssh && \
