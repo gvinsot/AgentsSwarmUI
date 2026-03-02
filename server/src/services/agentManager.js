@@ -2215,6 +2215,64 @@ export class AgentManager {
     this._emit('agent:updated', this._sanitize(agent));
   }
 
+  // ─── Automatic Task Loop ───────────────────────────────────────────
+  // Periodically scans idle+enabled agents for pending todos and executes the first one.
+
+  startTaskLoop(intervalMs = 5000) {
+    if (this._taskLoopInterval) return;
+    this._loopProcessing = new Set();
+    this._taskLoopInterval = setInterval(() => this._processNextPendingTasks(), intervalMs);
+    console.log(`🔄 Task loop started (every ${intervalMs / 1000}s)`);
+  }
+
+  stopTaskLoop() {
+    if (this._taskLoopInterval) {
+      clearInterval(this._taskLoopInterval);
+      this._taskLoopInterval = null;
+      console.log('🔄 Task loop stopped');
+    }
+  }
+
+  _processNextPendingTasks() {
+    for (const [agentId, agent] of this.agents) {
+      // Skip disabled, non-idle, or already being processed by the loop
+      if (agent.enabled === false) continue;
+      if (agent.status !== 'idle') continue;
+      if (this._loopProcessing.has(agentId)) continue;
+
+      // Find the first pending todo
+      const todo = agent.todoList?.find(t => t.status === 'pending');
+      if (!todo) continue;
+
+      // Mark as being processed by the loop to avoid double-pickup on next tick
+      this._loopProcessing.add(agentId);
+
+      // Build a streamCallback that broadcasts to all connected clients
+      const streamCallback = (chunk) => {
+        this._emit('agent:stream:chunk', { agentId, chunk });
+        this._emit('agent:thinking', {
+          agentId,
+          thinking: agent.currentThinking || ''
+        });
+      };
+
+      this._emit('agent:stream:start', { agentId });
+
+      this.executeTodo(agentId, todo.id, streamCallback)
+        .then(() => {
+          this._emit('agent:stream:end', { agentId });
+          this._emit('agent:updated', this._sanitize(agent));
+        })
+        .catch((err) => {
+          console.error(`🔄 Task loop error for ${agent.name}:`, err.message);
+          this._emit('agent:stream:error', { agentId, error: err.message });
+        })
+        .finally(() => {
+          this._loopProcessing.delete(agentId);
+        });
+    }
+  }
+
   /**
    * Per-agent sequential task queue.
    * Tasks are added instantly (returns a Promise) but execute one at a time.

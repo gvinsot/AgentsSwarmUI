@@ -88,6 +88,7 @@ async function start() {
   await mcpManager.seedDefaults(BUILTIN_MCP_SERVERS);
   await mcpManager.connectAll();
   await agentManager.loadFromDatabase();
+  agentManager.startTaskLoop();
 
   await sandboxManager.cleanupOrphans();
 
@@ -100,6 +101,7 @@ async function start() {
 
 async function shutdown() {
   console.log('\\n🛑 Shutting down — disconnecting MCP servers, destroying sandbox containers...');
+  agentManager.stopTaskLoop();
   await mcpManager.disconnectAll();
   await sandboxManager.destroyAll();
   process.exit(0);
