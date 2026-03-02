@@ -4,331 +4,263 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 /**
- * Manages per-agent Docker sandbox containers.
- * Each agent gets its own isolated container where tool calls are executed
- * via `docker exec`. Projects are git-cloned into /workspace/<project>.
+ * Shared sandbox manager:
+ * - Maintains a single shared Docker container
+ * - Creates one Linux user per agent inside that container
+ * - Executes tool commands as the corresponding agent user
  */
-export class SandboxManager {
+class SandboxManager {
   constructor() {
-    /** @type {Map<string, { containerName: string, project: string | null }>} */
-    this.sandboxes = new Map();
+    this.sharedContainerName = process.env.SANDBOX_SHARED_CONTAINER_NAME || 'sandbox-shared';
+    this.sharedImage = process.env.SANDBOX_IMAGE || 'agent-sandbox:latest';
+    this.network = process.env.SANDBOX_NETWORK || 'bridge';
+    this.baseWorkspace = process.env.SANDBOX_BASE_WORKSPACE || '/workspace';
+    this.agentUsers = new Map(); // agentId -> { username, project }
   }
 
-  // ─── Container Lifecycle ──────────────────────────────────────────
+  // ─── Public API ───────────────────────────────────────────────────
 
-  /**
-   * Ensure a running sandbox container exists for this agent with the given
-   * project cloned. Creates the container + clones on first call; re-clones
-   * when the project changes; no-ops when already up-to-date.
-   */
-  async ensureSandbox(agentId, project, gitUrl) {
-    const existing = this.sandboxes.get(agentId);
+  async ensureSandbox(agentId, project = null) {
+    await this._ensureSharedContainerRunning();
 
-    // Already running with the correct project → nothing to do
-    if (existing && existing.project === project) {
-      // Verify container is still running
-      if (await this._isRunning(existing.containerName)) return;
-      // Container died — recreate
-      this.sandboxes.delete(agentId);
+    const existing = this.agentUsers.get(agentId);
+    if (existing) {
+      if (existing.project !== project) {
+        await this._switchProject(agentId, project);
+      }
+      return;
     }
 
-    // Different project → destroy old sandbox first
-    if (existing && existing.project !== project) {
-      await this.destroySandbox(agentId);
+    const username = this._username(agentId);
+    await this._ensureLinuxUser(username);
+    await this._ensureAgentWorkspace(username);
+
+    if (project) {
+      await this._cloneProjectForUser(username, project);
     }
 
-    const containerName = this._containerName(agentId);
+    this.agentUsers.set(agentId, { username, project });
+    console.log(`📦 [Sandbox] Agent ${agentId} mapped to shared container user "${username}" (project: ${project || 'none'})`);
+  }
 
-    // Create the container
-    const image = process.env.SANDBOX_IMAGE || 'agentswarm-sandbox:latest';
-    const sshMount = process.env.SSH_KEYS_HOST_PATH || '/home/gildas/.ssh';
-    const gitName = process.env.GIT_USER_NAME || '';
-    const gitEmail = process.env.GIT_USER_EMAIL || '';
+  async switchProject(agentId, newProject) {
+    await this._switchProject(agentId, newProject);
+  }
 
-    const runCmd = [
-      'docker run -d',
-      `--name ${containerName}`,
-      '--network bridge',
-      `--memory 2g --cpus 2`,
-      `-v "${sshMount}:/root/.ssh:ro"`,
-      `-v /var/run/docker.sock:/var/run/docker.sock`,
-      `-e "GIT_USER_NAME=${gitName}"`,
-      `-e "GIT_USER_EMAIL=${gitEmail}"`,
-      image,
+  async destroySandbox(agentId) {
+    const entry = this.agentUsers.get(agentId);
+    if (!entry) return;
+
+    const { username } = entry;
+    try {
+      await this._execAsRoot(`pkill -u ${this._sh(username)} || true`);
+      await this._execAsRoot(`rm -rf ${this._userWorkspace(username)}/*`);
+    } catch (err) {
+      console.warn(`⚠️ [Sandbox] Failed cleanup for user ${username}: ${err.message}`);
+    }
+
+    this.agentUsers.delete(agentId);
+    console.log(`🗑️  [Sandbox] Detached agent ${agentId} from shared sandbox user "${username}"`);
+  }
+
+  async destroyAll() {
+    this.agentUsers.clear();
+    await this._forceRemove(this.sharedContainerName);
+    console.log('🗑️  [Sandbox] Destroyed shared sandbox container');
+  }
+
+  async cleanupOrphans() {
+    // In shared mode, orphans are only the shared container itself.
+    // If it exists but is stopped, remove it so it can be recreated cleanly.
+    try {
+      const { stdout } = await execAsync(
+        `docker ps -a --filter "name=^/${this.sharedContainerName}$" --format "{{.Names}} {{.Status}}"`
+      );
+      const line = stdout.trim();
+      if (!line) return;
+      if (line.includes('Exited') || line.includes('Created')) {
+        await this._forceRemove(this.sharedContainerName);
+        console.log(`🧹 [Sandbox] Removed stale shared container ${this.sharedContainerName}`);
+      }
+    } catch (err) {
+      console.warn(`⚠️ [Sandbox] cleanupOrphans failed: ${err.message}`);
+    }
+  }
+
+  async runInSandbox(agentId, command, { cwd = null, timeout = 120000 } = {}) {
+    const entry = this.agentUsers.get(agentId);
+    if (!entry) {
+      throw new Error(`Sandbox not initialized for agent ${agentId}`);
+    }
+
+    const { username, project } = entry;
+    const effectiveCwd = cwd || (project ? `${this._userWorkspace(username)}/${project}` : this._userWorkspace(username));
+
+    const escapedCmd = this._sh(command);
+    const escapedCwd = this._sh(effectiveCwd);
+    const user = this._sh(username);
+
+    const dockerExec = [
+      `docker exec`,
+      `-u ${user}`,
+      `${this.sharedContainerName}`,
+      `/bin/bash -lc`,
+      this._sh(`cd ${escapedCwd} && ${escapedCmd}`)
     ].join(' ');
 
     try {
-      await execAsync(runCmd, { timeout: 30000 });
+      const { stdout, stderr } = await execAsync(dockerExec, { timeout, maxBuffer: 10 * 1024 * 1024 });
+      return { stdout, stderr };
     } catch (err) {
-      throw new Error(`Failed to create sandbox for agent ${agentId}: ${err.message}`);
+      const message = err.stderr || err.stdout || err.message;
+      throw new Error(message);
     }
-
-    // Configure git inside the container
-    if (gitName) {
-      await this._exec(containerName, `git config --global user.name "${gitName}"`);
-    }
-    if (gitEmail) {
-      await this._exec(containerName, `git config --global user.email "${gitEmail}"`);
-    }
-
-    // Clone the project
-    if (project && gitUrl) {
-      try {
-        await this._exec(containerName, `git clone "${gitUrl}" /workspace/${project}`, { timeout: 120000 });
-      } catch (err) {
-        // Destroy the container on clone failure
-        await this._forceRemove(containerName);
-        throw new Error(`Failed to clone project "${project}" into sandbox: ${err.message}`);
-      }
-    }
-
-    this.sandboxes.set(agentId, { containerName, project });
-    console.log(`📦 [Sandbox] Created ${containerName} for project "${project}"`);
   }
 
-  /**
-   * Switch the sandbox to a different project: clean workspace + git clone.
-   */
-  async switchProject(agentId, newProject, gitUrl) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) return; // Will be created lazily on next ensureSandbox
+  // ─── Internal helpers ─────────────────────────────────────────────
 
-    const { containerName } = entry;
+  async _switchProject(agentId, newProject) {
+    const entry = this.agentUsers.get(agentId);
+    if (!entry) {
+      throw new Error(`Sandbox not initialized for agent ${agentId}`);
+    }
 
-    // Clean workspace
-    await this._exec(containerName, 'rm -rf /workspace/*');
+    const { username } = entry;
+    await this._execAsRoot(`rm -rf ${this._userWorkspace(username)}/*`);
 
-    // Clone new project
-    if (newProject && gitUrl) {
-      await this._exec(containerName, `git clone "${gitUrl}" /workspace/${newProject}`, { timeout: 120000 });
+    if (newProject) {
+      await this._cloneProjectForUser(username, newProject);
     }
 
     entry.project = newProject;
-    console.log(`📦 [Sandbox] ${containerName} switched to project "${newProject}"`);
+    console.log(`📦 [Sandbox] User "${username}" switched to project "${newProject}"`);
   }
 
-  /**
-   * Destroy the sandbox container for an agent.
-   */
-  async destroySandbox(agentId) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) return;
-    await this._forceRemove(entry.containerName);
-    this.sandboxes.delete(agentId);
-    console.log(`🗑️  [Sandbox] Destroyed ${entry.containerName}`);
+  async _ensureSharedContainerRunning() {
+    if (await this._isRunning(this.sharedContainerName)) return;
+
+    await this._forceRemove(this.sharedContainerName);
+
+    const cmd = [
+      'docker run -d',
+      `--name ${this.sharedContainerName}`,
+      '--restart unless-stopped',
+      `--network ${this.network}`,
+      '-v /projects:/projects',
+      `${this.sharedImage}`,
+      'tail -f /dev/null'
+    ].join(' ');
+
+    await execAsync(cmd);
+    console.log(`📦 [Sandbox] Started shared sandbox container ${this.sharedContainerName}`);
   }
 
-  /**
-   * Destroy ALL sandbox containers (server shutdown).
-   */
-  async destroyAll() {
-    const promises = [];
-    for (const [agentId] of this.sandboxes) {
-      promises.push(this.destroySandbox(agentId));
-    }
-    await Promise.allSettled(promises);
-    // Also clean any orphans in case map is out of sync
-    await this.cleanupOrphans();
-  }
+  async _ensureLinuxUser(username) {
+    const userEsc = this._sh(username);
+    const home = this._sh(`/home/${username}`);
+    const workspace = this._sh(this._userWorkspace(username));
 
-  /**
-   * Remove orphaned sandbox containers from a previous crash.
-   * Called once at server startup.
-   */
-  async cleanupOrphans() {
-    try {
-      const { stdout } = await execAsync(
-        'docker ps -a --filter "name=sandbox-" --format "{{.Names}}"',
-        { timeout: 10000 }
-      );
-      const containers = stdout.trim().split('\n').filter(Boolean);
-      for (const name of containers) {
-        // Only remove containers that aren't tracked
-        const isTracked = Array.from(this.sandboxes.values()).some(e => e.containerName === name);
-        if (!isTracked) {
-          await this._forceRemove(name);
-          console.log(`🧹 [Sandbox] Cleaned orphan container ${name}`);
-        }
-      }
-    } catch {
-      // Docker may not be available — ignore
-    }
-  }
-
-  // ─── Tool Execution ───────────────────────────────────────────────
-
-  /**
-   * Execute a shell command inside the agent's sandbox.
-   */
-  async exec(agentId, command, options = {}) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-
-    const { containerName, project } = entry;
-    const cwd = options.cwd || (project ? `/workspace/${project}` : '/workspace');
-    const timeout = options.timeout || 30000;
-
-    return this._exec(containerName, command, { cwd, timeout });
-  }
-
-  /**
-   * Read a file from the agent's sandbox.
-   */
-  async readFile(agentId, filePath) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-    const fullPath = `/workspace/${entry.project}/${filePath}`;
-    const { stdout } = await this._exec(entry.containerName, `cat "${fullPath}"`, { timeout: 10000 });
-    return stdout;
-  }
-
-  /**
-   * Write a file inside the agent's sandbox.
-   * Uses stdin piping to avoid shell escaping issues.
-   */
-  async writeFile(agentId, filePath, content) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-    const fullPath = `/workspace/${entry.project}/${filePath}`;
-    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-
-    // Create directories + write via stdin to avoid escaping issues
-    await this._exec(entry.containerName, `mkdir -p "${dirPath}"`);
-
-    return new Promise((resolve, reject) => {
-      const proc = exec(
-        `docker exec -i ${entry.containerName} sh -c 'cat > "${fullPath}"'`,
-        { timeout: 30000, maxBuffer: 5 * 1024 * 1024 },
-        (err, stdout, stderr) => {
-          if (err) reject(new Error(`Write failed: ${err.message}`));
-          else resolve({ stdout, stderr });
-        }
-      );
-      proc.stdin.write(content);
-      proc.stdin.end();
-    });
-  }
-
-  /**
-   * Append content to a file inside the agent's sandbox.
-   */
-  async appendFile(agentId, filePath, content) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-    const fullPath = `/workspace/${entry.project}/${filePath}`;
-    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-
-    await this._exec(entry.containerName, `mkdir -p "${dirPath}"`);
-
-    return new Promise((resolve, reject) => {
-      const proc = exec(
-        `docker exec -i ${entry.containerName} sh -c 'cat >> "${fullPath}"'`,
-        { timeout: 30000, maxBuffer: 5 * 1024 * 1024 },
-        (err, stdout, stderr) => {
-          if (err) reject(new Error(`Append failed: ${err.message}`));
-          else resolve({ stdout, stderr });
-        }
-      );
-      proc.stdin.write(content);
-      proc.stdin.end();
-    });
-  }
-
-  /**
-   * List a directory inside the agent's sandbox.
-   */
-  async listDir(agentId, dirPath) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-    const fullPath = `/workspace/${entry.project}/${dirPath}`;
-    const { stdout } = await this._exec(
-      entry.containerName,
-      `ls -la "${fullPath}" | grep -v '^\\.\\.' | head -200`,
-      { timeout: 10000 }
+    await this._execAsRoot(
+      `id -u ${userEsc} >/dev/null 2>&1 || useradd -m -d ${home} -s /bin/bash ${userEsc}`
     );
-    return stdout;
+    await this._execAsRoot(`mkdir -p ${workspace}`);
+    await this._execAsRoot(`chown -R ${userEsc}:${userEsc} ${workspace}`);
   }
 
-  /**
-   * Search for text in files inside the agent's sandbox.
-   */
-  async searchFiles(agentId, pattern, query) {
-    const entry = this.sandboxes.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-    const basePath = `/workspace/${entry.project}`;
-
-    // Phase 1: find matching files
-    const { stdout: files } = await this._exec(
-      entry.containerName,
-      `grep -r -l -i --include "${pattern}" -- "${query}" "${basePath}/" 2>/dev/null | head -20`,
-      { timeout: 15000 }
-    ).catch(() => ({ stdout: '' }));
-
-    if (!files.trim()) return '';
-
-    // Phase 2: get matching lines with context
-    const { stdout: matches } = await this._exec(
-      entry.containerName,
-      `grep -r -n -i --include "${pattern}" -- "${query}" "${basePath}/" 2>/dev/null | head -50`,
-      { timeout: 15000 }
-    ).catch(() => ({ stdout: '' }));
-
-    return matches;
+  async _ensureAgentWorkspace(username) {
+    const workspace = this._sh(this._userWorkspace(username));
+    const userEsc = this._sh(username);
+    await this._execAsRoot(`mkdir -p ${workspace} && chown -R ${userEsc}:${userEsc} ${workspace}`);
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────
+  async _cloneProjectForUser(username, project) {
+    const gitUrl = process.env.GITHUB_REPO_URL;
+    if (!gitUrl) {
+      throw new Error('GITHUB_REPO_URL is required to clone project into sandbox');
+    }
 
-  /**
-   * Check if sandbox is active for this agent.
-   */
-  hasSandbox(agentId) {
-    return this.sandboxes.has(agentId);
+    const userEsc = this._sh(username);
+    const workspace = this._userWorkspace(username);
+    const target = `${workspace}/${project}`;
+
+    await this._execAsRoot(`rm -rf ${this._sh(target)}`);
+    await this._execAsRoot(`mkdir -p ${this._sh(workspace)} && chown -R ${userEsc}:${userEsc} ${this._sh(workspace)}`);
+
+    const cloneCmd = [
+      'docker exec',
+      `-u ${userEsc}`,
+      this.sharedContainerName,
+      '/bin/bash -lc',
+      this._sh(`git clone "${gitUrl}" ${this._sh(target)}`)
+    ].join(' ');
+
+    await execAsync(cloneCmd, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+
+    const gitName = process.env.GIT_USER_NAME;
+    const gitEmail = process.env.GIT_USER_EMAIL;
+    if (gitName) {
+      await this._execAsUser(username, `git config --global user.name "${gitName}"`);
+    }
+    if (gitEmail) {
+      await this._execAsUser(username, `git config --global user.email "${gitEmail}"`);
+    }
   }
 
-  /**
-   * Get the project currently loaded in a sandbox.
-   */
-  getSandboxProject(agentId) {
-    return this.sandboxes.get(agentId)?.project || null;
+  async _execAsRoot(command, { timeout = 120000 } = {}) {
+    const cmd = [
+      'docker exec',
+      this.sharedContainerName,
+      '/bin/bash -lc',
+      this._sh(command)
+    ].join(' ');
+    return execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
   }
 
-  /** Deterministic container name from agent ID */
-  _containerName(agentId) {
-    return `sandbox-${agentId.replace(/-/g, '').slice(0, 12)}`;
+  async _execAsUser(username, command, { timeout = 120000 } = {}) {
+    const userEsc = this._sh(username);
+    const cmd = [
+      'docker exec',
+      `-u ${userEsc}`,
+      this.sharedContainerName,
+      '/bin/bash -lc',
+      this._sh(command)
+    ].join(' ');
+    return execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
   }
 
-  /** Execute a command in a named container */
-  async _exec(containerName, command, options = {}) {
-    const cwd = options.cwd ? `-w "${options.cwd}"` : '';
-    const timeout = options.timeout || 30000;
-
-    const dockerCmd = `docker exec ${cwd} ${containerName} /bin/bash -c ${JSON.stringify(command)}`;
-    const { stdout, stderr } = await execAsync(dockerCmd, {
-      timeout,
-      maxBuffer: 5 * 1024 * 1024,
-    });
-    return { stdout, stderr };
-  }
-
-  /** Check if a container is running */
   async _isRunning(containerName) {
     try {
-      const { stdout } = await execAsync(
-        `docker inspect --format="{{.State.Running}}" ${containerName}`,
-        { timeout: 5000 }
-      );
+      const { stdout } = await execAsync(`docker inspect -f "{{.State.Running}}" ${containerName}`);
       return stdout.trim() === 'true';
     } catch {
       return false;
     }
   }
 
-  /** Force-remove a container */
   async _forceRemove(containerName) {
     try {
-      await execAsync(`docker rm -f ${containerName}`, { timeout: 15000 });
+      await execAsync(`docker rm -f ${containerName}`);
     } catch {
-      // Already gone — ignore
+      // ignore
     }
   }
+
+  _containerName(agentId) {
+    return `sandbox-${String(agentId).replace(/[^a-zA-Z0-9_.-]/g, '-')}`;
+  }
+
+  _username(agentId) {
+    const safe = String(agentId).toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `agent_${safe.slice(0, 24) || 'user'}`;
+  }
+
+  _userWorkspace(username) {
+    return `${this.baseWorkspace}/${username}`;
+  }
+
+  _sh(value) {
+    return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+  }
 }
+
+export const sandboxManager = new SandboxManager();
