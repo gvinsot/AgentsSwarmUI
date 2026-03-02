@@ -95,7 +95,6 @@ async function start() {
   httpServer.listen(PORT, () => {
     console.log(`\\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
     console.log(`   WebSocket ready for connections`);
-    console.log(`   Default login: admin / swarm2026\\n`);
   });
 }
 
