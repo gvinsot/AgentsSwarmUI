@@ -292,18 +292,16 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   }, [requestedTab]);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(agent?.conversationHistory || []);
   const chatEndRef = useRef(null);
 
-  // Load history when agent changes or finishes working (totalMessages changed + idle)
+  // Sync history from agent object (pushed via socket) instead of fetching from API.
+  // This eliminates the flash between stream end and API response.
   useEffect(() => {
-    if (agent?.id && agent?.status !== 'busy') {
-      api.getHistory(agent.id).then(setHistory).catch((err) => {
-        console.error('Failed to load history:', err);
-        // Don't clear history on error — keep stale data rather than empty chat
-      });
+    if (agent?.conversationHistory) {
+      setHistory(agent.conversationHistory);
     }
-  }, [agent?.id, agent?.metrics?.totalMessages]);
+  }, [agent?.id, agent?.conversationHistory?.length]);
 
   // Auto-scroll chat
   useEffect(() => {
