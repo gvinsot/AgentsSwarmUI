@@ -501,18 +501,25 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
 
 // ─── Chat Tab ──────────────────────────────────────────────────────────────
 function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName }) {
+  // When streamBuffer is active, the last assistant message in history may be
+  // a duplicate (agent:updated can arrive before the buffer is cleared).
+  // Hide it to prevent a brief "doubled text" flash.
+  const displayHistory = (streamBuffer && history.length > 0 && history[history.length - 1].role === 'assistant')
+    ? history.slice(0, -1)
+    : history;
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4 space-y-4">
-        {history.length === 0 && !streamBuffer && (
+        {displayHistory.length === 0 && !streamBuffer && (
           <div className="text-center py-12 text-dark-500">
             <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p className="text-sm">Start a conversation with {agentName}</p>
           </div>
         )}
 
-        {history.map((msg, i) => (
-          <ChatMessage key={i} message={msg} index={i} isLast={i === history.length - 1} onTruncate={onTruncate} />
+        {displayHistory.map((msg, i) => (
+          <ChatMessage key={i} message={msg} index={i} isLast={i === displayHistory.length - 1} onTruncate={onTruncate} />
         ))}
 
         {/* Streaming response */}

@@ -302,7 +302,7 @@ export class AgentManager {
     const messages = [];
     let systemContent = '';   // Hoisted so we can rebuild messages after compaction
     {
-      systemContent = agent.instructions || 'You are a helpful AI assistant.';
+      systemContent = `Your name is "${agent.name}".${agent.role ? ` Your role: ${agent.role}.` : ''}\n\n${agent.instructions || 'You are a helpful AI assistant.'}`;
       
       // For leader agents, inject available agents context (only at top level to avoid confusion)
       if (agent.isLeader && delegationDepth === 0) {
