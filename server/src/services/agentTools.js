@@ -205,10 +205,24 @@ async function toolRunCommand(sandboxMgr, agentId, command) {
       meta: { command, truncated: (stdout || '').length > 10000 }
     };
   } catch (err) {
+    // When the command ran but exited non-zero (e.g. git commit with nothing
+    // to commit, grep with no matches, diff with differences), execAsync
+    // rejects even though the command executed fine.  If we have stdout/stderr,
+    // the command DID run — return the output as success and let the agent
+    // interpret the result.  Only report failure for infrastructure errors
+    // (Docker unavailable, timeout, etc.) where there's no useful output.
+    const output = (err.stdout || '') + (err.stderr || '');
+    if (output.trim()) {
+      return {
+        success: true,
+        result: output.slice(0, 10000),
+        meta: { command, exitCode: err.code || 1 }
+      };
+    }
     return {
       success: false,
       error: err.message,
-      result: err.stderr || err.stdout || ''
+      result: ''
     };
   }
 }
