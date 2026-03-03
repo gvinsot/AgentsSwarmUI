@@ -194,8 +194,10 @@ async function toolSearchFiles(sandboxMgr, agentId, pattern, query) {
 }
 
 async function toolRunCommand(sandboxMgr, agentId, command) {
+  // 5 minutes — long-running commands like npm install, builds, test suites
+  const COMMAND_TIMEOUT = 5 * 60 * 1000;
   try {
-    const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: 30000 });
+    const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: COMMAND_TIMEOUT });
     const output = (stdout || stderr || '(no output)').slice(0, 10000);
     return {
       success: true,

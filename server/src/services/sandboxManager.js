@@ -98,7 +98,7 @@ export class SandboxManager {
 
     const { username, project } = entry;
     const cwd = options.cwd || (project ? `${this._userWorkspace(username)}/${project}` : this._userWorkspace(username));
-    const timeout = options.timeout || 30000;
+    const timeout = options.timeout || 300000; // 5 minutes default
 
     return this._execAsAgentUser(username, command, { cwd, timeout });
   }

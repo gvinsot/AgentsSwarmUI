@@ -1158,11 +1158,44 @@ export class AgentManager {
           throw retryErr;
         }
       }
-      
+
+      // ── Transient stream error → retry with backoff ──
+      // Covers: network drops, LLM stream timeouts, server-side 5xx, idle timeouts.
+      // Do NOT retry on: user abort, context exceeded (handled above), auth errors.
+      const isUserStop = err.message === 'Agent stopped by user';
+      const isAuthError = err.status === 401 || err.status === 403;
+      const isTransient = !isUserStop && !isAuthError && !this._isContextExceededError(err.message);
+      const MAX_STREAM_RETRIES = 3;
+      const retryCount = agent._streamRetryCount || 0;
+
+      if (isTransient && retryCount < MAX_STREAM_RETRIES && !abortController.signal.aborted) {
+        agent._streamRetryCount = retryCount + 1;
+        const delay = 2000 * Math.pow(2, retryCount); // 2s, 4s, 8s
+        console.log(`🔄 [Stream Retry] "${agent.name}": ${err.message} — retry ${retryCount + 1}/${MAX_STREAM_RETRIES} in ${delay}ms`);
+        if (streamCallback) streamCallback(`\n⚠️ *Connection lost, retrying (${retryCount + 1}/${MAX_STREAM_RETRIES})...*\n`);
+        await new Promise(r => setTimeout(r, delay));
+        // Remove the user message we already pushed to avoid duplication
+        agent.conversationHistory.pop();
+        try {
+          const retryResult = await this.sendMessage(id, userMessage, streamCallback, delegationDepth, messageMeta);
+          delete agent._streamRetryCount;
+          return retryResult;
+        } catch (retryErr) {
+          delete agent._streamRetryCount;
+          this.abortControllers.delete(id);
+          agent.metrics.errors += 1;
+          agent.currentThinking = '';
+          const isRetryUserStop = retryErr.message === 'Agent stopped by user';
+          this.setStatus(id, isRetryUserStop ? 'idle' : 'error', retryErr.message);
+          saveAgent(agent);
+          throw retryErr;
+        }
+      }
+      delete agent._streamRetryCount;
+
       this.abortControllers.delete(id); // Clean up abort controller
       agent.metrics.errors += 1;
       agent.currentThinking = '';
-      const isUserStop = err.message === 'Agent stopped by user';
       this.setStatus(id, isUserStop ? 'idle' : 'error', err.message);
       saveAgent(agent); // Persist error count
       throw err;

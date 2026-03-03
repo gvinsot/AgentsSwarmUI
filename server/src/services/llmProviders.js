@@ -7,9 +7,12 @@ import { claudeRateLimiter } from './rateLimiter.js';
 // or HTTP 503 when Ollama is busy with another request.
 const OLLAMA_MAX_RETRIES = 4;
 const OLLAMA_BASE_DELAY_MS = 2000;
-// Timeout for an individual Ollama request (5 minutes).  If the GPU hangs or
-// prompt evaluation takes too long, we abort rather than wait forever.
-const OLLAMA_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+// Timeout for the initial Ollama fetch (connect + first byte).  Prompt eval
+// on large contexts can take a while, so be generous here.
+const OLLAMA_CONNECT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// Idle timeout between SSE chunks during streaming.  If no data arrives for
+// this long, the stream is considered dead (GPU hang, OOM, etc.).
+const OLLAMA_STREAM_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * @param {string} url
@@ -19,10 +22,10 @@ const OLLAMA_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
  */
 async function ollamaFetchWithRetry(url, options, maxRetries = OLLAMA_MAX_RETRIES, externalSignal = null) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    // Combine the caller's abort signal with a per-request timeout so:
-    //  • the user can cancel at any time
-    //  • a hung GPU doesn't block forever
-    const timeoutSignal = AbortSignal.timeout(OLLAMA_REQUEST_TIMEOUT_MS);
+    // Use a connect timeout for the initial fetch (generous for large prompt eval).
+    // This only covers getting the response headers — streaming body is handled
+    // separately with an idle-per-chunk timeout in chatStream.
+    const timeoutSignal = AbortSignal.timeout(OLLAMA_CONNECT_TIMEOUT_MS);
     const combinedSignal = externalSignal
       ? AbortSignal.any([externalSignal, timeoutSignal])
       : timeoutSignal;
@@ -190,52 +193,77 @@ export class OllamaProvider {
     let totalOutputTokens = 0;
     let finishReason = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    // Per-chunk idle timeout: if no data arrives for OLLAMA_STREAM_IDLE_TIMEOUT_MS,
+    // we consider the stream dead.  The timer resets on every chunk received.
+    let idleTimer = null;
+    let idleReject = null;
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (idleReject) idleReject(new Error('Ollama stream idle timeout — no data received for 5 minutes'));
+      }, OLLAMA_STREAM_IDLE_TIMEOUT_MS);
+    };
+    const clearIdleTimer = () => { if (idleTimer) clearTimeout(idleTimer); };
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+    try {
+      while (true) {
+        // Race reader.read() against the idle timeout
+        resetIdleTimer();
+        const readPromise = reader.read();
+        const idlePromise = new Promise((_, reject) => { idleReject = reject; });
+        const { done, value } = await Promise.race([readPromise, idlePromise]);
+        if (done) break;
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const payload = trimmed.slice(6);
-        if (payload === '[DONE]') {
-          yield {
-            type: 'done',
-            finishReason: finishReason || 'stop',
-            usage: {
-              inputTokens: totalInputTokens,
-              outputTokens: totalOutputTokens
-            }
-          };
-          continue;
+        // Also check user abort
+        if (options.signal?.aborted) {
+          throw new Error('Agent stopped by user');
         }
-        try {
-          const data = JSON.parse(payload);
-          const choice = data.choices?.[0];
-          if (choice?.delta?.content) {
-            yield { type: 'text', text: choice.delta.content };
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const payload = trimmed.slice(6);
+          if (payload === '[DONE]') {
+            yield {
+              type: 'done',
+              finishReason: finishReason || 'stop',
+              usage: {
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens
+              }
+            };
+            continue;
           }
-          // Reasoning models: emit thinking tokens separately
-          if (choice?.delta?.reasoning_content) {
-            yield { type: 'thinking', text: choice.delta.reasoning_content };
+          try {
+            const data = JSON.parse(payload);
+            const choice = data.choices?.[0];
+            if (choice?.delta?.content) {
+              yield { type: 'text', text: choice.delta.content };
+            }
+            // Reasoning models: emit thinking tokens separately
+            if (choice?.delta?.reasoning_content) {
+              yield { type: 'thinking', text: choice.delta.reasoning_content };
+            }
+            // Capture finish_reason (last chunk usually has it)
+            if (choice?.finish_reason) {
+              finishReason = choice.finish_reason;
+            }
+            // Ollama may include usage in the last chunk
+            if (data.usage) {
+              totalInputTokens = data.usage.prompt_tokens || 0;
+              totalOutputTokens = data.usage.completion_tokens || 0;
+            }
+          } catch (e) {
+            // skip malformed SSE lines
           }
-          // Capture finish_reason (last chunk usually has it)
-          if (choice?.finish_reason) {
-            finishReason = choice.finish_reason;
-          }
-          // Ollama may include usage in the last chunk
-          if (data.usage) {
-            totalInputTokens = data.usage.prompt_tokens || 0;
-            totalOutputTokens = data.usage.completion_tokens || 0;
-          }
-        } catch (e) {
-          // skip malformed SSE lines
         }
       }
+    } finally {
+      clearIdleTimer();
     }
   }
 
@@ -306,9 +334,16 @@ export class ClaudeProvider {
     };
     if (systemMsg) params.system = systemMsg.content;
 
-    const stream = this.client.messages.stream(params);
+    const streamOpts = {};
+    if (options.signal) streamOpts.signal = options.signal;
+
+    const stream = this.client.messages.stream(params, streamOpts);
 
     for await (const event of stream) {
+      if (options.signal?.aborted) {
+        stream.abort();
+        throw new Error('Agent stopped by user');
+      }
       if (event.type === 'content_block_delta' && event.delta?.text) {
         yield { type: 'text', text: event.delta.text };
       }
@@ -529,10 +564,14 @@ export class OpenAIProvider {
       params.temperature = options.temperature ?? 0.7;
     }
 
-    const stream = await this.client.chat.completions.create(params);
+    const requestOpts = {};
+    if (options.signal) requestOpts.signal = options.signal;
+
+    const stream = await this.client.chat.completions.create(params, requestOpts);
 
     let gptFinishReason = null;
     for await (const chunk of stream) {
+      if (options.signal?.aborted) throw new Error('Agent stopped by user');
       const choice = chunk.choices[0];
       const delta = choice?.delta;
       if (delta?.content) {
@@ -575,9 +614,13 @@ export class OpenAIProvider {
       params.temperature = options.temperature ?? 0.7;
     }
 
-    const stream = await this.client.responses.create(params);
+    const requestOpts = {};
+    if (options.signal) requestOpts.signal = options.signal;
+
+    const stream = await this.client.responses.create(params, requestOpts);
 
     for await (const event of stream) {
+      if (options.signal?.aborted) throw new Error('Agent stopped by user');
       if (event.type === 'response.output_text.delta') {
         yield { type: 'text', text: event.delta };
       }
@@ -722,10 +765,14 @@ export class VLLMProvider {
       stream_options: { include_usage: true },
     };
 
-    const stream = await this.client.chat.completions.create(params);
+    const requestOpts = {};
+    if (options.signal) requestOpts.signal = options.signal;
+
+    const stream = await this.client.chat.completions.create(params, requestOpts);
     let vllmFinishReason = null;
 
     for await (const chunk of stream) {
+      if (options.signal?.aborted) throw new Error('Agent stopped by user');
       const choice = chunk.choices?.[0];
       if (choice?.delta?.content) {
         yield { type: 'text', text: choice.delta.content };
@@ -808,10 +855,14 @@ export class MistralProvider {
       stream_options: { include_usage: true },
     };
 
-    const stream = await this.client.chat.completions.create(params);
+    const requestOpts = {};
+    if (options.signal) requestOpts.signal = options.signal;
+
+    const stream = await this.client.chat.completions.create(params, requestOpts);
     let finishReason = null;
 
     for await (const chunk of stream) {
+      if (options.signal?.aborted) throw new Error('Agent stopped by user');
       const choice = chunk.choices?.[0];
       if (choice?.delta?.content) {
         yield { type: 'text', text: choice.delta.content };
