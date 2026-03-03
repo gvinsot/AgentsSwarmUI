@@ -15,7 +15,29 @@ RUN apk add --no-cache \
     fd \
     less \
     patch diffutils \
-    docker-cli docker-cli-compose
+    docker-cli docker-cli-compose \
+    # Headless Chromium for web scraping, testing, PDF generation
+    chromium nss freetype harfbuzz ca-certificates ttf-freefont
+
+# Chromium flags for running inside containers (no GPU, no sandbox needed)
+ENV CHROMIUM_BIN=/usr/bin/chromium-browser \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    CHROME_BIN=/usr/bin/chromium-browser \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/lib \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+# Global Node.js dev tools & browser automation
+RUN npm install -g \
+    playwright-core \
+    puppeteer-core \
+    typescript \
+    ts-node \
+    eslint \
+    prettier \
+    jest \
+    vitest \
+    lighthouse
 
 # kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \

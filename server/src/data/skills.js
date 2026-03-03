@@ -134,7 +134,22 @@ MOCKING:
 COVERAGE:
 - Aim for meaningful coverage, not 100%
 - Focus on critical paths and business logic
-- Don't test framework code or trivial getters/setters`
+- Don't test framework code or trivial getters/setters
+
+SANDBOX TOOLS AVAILABLE:
+Your sandbox includes the following tools pre-installed globally:
+- jest / vitest — Test runners (use @run_command(npx jest) or @run_command(npx vitest run))
+- typescript / ts-node — TypeScript compilation and execution (@run_command(npx tsc --noEmit) to type-check)
+- eslint / prettier — Linting and formatting (@run_command(npx eslint src/) or @run_command(npx prettier --check src/))
+- lighthouse — Web performance audits (@run_command(npx lighthouse https://url --output json --chrome-flags="--headless --no-sandbox"))
+
+BROWSER / E2E TESTING:
+The sandbox has headless Chromium pre-installed. Use it for E2E and visual testing:
+- Playwright: @run_command(npx playwright-core test) — uses system Chromium automatically (PLAYWRIGHT_BROWSERS_PATH is set)
+- Puppeteer: require('puppeteer-core') with executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+- Direct Chromium: @run_command(chromium-browser --headless --no-sandbox --dump-dom https://example.com)
+- When writing Playwright/Puppeteer scripts, always use --no-sandbox flag and the system Chromium (do NOT download browsers)
+- For Playwright config, use: { use: { channel: 'chromium', launchOptions: { executablePath: '/usr/bin/chromium-browser', args: ['--no-sandbox'] } } }`
   },
   {
     id: 'skill-git-workflow',
