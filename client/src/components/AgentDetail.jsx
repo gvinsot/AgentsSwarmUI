@@ -251,19 +251,28 @@ function DelegationCallBlock({ agent, task }) {
 }
 
 /** Renders assistant content with @delegate blocks styled as cards */
+// Convert raw URLs to markdown links so ReactMarkdown renders them clickable
+function linkifyRawUrls(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/(https?:\/\/[^\s,)"']+)/g, (url) => `[${url}](${url})`);
+}
+
+// Make all links open in a new tab
+const markdownLinkNewTab = { a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> };
+
 function RichAssistantContent({ text }) {
   const cleaned = cleanToolSyntax(text);
   const segments = parseDelegationBlocks(cleaned);
   // If there are no delegation blocks, fast-path to plain markdown
   if (segments.length === 1 && segments[0].type === 'text') {
-    return <ReactMarkdown>{segments[0].content}</ReactMarkdown>;
+    return <ReactMarkdown components={markdownLinkNewTab}>{linkifyRawUrls(segments[0].content)}</ReactMarkdown>;
   }
   return (
     <>
       {segments.map((seg, i) =>
         seg.type === 'delegation'
           ? <DelegationCallBlock key={i} agent={seg.agent} task={seg.task} />
-          : <ReactMarkdown key={i}>{seg.content}</ReactMarkdown>
+          : <ReactMarkdown key={i} components={markdownLinkNewTab}>{linkifyRawUrls(seg.content)}</ReactMarkdown>
       )}
     </>
   );
