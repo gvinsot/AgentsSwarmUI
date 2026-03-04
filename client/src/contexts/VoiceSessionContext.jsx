@@ -21,6 +21,13 @@ export const STATUS_LABELS = {
   [STATUS.ERROR]: 'Error',
 };
 
+// Management function names (non-async, quick operations)
+const MANAGEMENT_FUNCTIONS = new Set([
+  'assign_project', 'get_project', 'list_agents', 'agent_status',
+  'get_available_agent', 'list_projects', 'clear_context', 'rollback',
+  'stop_agent', 'clear_all_chats', 'clear_all_action_logs'
+]);
+
 const VoiceSessionContext = createContext(null);
 
 export function VoiceSessionProvider({ socket, agents, children }) {
@@ -92,6 +99,21 @@ export function VoiceSessionProvider({ socket, agents, children }) {
     return await navigator.mediaDevices.getUserMedia({ audio: true });
   }, []);
 
+  // ── Send function call output back to the Realtime model ──────────
+  const sendFunctionOutput = useCallback((callId, output) => {
+    if (dcRef.current?.readyState === 'open') {
+      dcRef.current.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: (output || '').slice(0, 4000)
+        }
+      }));
+      dcRef.current.send(JSON.stringify({ type: 'response.create' }));
+    }
+  }, []);
+
   // ── Handle delegation function calls ───────────────────────────────
   const handleDelegation = useCallback((callId, agentName, task) => {
     setStatus(STATUS.DELEGATING);
@@ -101,42 +123,64 @@ export function VoiceSessionProvider({ socket, agents, children }) {
     const sock = socketRef.current;
     const agentId = activeAgentIdRef.current;
     if (sock) {
-      sock.emit('voice:delegate', {
-        agentId,
-        targetAgentName: agentName,
-        task
-      });
+      sock.emit('voice:delegate', { agentId, targetAgentName: agentName, task });
 
       const handler = (data) => {
         if (data.agentId !== agentId) return;
         sock.off('voice:delegate:result', handler);
-
         setDelegationTarget(null);
         setStatus(STATUS.CONNECTED);
-
-        const resultText = data.error
-          ? `Error from ${agentName}: ${data.error}`
-          : data.result || 'Task completed (no details)';
-
+        const resultText = data.error ? `Error from ${agentName}: ${data.error}` : data.result || 'Task completed (no details)';
         addEvent('delegation-result', `${agentName}: ${resultText.slice(0, 200)}`);
-
-        // Send function call output back via data channel
-        if (dcRef.current?.readyState === 'open') {
-          dcRef.current.send(JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'function_call_output',
-              call_id: callId,
-              output: resultText.slice(0, 4000)
-            }
-          }));
-          // Trigger the model to respond to the function result
-          dcRef.current.send(JSON.stringify({ type: 'response.create' }));
-        }
+        sendFunctionOutput(callId, resultText);
       };
       sock.on('voice:delegate:result', handler);
     }
-  }, [addEvent]);
+  }, [addEvent, sendFunctionOutput]);
+
+  // ── Handle ask function calls ──────────────────────────────────────
+  const handleAsk = useCallback((callId, agentName, question) => {
+    setStatus(STATUS.DELEGATING);
+    setDelegationTarget(agentName);
+    addEvent('ask', `Asking ${agentName}: ${question}`);
+
+    const sock = socketRef.current;
+    const agentId = activeAgentIdRef.current;
+    if (sock) {
+      sock.emit('voice:ask', { agentId, targetAgentName: agentName, question });
+
+      const handler = (data) => {
+        if (data.agentId !== agentId) return;
+        sock.off('voice:ask:result', handler);
+        setDelegationTarget(null);
+        setStatus(STATUS.CONNECTED);
+        const resultText = data.error ? `Error from ${agentName}: ${data.error}` : data.result || 'No answer';
+        addEvent('ask-result', `${agentName}: ${resultText.slice(0, 200)}`);
+        sendFunctionOutput(callId, resultText);
+      };
+      sock.on('voice:ask:result', handler);
+    }
+  }, [addEvent, sendFunctionOutput]);
+
+  // ── Handle management function calls (quick sync operations) ───────
+  const handleManagement = useCallback((callId, functionName, args) => {
+    addEvent('management', `${functionName}(${JSON.stringify(args)})`);
+
+    const sock = socketRef.current;
+    const agentId = activeAgentIdRef.current;
+    if (sock) {
+      sock.emit('voice:management', { agentId, functionName, args });
+
+      const handler = (data) => {
+        if (data.agentId !== agentId || data.functionName !== functionName) return;
+        sock.off('voice:management:result', handler);
+        const resultText = data.error ? `Error: ${data.error}` : data.result || 'Done';
+        addEvent('management-result', `${functionName}: ${resultText.slice(0, 200)}`);
+        sendFunctionOutput(callId, resultText);
+      };
+      sock.on('voice:management:result', handler);
+    }
+  }, [addEvent, sendFunctionOutput]);
 
   // ── Handle events from the Realtime data channel ───────────────────
   const handleRealtimeEvent = useCallback((event) => {
@@ -151,19 +195,25 @@ export function VoiceSessionProvider({ socket, agents, children }) {
     } else if (type === 'response.audio.done') {
       setStatus(STATUS.CONNECTED);
     } else if (type === 'response.function_call_arguments.done') {
-      if (event.name === 'delegate') {
-        try {
-          const args = JSON.parse(event.arguments);
+      try {
+        const args = JSON.parse(event.arguments);
+        if (event.name === 'delegate') {
           handleDelegation(event.call_id, args.agent_name, args.task);
-        } catch (err) {
-          console.error('Failed to parse delegate args:', err);
+        } else if (event.name === 'ask') {
+          handleAsk(event.call_id, args.agent_name, args.question);
+        } else if (MANAGEMENT_FUNCTIONS.has(event.name)) {
+          handleManagement(event.call_id, event.name, args);
+        } else {
+          console.warn('Unknown function call:', event.name);
         }
+      } catch (err) {
+        console.error('Failed to parse function call args:', err);
       }
     } else if (type === 'error') {
       setError(event.error?.message || 'Unknown error');
       addEvent('error', event.error?.message || 'Unknown error');
     }
-  }, [addEvent, handleDelegation]);
+  }, [addEvent, handleDelegation, handleAsk, handleManagement]);
 
   // ── Connect to OpenAI Realtime via WebRTC ──────────────────────────
   const connect = useCallback(async (agentId) => {

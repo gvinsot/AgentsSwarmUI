@@ -266,6 +266,184 @@ export function setupSocketHandlers(io, agentManager) {
       }
     });
 
+    // ── Voice ask (lightweight question to another agent) ────────────
+    socket.on('voice:ask', async (data) => {
+      const { agentId, targetAgentName, question } = data;
+      if (!agentId || !targetAgentName || !question) return;
+
+      try {
+        const targetAgent = agentManager.getAll().find(
+          a => a.name.toLowerCase() === targetAgentName.toLowerCase()
+        );
+        if (!targetAgent) {
+          socket.emit('voice:ask:result', { agentId, targetAgentName, error: `Agent "${targetAgentName}" not found in swarm`, result: null });
+          return;
+        }
+
+        if (targetAgent.status === 'busy') {
+          socket.emit('voice:ask:result', { agentId, targetAgentName, error: `Agent "${targetAgentName}" is currently busy`, result: null });
+          return;
+        }
+
+        console.log(`🎙️ [Voice Ask] "${targetAgentName}" ← question: ${question.slice(0, 80)}`);
+
+        const voiceAgent = agentManager.agents.get(agentId);
+        const voiceName = voiceAgent?.name || 'Voice Leader';
+        const targetProject = targetAgent.project || null;
+
+        io.emit('agent:stream:start', { agentId: targetAgent.id, project: targetProject });
+
+        const answer = await agentManager.sendMessage(
+          targetAgent.id,
+          `[QUESTION from ${voiceName}]: ${question}\n\nPlease provide a concise, direct answer.`,
+          (chunk) => {
+            io.emit('agent:stream:chunk', { agentId: targetAgent.id, project: targetProject, chunk });
+          },
+          1,
+          { type: 'ask-question', fromAgent: voiceName }
+        );
+
+        io.emit('agent:stream:end', { agentId: targetAgent.id, project: targetProject });
+        const updatedAgent = agentManager.getById(targetAgent.id);
+        if (updatedAgent) io.emit('agent:updated', updatedAgent);
+
+        socket.emit('voice:ask:result', { agentId, targetAgentName, error: null, result: answer });
+      } catch (err) {
+        console.error(`🎙️ [Voice Ask] Error: ${err.message}`);
+        socket.emit('voice:ask:result', { agentId, targetAgentName, error: err.message, result: null });
+      }
+    });
+
+    // ── Voice management tools (quick sync operations) ────────────────
+    socket.on('voice:management', async (data) => {
+      const { agentId, functionName, args } = data;
+      if (!agentId || !functionName) return;
+
+      const voiceAgent = agentManager.agents.get(agentId);
+      if (!voiceAgent) {
+        socket.emit('voice:management:result', { agentId, functionName, error: 'Voice agent not found', result: null });
+        return;
+      }
+
+      // Helper to find an agent by name (excluding self)
+      const findAgent = (name) => Array.from(agentManager.agents.values()).find(
+        a => a.name.toLowerCase() === (name || '').toLowerCase() && a.id !== agentId && a.enabled !== false
+      );
+
+      try {
+        let result;
+
+        switch (functionName) {
+          case 'assign_project': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            agentManager.update(target.id, { project: args.project_name });
+            io.emit('agent:updated', agentManager.getById(target.id));
+            result = `Assigned ${target.name} to project "${args.project_name}"`;
+            console.log(`🎙️ [Voice] assign_project: ${target.name} → ${args.project_name}`);
+            break;
+          }
+          case 'get_project': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            result = target.project ? `${target.name} is assigned to project "${target.project}"` : `${target.name} has no project assigned`;
+            break;
+          }
+          case 'list_agents': {
+            const enabled = Array.from(agentManager.agents.values()).filter(a => a.enabled !== false);
+            result = enabled.map(a => `${a.name} [${a.status}] (${a.role || 'worker'})${a.project ? ` project=${a.project}` : ''}`).join('\n');
+            break;
+          }
+          case 'agent_status': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            const pending = (target.todoList || []).filter(t => t.status === 'pending' || t.status === 'error').length;
+            const total = (target.todoList || []).length;
+            const msgs = (target.conversationHistory || []).length;
+            result = `${target.name}: status=${target.status}, role=${target.role || 'worker'}, project=${target.project || 'none'}, todos=${pending} pending/${total} total, messages=${msgs}`;
+            break;
+          }
+          case 'get_available_agent': {
+            const available = Array.from(agentManager.agents.values()).find(
+              a => a.id !== agentId && a.enabled !== false && a.status === 'idle' && (a.role || '').toLowerCase() === (args.role || '').toLowerCase()
+            );
+            result = available
+              ? `Available ${args.role}: ${available.name} [idle]${available.project ? ` project=${available.project}` : ''}`
+              : `No idle agent with role "${args.role}" available`;
+            break;
+          }
+          case 'list_projects': {
+            const projects = await agentManager._listAvailableProjects();
+            result = projects.length > 0 ? `Available projects: ${projects.join(', ')}` : 'No projects found';
+            break;
+          }
+          case 'clear_context': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            agentManager.clearHistory(target.id);
+            result = `Cleared conversation history for ${target.name}`;
+            console.log(`🎙️ [Voice] clear_context: ${target.name}`);
+            break;
+          }
+          case 'rollback': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            const histLen = target.conversationHistory.length;
+            const count = Math.min(args.count || 0, histLen);
+            if (count === 0) { result = `${target.name} has no messages to rollback`; break; }
+            const newLen = histLen - count;
+            target.conversationHistory = target.conversationHistory.slice(0, newLen);
+            if (newLen === 0) delete target._compactionArmed;
+            agentManager.update(target.id, {});
+            io.emit('agent:updated', agentManager.getById(target.id));
+            result = `Rolled back ${count} message(s) from ${target.name} (${histLen} → ${newLen})`;
+            console.log(`🎙️ [Voice] rollback: ${target.name} -${count}`);
+            break;
+          }
+          case 'stop_agent': {
+            const target = findAgent(args.agent_name);
+            if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
+            const stopped = agentManager.stopAgent(target.id);
+            result = stopped ? `Stopped agent ${target.name}` : `${target.name} is not currently busy`;
+            if (stopped) io.emit('agent:updated', agentManager.getById(target.id));
+            console.log(`🎙️ [Voice] stop_agent: ${target.name} → ${stopped ? 'stopped' : 'not busy'}`);
+            break;
+          }
+          case 'clear_all_chats': {
+            let count = 0;
+            for (const a of agentManager.agents.values()) {
+              if (a.id !== agentId && a.enabled !== false) {
+                agentManager.clearHistory(a.id);
+                count++;
+              }
+            }
+            result = `Cleared conversation history for ${count} agents`;
+            console.log(`🎙️ [Voice] clear_all_chats: ${count} agents`);
+            break;
+          }
+          case 'clear_all_action_logs': {
+            let count = 0;
+            for (const a of agentManager.agents.values()) {
+              if (a.id !== agentId && a.enabled !== false) {
+                agentManager.clearActionLogs(a.id);
+                count++;
+              }
+            }
+            result = `Cleared action logs for ${count} agents`;
+            console.log(`🎙️ [Voice] clear_all_action_logs: ${count} agents`);
+            break;
+          }
+          default:
+            result = `Unknown management function: ${functionName}`;
+        }
+
+        socket.emit('voice:management:result', { agentId, functionName, error: null, result });
+      } catch (err) {
+        console.error(`🎙️ [Voice Management] ${functionName} error: ${err.message}`);
+        socket.emit('voice:management:result', { agentId, functionName, error: err.message, result: null });
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`🔌 Client disconnected: ${socket.user?.username}`);
     });
