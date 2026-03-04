@@ -4,147 +4,155 @@ import ReactMarkdown from 'react-markdown';
 import { cleanToolSyntax } from './AgentDetail';
 import { api } from '../api';
 
-const STATUS_STYLES = {
-  pending: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
-  in_progress: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  completed: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  failed: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+const categoryColors = {
+  coding: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  devops: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  writing: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  security: 'bg-red-500/20 text-red-400 border-red-500/30',
+  analysis: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  general: 'bg-dark-500/20 text-dark-300 border-dark-500/30',
 };
+const getCategoryClass = (cat) => categoryColors[cat] || categoryColors.general;
 
-const STATUS_ICONS = {
-  pending: Clock3,
-  in_progress: Loader2,
-  completed: CheckCircle2,
-  failed: AlertTriangle,
-};
+const TABS = [
+  { id: 'broadcast', label: 'Global', icon: Globe },
+  { id: 'plugins', label: 'Plugins', icon: Wrench },
+  { id: 'actions', label: 'Actions', icon: Zap },
+];
 
-function ConfirmDialog({ open, title, description, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel }) {
-  if (!open) return null;
+// Inline confirm button — first click shows "Are you sure?", second click executes
+function ConfirmButton({ onConfirm, disabled, icon: Icon, label, confirmLabel = 'Are you sure?', className, confirmClassName }) {
+  const [confirming, setConfirming] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const handleClick = () => {
+    if (confirming) {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      onConfirm();
+    } else {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-xl border border-dark-600 bg-dark-800 p-4 shadow-2xl">
-        <h4 className="text-base font-semibold text-dark-100">{title}</h4>
-        <p className="mt-2 text-sm text-dark-300">{description}</p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded-lg border border-dark-600 px-3 py-1.5 text-sm text-dark-200 hover:bg-dark-700"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500"
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({ icon: Icon, label, onClick, variant = 'default', disabled = false }) {
-  const base = 'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed';
-  const styles =
-    variant === 'danger'
-      ? 'border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20'
-      : 'border-dark-600 bg-dark-700/60 text-dark-100 hover:bg-dark-700';
-
-  return (
-    <button className={`${base} ${styles}`} onClick={onClick} disabled={disabled}>
-      <Icon className="h-4 w-4" />
-      {label}
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      className={confirming ? confirmClassName : className}
+    >
+      <Icon className="w-4 h-4" />
+      {confirming ? confirmLabel : label}
     </button>
   );
 }
 
-export default function BroadcastPanel() {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [confirmState, setConfirmState] = useState({ open: false, action: null });
+const statusColors = {
+  connected: 'bg-emerald-500',
+  connecting: 'bg-amber-500 animate-pulse',
+  error: 'bg-red-500',
+  disconnected: 'bg-dark-500',
+};
 
-  const pollRef = useRef(null);
+export default function BroadcastPanel({ agents, projects = [], skills = [], mcpServers = [], socket, onClose, onRefresh }) {
+  const [tab, setTab] = useState('broadcast');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [responses, setResponses] = useState([]);
+  const [changingProject, setChangingProject] = useState(false);
 
-  const fetchTasks = async () => {
-    try {
-      setLoading(true);
-      const data = await apiService.getTasks();
-      setTasks(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('Failed to fetch tasks', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Plugin state
+  const [editingPlugin, setEditingPlugin] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', description: '', category: '', icon: '', instructions: '', mcpServerIds: [] });
+  const [showCreate, setShowCreate] = useState(false);
+  const [newPlugin, setNewPlugin] = useState({ name: '', description: '', category: 'coding', icon: '🔧', instructions: '', mcpServerIds: [] });
 
-  useEffect(() => {
-    fetchTasks();
-  }, []);
+  const responsesRef = useRef(null);
 
   useEffect(() => {
-    if (running) {
-      pollRef.current = setInterval(fetchTasks, 2000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+    if (responses.length > 0 && responsesRef.current) {
+      responsesRef.current.scrollTop = responsesRef.current.scrollHeight;
     }
+  }, [responses]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleComplete = (data) => {
+      setResponses(data.results || []);
+      setSending(false);
+    };
+
+    const handleError = (data) => {
+      console.error('Global error:', data.error);
+      setSending(false);
+    };
+
+    socket.on('broadcast:complete', handleComplete);
+    socket.on('broadcast:error', handleError);
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      socket.off('broadcast:complete', handleComplete);
+      socket.off('broadcast:error', handleError);
     };
-  }, [running]);
+  }, [socket]);
 
-  const groupedCounts = useMemo(() => {
-    return tasks.reduce(
-      (acc, t) => {
-        const s = t.status || 'pending';
-        acc[s] = (acc[s] || 0) + 1;
-        return acc;
-      },
-      { pending: 0, in_progress: 0, completed: 0, failed: 0 }
-    );
-  }, [tasks]);
+  // ── Broadcast handlers ──────────────────────────────────────────────
 
-  const openConfirm = (action) => setConfirmState({ open: true, action });
-  const closeConfirm = () => setConfirmState({ open: false, action: null });
-
-  const clearCompleted = async () => {
-    await apiService.clearTasksByStatus('completed');
-    await fetchTasks();
+  const handleBroadcast = () => {
+    if (!message.trim() || sending || !socket) return;
+    const msg = message.trim();
+    setMessage('');
+    setSending(true);
+    setResponses([]);
+    socket.emit('broadcast:message', { message: msg });
   };
 
-  const clearFailed = async () => {
-    await apiService.clearTasksByStatus('failed');
-    await fetchTasks();
+  const handleProjectChange = async (project) => {
+    setChangingProject(true);
+    try { await api.updateAllProjects(project); }
+    catch (err) { console.error('Failed to update projects:', err); }
+    finally { setChangingProject(false); }
   };
 
-  const clearInProgress = async () => {
-    await apiService.clearTasksByStatus('in_progress');
-    await fetchTasks();
+  // ── Plugin handlers ─────────────────────────────────────────────────
+
+  const startEdit = (plugin) => {
+    setEditingPlugin(plugin.id);
+    setEditForm({
+      name: plugin.name,
+      description: plugin.description || '',
+      category: plugin.category || 'general',
+      icon: plugin.icon || '🔧',
+      instructions: plugin.instructions || '',
+      mcpServerIds: Array.isArray(plugin.mcpServerIds) ? [...plugin.mcpServerIds] : []
+    });
   };
 
-  const confirmConfig = {
-    clearCompleted: {
-      title: 'Clear completed tasks?',
-      description: 'This will remove all completed tasks from the list.',
-      run: clearCompleted,
-    },
-    clearFailed: {
-      title: 'Clear failed tasks?',
-      description: 'This will remove all failed tasks from the list.',
-      run: clearFailed,
-    },
-    clearInProgress: {
-      title: 'Clear in-progress tasks?',
-      description: 'This will remove all tasks currently in progress from the list.',
-      run: clearInProgress,
-    },
+  const cancelEdit = () => {
+    setEditingPlugin(null);
+    setEditForm({ name: '', description: '', category: '', icon: '', instructions: '', mcpServerIds: [] });
   };
 
-  const currentConfirm = confirmState.action ? confirmConfig[confirmState.action] : null;
+  const saveEdit = async () => {
+    if (!editingPlugin || !editForm.name.trim() || !editForm.instructions.trim()) return;
+    try {
+      await api.updatePlugin(editingPlugin, editForm);
+      setEditingPlugin(null);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to update plugin:', err); }
+  };
+
+  const handleDelete = async (pluginId) => {
+    try {
+      await api.deletePlugin(pluginId);
+      if (editingPlugin === pluginId) setEditingPlugin(null);
+      if (onRefresh) onRefresh();
+    } catch (err) { console.error('Failed to delete plugin:', err); }
+  };
 
   const handleCreate = async () => {
     if (!newPlugin.name.trim() || !newPlugin.instructions.trim()) return;
@@ -264,74 +272,175 @@ export default function BroadcastPanel() {
   // ── Render ──────────────────────────────────────────────────────────
 
   return (
-    <div className="rounded-xl border border-dark-700 bg-dark-900/70 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-semibold text-dark-100 text-sm">Control Panel</h3>
-        <div className="flex items-center gap-2">
-          <ActionButton icon={RefreshCw} label="Refresh" onClick={fetchTasks} disabled={loading} />
-          {!running ? (
-            <ActionButton icon={Play} label="Start" onClick={() => setRunning(true)} />
-          ) : (
-            <ActionButton icon={Square} label="Stop" onClick={() => setRunning(false)} />
-          )}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
+      <div
+        className="w-full h-full sm:w-[700px] sm:h-[80vh] sm:max-h-[800px] sm:rounded-2xl bg-dark-900 border-0 sm:border border-dark-700 shadow-2xl flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-dark-700 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-amber-400" />
+            <h3 className="font-semibold text-dark-100 text-sm">Control Panel</h3>
+            <span className="text-xs text-dark-400">({agents.length} agents)</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-        {Object.entries(groupedCounts).map(([status, count]) => {
-          const Icon = STATUS_ICONS[status] || Clock3;
-          const spin = status === 'in_progress' ? 'animate-spin' : '';
-          return (
-            <div key={status} className={`rounded-lg border px-3 py-2 text-xs ${STATUS_STYLES[status] || STATUS_STYLES.pending}`}>
-              <div className="flex items-center gap-2">
-                <Icon className={`h-3.5 w-3.5 ${spin}`} />
-                <span className="capitalize">{status.replace('_', ' ')}</span>
+        {/* ── Tabs ───────────────────────────────────────────────── */}
+        <div className="flex gap-1 px-5 py-2.5 border-b border-dark-700/50 flex-shrink-0">
+          {TABS.map(t => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-amber-500/15 text-amber-400'
+                    : 'text-dark-400 hover:text-dark-200 hover:bg-dark-800'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {t.label}
+                {t.id === 'plugins' && <span className="text-xs opacity-60">({skills.length})</span>}
+                {t.id === 'actions' && busyCount > 0 && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Tab Content (fills remaining space) ────────────────── */}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+
+          {/* ── BROADCAST TAB ──────────────────────────────────── */}
+          {tab === 'broadcast' && (
+            <div className="flex-1 flex flex-col min-h-0 p-5 gap-3">
+              {/* Project selector */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <FolderOpen className="w-3.5 h-3.5 text-dark-400" />
+                <span className="text-xs text-dark-400">Assign all agents to :</span>
+                <div className="relative">
+                  <select
+                    value={currentProject || ''}
+                    onChange={(e) => handleProjectChange(e.target.value || null)}
+                    disabled={changingProject || agents.length === 0}
+                    className="appearance-none bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 pr-7 text-sm text-dark-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer"
+                  >
+                    <option value="">No project</option>
+                    {projects.map(p => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400 pointer-events-none" />
+                </div>
               </div>
-              <div className="mt-1 text-base font-semibold">{count}</div>
+
+              {/* Responses (scrollable, takes available space) */}
+              <div ref={responsesRef} className="flex-1 overflow-auto min-h-0 space-y-2">
+                {responses.length > 0 && (
+                  <>
+                    <p className="text-xs text-dark-400 font-medium sticky top-0 bg-dark-900 py-1">Responses:</p>
+                    {responses.map((r, i) => (
+                      <div key={i} className={`p-3 rounded-lg border text-sm ${
+                        r.error ? 'bg-red-500/5 border-red-500/20' : 'bg-dark-800/50 border-dark-700/50'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-dark-200">{r.agentName}</span>
+                          {r.error && <span className="text-xs text-red-400">Error</span>}
+                        </div>
+                        {r.error ? (
+                          <p className="text-xs text-red-400">{r.error}</p>
+                        ) : (
+                          <div className="markdown-content text-xs text-dark-300">
+                            <ReactMarkdown>{cleanToolSyntax(r.response)}</ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+                {responses.length === 0 && !sending && (
+                  <div className="flex-1 flex items-center justify-center h-full">
+                    <p className="text-dark-500 text-sm">Send a message to all agents at once</p>
+                  </div>
+                )}
+                {sending && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-amber-400 py-8">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Broadcasting to {agents.length} agents...
+                  </div>
+                )}
+              </div>
+
+              {/* Input (pinned to bottom) */}
+              <div className="flex gap-2 flex-shrink-0">
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleBroadcast();
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 bg-dark-800 border border-amber-500/30 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-amber-500 resize-none"
+                  placeholder="Type a message to broadcast to all agents..."
+                  rows={2}
+                  disabled={sending}
+                />
+                <button
+                  onClick={handleBroadcast}
+                  disabled={sending || !message.trim() || agents.length === 0}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-dark-900 font-medium rounded-xl disabled:opacity-40 transition-colors flex items-center gap-2 self-end"
+                >
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{sending ? 'Sending...' : 'Global'}</span>
+                </button>
+              </div>
             </div>
-          );
-        })}
-      </div>
+          )}
 
-      <div className="space-y-2">
-        <h4 className="text-xs uppercase tracking-wide text-dark-400">Actions</h4>
-        <div className="flex flex-wrap gap-2">
-          <ActionButton icon={Trash2} label="Clear Completed" variant="danger" onClick={() => openConfirm('clearCompleted')} />
-          <ActionButton icon={Trash2} label="Clear Failed" variant="danger" onClick={() => openConfirm('clearFailed')} />
-          <ActionButton icon={Trash2} label="Clear In Progress" variant="danger" onClick={() => openConfirm('clearInProgress')} />
-        </div>
-      </div>
+          {/* ── PLUGINS TAB ────────────────────────────────────── */}
+          {tab === 'plugins' && (
+            <div className="flex-1 flex flex-col min-h-0 p-5 gap-3">
+              {/* Header */}
+              <div className="flex items-center justify-between flex-shrink-0">
+                <h4 className="text-sm font-medium text-dark-200 flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-indigo-400" />
+                  Plugins
+                  <span className="text-dark-400 font-normal">({skills.length})</span>
+                </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setShowMcpCreate(!showMcpCreate); setEditingMcp(null); setShowCreate(false); }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs transition-colors"
+                  >
+                    <Plug className="w-3 h-3" />
+                    New MCP
+                  </button>
+                  <button
+                    onClick={() => { setShowCreate(!showCreate); setEditingPlugin(null); setShowMcpCreate(false); }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New Plugin
+                  </button>
+                </div>
+              </div>
 
-      <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-dark-700">
-        <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 bg-dark-800">
-            <tr className="text-dark-300">
-              <th className="px-3 py-2 font-medium">Task</th>
-              <th className="px-3 py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => {
-              const status = task.status || 'pending';
-              const Icon = STATUS_ICONS[status] || Clock3;
-              return (
-                <tr key={task.id} className="border-t border-dark-700/80">
-                  <td className="px-3 py-2 text-dark-100">{task.title || task.id}</td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${STATUS_STYLES[status] || STATUS_STYLES.pending}`}>
-                      <Icon className={`h-3 w-3 ${status === 'in_progress' ? 'animate-spin' : ''}`} />
-                      {status}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-            {tasks.length === 0 && (
-              <tr>
-                <td colSpan={2} className="px-3 py-6 text-center text-dark-400">
-                  <div className="inline-flex items-center gap-2">
-                    <Radio className="h-4 w-4" />
-                    No tasks
+              {/* Create MCP server form */}
+              {showMcpCreate && (
+                <div className="p-3 bg-dark-800/50 rounded-lg border border-emerald-500/30 space-y-2 flex-shrink-0 animate-fadeIn">
+                  <p className="text-xs font-medium text-emerald-400 flex items-center gap-1"><Plug className="w-3 h-3" /> New MCP Server</p>
+                  <div className="flex gap-2">
+                    <input type="text" value={newMcp.icon} onChange={(e) => setNewMcp(s => ({ ...s, icon: e.target.value }))} className="w-12 px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-center focus:outline-none focus:border-emerald-500" placeholder="🔌" />
+                    <input type="text" value={newMcp.name} onChange={(e) => setNewMcp(s => ({ ...s, name: e.target.value }))} className="flex-1 px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500" placeholder="Server name" />
                   </div>
                   <input type="text" value={newMcp.url} onChange={(e) => setNewMcp(s => ({ ...s, url: e.target.value }))} className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500 font-mono" placeholder="http://host:port/path" />
                   <input type="text" value={newMcp.description} onChange={(e) => setNewMcp(s => ({ ...s, description: e.target.value }))} className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-emerald-500" placeholder="Short description" />
@@ -616,21 +725,6 @@ export default function BroadcastPanel() {
 
         </div>
       </div>
-
-      <ConfirmDialog
-        open={confirmState.open}
-        title={currentConfirm?.title || ''}
-        description={currentConfirm?.description || ''}
-        confirmLabel="Clear"
-        cancelLabel="Cancel"
-        onCancel={closeConfirm}
-        onConfirm={async () => {
-          if (currentConfirm?.run) {
-            await currentConfirm.run();
-          }
-          closeConfirm();
-        }}
-      />
     </div>
   );
 }

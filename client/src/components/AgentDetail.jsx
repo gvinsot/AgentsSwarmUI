@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -294,6 +294,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   const [sending, setSending] = useState(false);
   const [history, setHistory] = useState(agent?.conversationHistory || []);
   const chatEndRef = useRef(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   // Sync history from agent object (pushed via socket) instead of fetching from API.
   // This eliminates the flash between stream end and API response.
@@ -305,8 +306,10 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
 
   // Auto-scroll chat
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history, streamBuffer, thinking]);
+    if (autoScroll) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [history, streamBuffer, thinking, autoScroll]);
 
   const handleSend = async () => {
     if (!message.trim() || sending) return;
@@ -473,6 +476,8 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               onTruncate={handleTruncateHistory}
               chatEndRef={chatEndRef}
               agentName={agent.name}
+              autoScroll={autoScroll}
+              onToggleAutoScroll={() => setAutoScroll(s => !s)}
             />
           )
         )}
@@ -500,7 +505,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
 }
 
 // ─── Chat Tab ──────────────────────────────────────────────────────────────
-function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName }) {
+function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName, autoScroll, onToggleAutoScroll }) {
   // When streamBuffer is active, the last assistant message in history may be
   // a duplicate (agent:updated can arrive before the buffer is cleared).
   // Hide it to prevent a brief "doubled text" flash.
@@ -553,6 +558,13 @@ function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending
             title="Clear history"
           >
             <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onToggleAutoScroll}
+            className={`p-2 rounded-lg transition-colors flex-shrink-0 ${autoScroll ? 'text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20' : 'text-dark-500 hover:text-dark-300 hover:bg-dark-700'}`}
+            title={autoScroll ? 'Auto-scroll on' : 'Auto-scroll off'}
+          >
+            <ArrowDownToLine className="w-4 h-4" />
           </button>
           <div className="flex-1 relative">
             <textarea
