@@ -6,6 +6,7 @@ services:
       context: ..
       dockerfile: server/Dockerfile
     environment:
+      - NODE_ENV=production
       - PORT=${PORT}
       - JWT_SECRET=${JWT_SECRET}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
