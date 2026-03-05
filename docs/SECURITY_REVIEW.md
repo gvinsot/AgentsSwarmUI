@@ -1,6 +1,6 @@
 # Security Review — AgentsSwarmUI
 
-**Date:** 2026-03-05 (Fourth Review Pass)
+**Date:** 2026-03-05 (Fifth Review Pass)
 **Reviewer:** CLAUDE (Automated Security Agent — Opus 4.6)
 **Scope:** Full-stack review of server, client, DevOps, sandbox, and dependency management
 
@@ -8,14 +8,14 @@
 
 ## Executive Summary
 
-The AgentsSwarmUI project demonstrates solid security fundamentals: JWT authentication, bcrypt hashing, parameterized SQL, rate limiting, sandbox isolation, security headers, Zod input validation, and API key masking. This is a **fourth comprehensive review** confirming prior fixes, validating the overall security posture, and identifying remaining action items. New findings: `docker-cli` in server Dockerfile, WebSocket per-message rate limiting gap, SSH key sharing across all agent users. `npm audit` reports **0 vulnerabilities** across 191 production dependencies.
+The AgentsSwarmUI project demonstrates solid security fundamentals: JWT authentication, bcrypt hashing, parameterized SQL, rate limiting, sandbox isolation, security headers, Zod input validation, and API key masking. This is a **fifth comprehensive review** confirming all prior fixes, validating the overall security posture, and updating remaining items. Key update: WebSocket per-event rate limiting confirmed in place (30 events/min per socket). Dead code (`tasks.js`) removed. `npm audit` reports **0 vulnerabilities** across 191 production dependencies.
 
 | Severity | Total Found | Fixed | Remaining |
 |----------|------------|-------|-----------|
 | CRITICAL | 4 | 1 | 3 |
-| HIGH     | 6 | 2 | 4 |
+| HIGH     | 6 | 3 | 3 |
 | MEDIUM   | 6 | 4 | 2 |
-| LOW      | 5 | 3 | 2 |
+| LOW      | 5 | 4 | 1 |
 
 ---
 
@@ -103,13 +103,11 @@ SSH keys from the host are copied to every agent user created in the shared sand
 2. Implement per-agent SSH key management or Git credential helpers
 3. Consider using HTTPS with token-based auth instead of SSH keys
 
-### H4. WebSocket Events Not Rate-Limited
+### ~~H4. WebSocket Events Not Rate-Limited~~ — **FIXED**
 
-**File:** `server/src/ws/socketHandler.js`
+**File:** `server/src/ws/socketHandler.js:1-13, 20-21`
 
-While REST API endpoints have rate limiting (100 req/min), WebSocket events like `agent:chat`, `broadcast:message`, `voice:delegate`, and `voice:management` have no rate limiting. An authenticated user could flood the server.
-
-**Recommendation:** Implement per-socket event rate limiting (e.g., max 10 chat messages per minute, max 2 broadcasts per minute).
+Per-socket rate limiting is now in place: `createSocketRateLimiter(30, 60_000)` limits each client to 30 mutating events per minute. Applied to `agent:chat`, `broadcast:message`, `agent:handoff`, and `voice:delegate` events.
 
 ### H1. JWT Token Stored in localStorage (XSS Risk)
 
@@ -243,4 +241,13 @@ The CSP does not include `font-src`. If web fonts are loaded, they may be blocke
 
 ---
 
-*Fourth review pass performed against codebase as of 2026-03-05. Next review recommended after addressing CRITICAL and HIGH items.*
+## Fixes Applied in This Pass (Fifth)
+
+| # | Issue | Action |
+|---|-------|--------|
+| 1 | Dead `tasks.js` file (CommonJS, unused, no auth) | **Deleted** |
+| 2 | WebSocket rate limiting status | **Updated** — confirmed fixed (30 events/min/socket) |
+
+---
+
+*Fifth review pass performed against codebase as of 2026-03-05. Next review recommended after addressing CRITICAL and HIGH items.*
