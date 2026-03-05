@@ -57,7 +57,13 @@ app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 
+// Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Detailed status — requires authentication
+app.get('/api/health/details', authenticateToken, (req, res) => {
   const allAgents = Array.from(agentManager.agents.values());
   const enabled = allAgents.filter(a => a.enabled !== false);
   const projectCounts = {};
