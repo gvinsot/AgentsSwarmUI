@@ -9,7 +9,7 @@ RUN apk add --no-cache \
     grep sed gawk findutils coreutils \
     tree \
     tar gzip unzip \
-    python3 py3-pip \
+    python3 py3-pip py3-pytest \
     make gcc g++ musl-dev \
     ripgrep \
     fd \
