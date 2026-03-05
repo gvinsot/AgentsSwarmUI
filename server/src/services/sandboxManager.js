@@ -221,7 +221,7 @@ export class SandboxManager {
   async _startContainer() {
     await this._forceRemove(this.sharedContainerName);
 
-    const sshMount = process.env.SSH_KEYS_HOST_PATH || '/home/gildas/.ssh';
+    const sshMount = process.env.SSH_KEYS_HOST_PATH || '/root/.ssh';
     const gitName = process.env.GIT_USER_NAME || '';
     const gitEmail = process.env.GIT_USER_EMAIL || '';
 
@@ -231,7 +231,8 @@ export class SandboxManager {
       '--restart unless-stopped',
       `--network ${this._sh(this.network)}`,
       `-v ${this._sh(sshMount + ':/root/.ssh:ro')}`,
-      '-v /var/run/docker.sock:/var/run/docker.sock',
+      // NOTE: Docker socket mount removed for security — it grants host-level
+      // root access from inside the sandbox container.
       `-e ${this._sh('GIT_USER_NAME=' + gitName)}`,
       `-e ${this._sh('GIT_USER_EMAIL=' + gitEmail)}`,
       this._sh(this.sharedImage)

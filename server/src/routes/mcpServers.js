@@ -1,4 +1,18 @@
 import express from 'express';
+import { z } from 'zod';
+
+// Schema for creating an MCP server
+const createMcpServerSchema = z.object({
+  name: z.string().min(1).max(200),
+  url: z.string().url().max(2000),
+  description: z.string().max(2000).optional(),
+  icon: z.string().max(50).optional(),
+  enabled: z.boolean().optional(),
+  apiKey: z.string().max(500).optional(),
+});
+
+// Schema for updating an MCP server (all fields optional)
+const updateMcpServerSchema = createMcpServerSchema.partial();
 
 /** Mask apiKey so the full value isn't exposed to the client. */
 function sanitize(server) {
@@ -27,13 +41,13 @@ export function mcpServerRoutes(mcpManager) {
   // Create MCP server
   router.post('/', async (req, res) => {
     try {
-      const { name, url, description, icon, enabled, apiKey } = req.body;
-      if (!name || !url) {
-        return res.status(400).json({ error: 'Name and URL required' });
-      }
-      const server = await mcpManager.create({ name, url, description, icon, enabled, apiKey });
+      const parsed = createMcpServerSchema.parse(req.body);
+      const server = await mcpManager.create(parsed);
       res.status(201).json(sanitize(server));
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -41,10 +55,14 @@ export function mcpServerRoutes(mcpManager) {
   // Update MCP server
   router.put('/:id', async (req, res) => {
     try {
-      const server = await mcpManager.update(req.params.id, req.body);
+      const parsed = updateMcpServerSchema.parse(req.body);
+      const server = await mcpManager.update(req.params.id, parsed);
       if (!server) return res.status(404).json({ error: 'MCP server not found' });
       res.json(sanitize(server));
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
       res.status(500).json({ error: err.message });
     }
   });

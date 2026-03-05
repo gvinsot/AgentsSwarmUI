@@ -15,13 +15,33 @@ const ensureUsersInitialized = async () => {
   
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminPassword = process.env.ADMIN_PASSWORD || 'swarm2026';
+
+  if (!process.env.ADMIN_PASSWORD) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('');
+      console.error('================================================================');
+      console.error('  FATAL: ADMIN_PASSWORD is not set in production!');
+      console.error('  Set ADMIN_PASSWORD env var before deploying.');
+      console.error('================================================================');
+      console.error('');
+      process.exit(1);
+    }
+    console.warn('');
+    console.warn('================================================================');
+    console.warn('  WARNING: ADMIN_PASSWORD is not set!');
+    console.warn('  Using default credentials (admin / swarm2026).');
+    console.warn('  This is insecure. Set ADMIN_PASSWORD env var before deploying.');
+    console.warn('================================================================');
+    console.warn('');
+  }
+
   const hash = await bcrypt.hash(adminPassword, 10);
   users.set(adminUsername, {
     username: adminUsername,
     password: hash,
     role: 'admin'
   });
-  console.log(`✅ Admin user initialized: ${adminUsername}`);
+  console.log(`Admin user initialized: ${adminUsername}`);
 };
 
 // Helper to get JWT secret at runtime
@@ -37,6 +57,14 @@ const getJwtSecret = () => {
 const loginAttempts = new Map(); // ip -> { count, resetAt }
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+// Periodically clean up expired rate limit entries to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of loginAttempts) {
+    if (now > entry.resetAt) loginAttempts.delete(ip);
+  }
+}, LOGIN_WINDOW_MS);
 
 function checkLoginRateLimit(ip) {
   const now = Date.now();
@@ -116,4 +144,4 @@ export function authenticateToken(req, res, next) {
   }
 }
 
-export { router as authRouter };
+export { router as authRouter, getJwtSecret };

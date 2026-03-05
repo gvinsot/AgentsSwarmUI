@@ -1,8 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { authRouter, authenticateToken } from './middleware/auth.js';
+import { authRouter, authenticateToken, getJwtSecret } from './middleware/auth.js';
 import { agentRoutes } from './routes/agents.js';
 import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
@@ -43,7 +44,29 @@ app.use(cors({
   origin: corsOrigins,
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
+
+// Security headers — defense-in-depth when accessed without a reverse proxy
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:; font-src 'self'; object-src 'none'; frame-ancestors 'none'");
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+app.use(express.json({ limit: '1mb' }));
+
+// Global API rate limiter — 100 requests per minute per IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+app.use('/api/', apiLimiter);
 
 app.use('/api/auth', authRouter);
 
@@ -57,7 +80,13 @@ app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 
+// Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Detailed status — requires authentication
+app.get('/api/health/details', authenticateToken, (req, res) => {
   const allAgents = Array.from(agentManager.agents.values());
   const enabled = allAgents.filter(a => a.enabled !== false);
   const projectCounts = {};
@@ -88,12 +117,19 @@ app.get('/api/health', (req, res) => {
 });
 
 io.use((socket, next) => {
+  // Validate Origin header to prevent cross-site WebSocket hijacking
+  const origin = socket.handshake.headers.origin;
+  if (origin && !corsOrigins.includes(origin)) {
+    console.warn(`WebSocket connection rejected: origin "${origin}" not in allowed list`);
+    return next(new Error('Origin not allowed'));
+  }
+
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error('Authentication required'));
 
   import('jsonwebtoken').then(jwt => {
     try {
-      const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.default.verify(token, getJwtSecret());
       socket.user = decoded;
       next();
     } catch (err) {

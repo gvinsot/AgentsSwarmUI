@@ -1,4 +1,18 @@
 import express from 'express';
+import { z } from 'zod';
+
+// Schema for creating a plugin
+const createPluginSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  category: z.string().max(100).optional(),
+  icon: z.string().max(50).optional(),
+  instructions: z.string().min(1).max(50000),
+  mcpServerIds: z.array(z.string().max(200)).optional(),
+});
+
+// Schema for updating a plugin (all fields optional)
+const updatePluginSchema = createPluginSchema.partial();
 
 export function pluginRoutes(skillManager, mcpManager) {
   const router = express.Router();
@@ -22,30 +36,30 @@ export function pluginRoutes(skillManager, mcpManager) {
 
   router.post('/', async (req, res) => {
     try {
-      const { name, description, category, icon, instructions, mcpServerIds = [] } = req.body;
-      if (!name || !instructions) {
-        return res.status(400).json({ error: 'Name and instructions required' });
-      }
+      const parsed = createPluginSchema.parse(req.body);
       const plugin = await skillManager.create({
-        name,
-        description,
-        category,
-        icon,
-        instructions,
-        mcpServerIds: Array.isArray(mcpServerIds) ? mcpServerIds : []
+        ...parsed,
+        mcpServerIds: Array.isArray(parsed.mcpServerIds) ? parsed.mcpServerIds : []
       });
       res.status(201).json(plugin);
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
       res.status(500).json({ error: err.message });
     }
   });
 
   router.put('/:id', async (req, res) => {
     try {
-      const plugin = await skillManager.update(req.params.id, req.body);
+      const parsed = updatePluginSchema.parse(req.body);
+      const plugin = await skillManager.update(req.params.id, parsed);
       if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
       res.json(plugin);
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
       res.status(500).json({ error: err.message });
     }
   });
