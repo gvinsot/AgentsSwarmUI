@@ -144,4 +144,4 @@ export function authenticateToken(req, res, next) {
   }
 }
 
-export { router as authRouter };
+export { router as authRouter, getJwtSecret };

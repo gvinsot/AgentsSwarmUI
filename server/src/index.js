@@ -3,7 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { authRouter, authenticateToken } from './middleware/auth.js';
+import { authRouter, authenticateToken, getJwtSecret } from './middleware/auth.js';
 import { agentRoutes } from './routes/agents.js';
 import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
@@ -129,7 +129,7 @@ io.use((socket, next) => {
 
   import('jsonwebtoken').then(jwt => {
     try {
-      const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.default.verify(token, getJwtSecret());
       socket.user = decoded;
       next();
     } catch (err) {

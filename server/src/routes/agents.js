@@ -32,12 +32,22 @@ const createAgentSchema = z.object({
 // Schema for updating an agent (all fields optional)
 const updateAgentSchema = createAgentSchema.partial();
 
+// Mask sensitive fields before sending agent data to the client
+function sanitizeAgent(agent) {
+  if (!agent) return agent;
+  const { apiKey, ...safe } = agent;
+  if (apiKey) {
+    safe.apiKey = apiKey.length > 8 ? apiKey.slice(0, 4) + '...' + apiKey.slice(-4) : '••••';
+  }
+  return safe;
+}
+
 export function agentRoutes(agentManager) {
   const router = express.Router();
 
   // List all agents
   router.get('/', (req, res) => {
-    res.json(agentManager.getAll());
+    res.json(agentManager.getAll().map(sanitizeAgent));
   });
 
   // Get lightweight status for ALL enabled agents (includes project + currentTask)
@@ -82,7 +92,7 @@ export function agentRoutes(agentManager) {
   router.get('/:id', (req, res) => {
     const agent = agentManager.getById(req.params.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    res.json(agent);
+    res.json(sanitizeAgent(agent));
   });
 
   // Create agent
