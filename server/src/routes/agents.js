@@ -1,4 +1,36 @@
 import express from 'express';
+import { z } from 'zod';
+
+// Schema for creating a new agent
+const createAgentSchema = z.object({
+  name: z.string().min(1).max(200),
+  role: z.string().max(100).optional(),
+  description: z.string().max(2000).optional(),
+  provider: z.string().max(100).optional(),
+  model: z.string().max(200).optional(),
+  endpoint: z.string().max(500).optional(),
+  apiKey: z.string().max(500).optional(),
+  instructions: z.string().max(50000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().min(1).max(1000000).optional(),
+  contextLength: z.number().int().min(0).optional(),
+  todoList: z.array(z.any()).optional(),
+  ragDocuments: z.array(z.any()).optional(),
+  skills: z.array(z.string()).optional(),
+  mcpServers: z.array(z.string()).optional(),
+  handoffTargets: z.array(z.string()).optional(),
+  project: z.string().max(200).nullable().optional(),
+  enabled: z.boolean().optional(),
+  isLeader: z.boolean().optional(),
+  isVoice: z.boolean().optional(),
+  voice: z.string().max(100).optional(),
+  template: z.string().max(200).nullable().optional(),
+  color: z.string().max(50).optional(),
+  icon: z.string().max(50).optional(),
+});
+
+// Schema for updating an agent (all fields optional)
+const updateAgentSchema = createAgentSchema.partial();
 
 export function agentRoutes(agentManager) {
   const router = express.Router();
@@ -56,18 +88,30 @@ export function agentRoutes(agentManager) {
   // Create agent
   router.post('/', (req, res) => {
     try {
-      const agent = agentManager.create(req.body);
+      const parsed = createAgentSchema.parse(req.body);
+      const agent = agentManager.create(parsed);
       res.status(201).json(agent);
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
       res.status(400).json({ error: err.message });
     }
   });
 
   // Update agent
   router.put('/:id', (req, res) => {
-    const agent = agentManager.update(req.params.id, req.body);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    res.json(agent);
+    try {
+      const parsed = updateAgentSchema.parse(req.body);
+      const agent = agentManager.update(req.params.id, parsed);
+      if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      res.json(agent);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // Delete agent

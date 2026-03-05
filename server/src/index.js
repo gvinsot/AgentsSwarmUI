@@ -43,6 +43,16 @@ app.use(cors({
   origin: corsOrigins,
   credentials: true
 }));
+
+// Security headers — defense-in-depth when accessed without a reverse proxy
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 app.use('/api/auth', authRouter);
@@ -94,6 +104,13 @@ app.get('/api/health/details', authenticateToken, (req, res) => {
 });
 
 io.use((socket, next) => {
+  // Validate Origin header to prevent cross-site WebSocket hijacking
+  const origin = socket.handshake.headers.origin;
+  if (origin && !corsOrigins.includes(origin)) {
+    console.warn(`WebSocket connection rejected: origin "${origin}" not in allowed list`);
+    return next(new Error('Origin not allowed'));
+  }
+
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error('Authentication required'));
 

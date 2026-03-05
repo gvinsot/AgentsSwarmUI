@@ -243,12 +243,29 @@ async function toolAppendFile(sandboxMgr, agentId, filePath, content) {
   };
 }
 
+/**
+ * Sanitize a commit message for safe use in a shell command.
+ * Strips shell metacharacters that could allow command injection:
+ * backticks, $, newlines, null bytes, and other dangerous chars.
+ * The result is safe to embed in single quotes after also escaping
+ * single quotes themselves.
+ */
+function sanitizeCommitMessage(msg) {
+  if (!msg || typeof msg !== 'string') return 'update';
+  return msg
+    .replace(/[\x00]/g, '')          // null bytes
+    .replace(/[`$\\!]/g, '')         // shell expansion chars: backtick, $, \, !
+    .replace(/\r?\n/g, ' ')          // newlines -> spaces
+    .replace(/'/g, "'\\''")          // escape single quotes for single-quoted string
+    .slice(0, 500);                  // limit length
+}
+
 async function toolGitCommitPush(sandboxMgr, agentId, message) {
-  const safeMsg = (message || 'update').replace(/"/g, '\\"');
+  const safeMsg = sanitizeCommitMessage(message);
   try {
     const { stdout, stderr } = await sandboxMgr.exec(
       agentId,
-      `git add -A && git commit -m "${safeMsg}" && git push`,
+      `git add -A && git commit -m '${safeMsg}' && git push`,
       { timeout: 60000 }
     );
     return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 10000) };

@@ -15,13 +15,24 @@ const ensureUsersInitialized = async () => {
   
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminPassword = process.env.ADMIN_PASSWORD || 'swarm2026';
+
+  if (!process.env.ADMIN_PASSWORD) {
+    console.warn('');
+    console.warn('================================================================');
+    console.warn('  WARNING: ADMIN_PASSWORD is not set!');
+    console.warn('  Using default credentials (admin / swarm2026).');
+    console.warn('  This is insecure. Set ADMIN_PASSWORD env var before deploying.');
+    console.warn('================================================================');
+    console.warn('');
+  }
+
   const hash = await bcrypt.hash(adminPassword, 10);
   users.set(adminUsername, {
     username: adminUsername,
     password: hash,
     role: 'admin'
   });
-  console.log(`✅ Admin user initialized: ${adminUsername}`);
+  console.log(`Admin user initialized: ${adminUsername}`);
 };
 
 // Helper to get JWT secret at runtime
