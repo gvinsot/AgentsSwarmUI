@@ -423,6 +423,58 @@ Examples:
 @get_available_agent(developer)`
   },
   {
+    id: 'skill-onedrive',
+    name: 'OneDrive',
+    description: 'Browse, search, read, upload, and manage files in Microsoft OneDrive via the Graph API',
+    category: 'general',
+    icon: '☁️',
+    builtin: true,
+    mcpServerIds: ['mcp-onedrive'],
+    instructions: `You can interact with Microsoft OneDrive files using the OneDrive MCP tools.
+
+## AVAILABLE TOOLS
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
+
+## OneDrive MCP Tools Reference
+
+@mcp_call(OneDrive, list_files, {"path": "/", "top": 50})
+  — List files and folders at a given path. Use "/" for the root directory.
+
+@mcp_call(OneDrive, search_files, {"query": "keyword", "top": 25})
+  — Search for files by name or content across the entire OneDrive.
+
+@mcp_call(OneDrive, read_file, {"path": "/Documents/notes.txt"})
+  — Read the text content of a file. Works best with text-based files (txt, json, md, csv, etc.).
+
+@mcp_call(OneDrive, get_file_info, {"path": "/Documents/report.pdf"})
+  — Get detailed metadata about a file or folder (size, type, modified date, web URL).
+
+@mcp_call(OneDrive, create_folder, {"parentPath": "/", "name": "NewFolder"})
+  — Create a new folder. parentPath is where to create it.
+
+@mcp_call(OneDrive, upload_file, {"path": "/Documents/file.txt", "content": "Hello World"})
+  — Upload or create a text file (up to 4MB).
+
+@mcp_call(OneDrive, delete_item, {"path": "/Documents/old-file.txt"})
+  — Delete a file or folder (moves to recycle bin).
+
+@mcp_call(OneDrive, get_share_link, {"path": "/Documents/report.pdf", "type": "view"})
+  — Create a sharing link. type can be "view" (read-only) or "edit" (read-write).
+
+@mcp_call(OneDrive, get_drive_info, {})
+  — Get OneDrive storage info (space used, remaining, owner).
+
+## USAGE GUIDELINES
+- Always start by listing the root directory to orient yourself: @mcp_call(OneDrive, list_files, {"path": "/"})
+- Use search_files to find specific files when you don't know the exact path
+- Use get_file_info to check file details before reading large files
+- Paths use forward slashes and start from the root: /Documents/subfolder/file.txt
+- When the user asks about "my files" or "my documents", start by listing the root
+- For binary files (images, PDFs), provide the web URL or share link instead of reading content
+- Be cautious with delete_item — always confirm with the user before deleting`
+  },
+  {
     id: 'skill-agents-direct-access',
     name: 'Agents Direct Access',
     description: 'Ask quick questions to other agents without creating tasks',

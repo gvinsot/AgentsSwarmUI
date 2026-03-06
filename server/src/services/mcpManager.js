@@ -164,7 +164,15 @@ export class MCPManager {
       if (server.apiKey) {
         connectOpts.headers = { Authorization: `Bearer ${server.apiKey}` };
       }
-      const { tools } = await client.connect(server.url, connectOpts);
+
+      // Resolve internal MCP URLs to local endpoints
+      let connectUrl = server.url;
+      if (connectUrl === '__internal__onedrive') {
+        const port = process.env.PORT || 3001;
+        connectUrl = `http://localhost:${port}/api/onedrive/mcp`;
+      }
+
+      const { tools } = await client.connect(connectUrl, connectOpts);
 
       this.clients.set(id, client);
       server.tools = tools.map(t => ({

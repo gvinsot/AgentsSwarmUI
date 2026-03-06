@@ -3,6 +3,7 @@ import { X, Globe, Send, Loader2, FolderOpen, ChevronDown, StopCircle, Wrench, P
 import ReactMarkdown from 'react-markdown';
 import { cleanToolSyntax } from './AgentDetail';
 import { api } from '../api';
+import OneDriveConnect from './OneDriveConnect';
 
 const categoryColors = {
   coding: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -434,6 +435,9 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                   </button>
                 </div>
               </div>
+
+              {/* OneDrive OAuth connection */}
+              <OneDriveConnect onStatusChange={() => onRefresh?.()} />
 
               {/* Create MCP server form */}
               {showMcpCreate && (

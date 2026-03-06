@@ -250,6 +250,26 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // OneDrive OAuth
+  getOnedriveStatus: () =>
+    fetch(`${API_BASE}/onedrive/status`, { headers: getHeaders() }).then(handleResponse),
+
+  getOnedriveAuthUrl: () =>
+    fetch(`${API_BASE}/onedrive/auth-url`, { headers: getHeaders() }).then(handleResponse),
+
+  onedriveCallback: (code) =>
+    fetch(`${API_BASE}/onedrive/callback`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ code })
+    }).then(handleResponse),
+
+  disconnectOnedrive: () =>
+    fetch(`${API_BASE}/onedrive/disconnect`, {
+      method: 'POST',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // Realtime (Voice)
   getRealtimeToken: (agentId) =>
     fetch(`${API_BASE}/realtime/token`, {

@@ -8,5 +8,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-onedrive',
+    name: 'OneDrive',
+    url: '__internal__onedrive',
+    description: 'Microsoft OneDrive — browse, search, read, upload, and manage files via Microsoft Graph',
+    icon: '☁️',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

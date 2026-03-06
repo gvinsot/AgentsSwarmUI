@@ -19,6 +19,8 @@ import { leaderToolsRoutes } from './routes/leaderTools.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
 import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase } from './services/database.js';
+import { onedriveRoutes } from './routes/onedrive.js';
+import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -77,8 +79,13 @@ app.use('/api/plugins', authenticateToken, pluginRoutes(skillManager, mcpManager
 // Backward compatibility
 app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager));
 app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
+app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
+
+// OneDrive internal MCP endpoint (used by the MCP client for tool discovery and calls)
+const onedriveMcpHandler = createOneDriveMcpHandler();
+app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler(req, res));
 
 // Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
