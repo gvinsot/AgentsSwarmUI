@@ -113,6 +113,7 @@ export class AgentManager {
       enabled: config.enabled !== undefined ? config.enabled : true,
       isLeader: config.isLeader || config.isVoice || false,
       isVoice: config.isVoice || false,
+      isReasoning: config.isReasoning || false,
       voice: config.voice || 'alloy',
       template: config.template || null,
       color: config.color || this._randomColor(),
@@ -384,7 +385,7 @@ export class AgentManager {
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'handoffTargets',
-      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'voice', 'enabled'
+      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled'
     ];
 
     for (const key of allowed) {
@@ -774,6 +775,7 @@ export class AgentManager {
         temperature: agent.temperature,
         maxTokens: agent.maxTokens,
         contextLength: agent.contextLength || 0,
+        isReasoning: agent.isReasoning || false,
         signal: abortController.signal
       })) {
         // Check if aborted
@@ -937,6 +939,7 @@ export class AgentManager {
           temperature: agent.temperature,
           maxTokens: agent.maxTokens,
           contextLength: agent.contextLength || 0,
+          isReasoning: agent.isReasoning || false,
           signal: abortController.signal
         })) {
           if (abortController.signal.aborted) {

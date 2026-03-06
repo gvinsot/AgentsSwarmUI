@@ -23,6 +23,7 @@ const createAgentSchema = z.object({
   enabled: z.boolean().optional(),
   isLeader: z.boolean().optional(),
   isVoice: z.boolean().optional(),
+  isReasoning: z.boolean().optional(),
   voice: z.string().max(100).optional(),
   template: z.string().max(200).nullable().optional(),
   color: z.string().max(50).optional(),

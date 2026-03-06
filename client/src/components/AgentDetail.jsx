@@ -1792,6 +1792,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
     color: agent.color,
     project: agent.project || '',
     enabled: agent.enabled !== false,
+    isReasoning: agent.isReasoning || false,
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1816,6 +1817,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
       color: agent.color,
       project: agent.project || '',
       enabled: agent.enabled !== false,
+      isReasoning: agent.isReasoning || false,
     });
     setSaved(false);
   }, [agent.id]);
@@ -2028,6 +2030,17 @@ function SettingsTab({ agent, projects, onRefresh }) {
               className="w-full accent-indigo-500"
             />
           )}
+        </div>
+        <div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox" checked={form.isReasoning}
+              onChange={(e) => updateField('isReasoning', e.target.checked)}
+              className="accent-indigo-500"
+            />
+            <span className="text-xs text-dark-400">Reasoning model</span>
+          </label>
+          <p className="text-[11px] text-dark-500 mt-1">Uses 'developer' role instead of 'system', disables temperature</p>
         </div>
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>

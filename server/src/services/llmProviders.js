@@ -428,9 +428,14 @@ export class OpenAIProvider {
     this.useResponsesAPI = false;
   }
 
-  _mapMessages(messages) {
+  _isReasoning(options = {}) {
+    return this.isReasoningModel || options.isReasoning || false;
+  }
+
+  _mapMessages(messages, options = {}) {
+    const reasoning = this._isReasoning(options);
     return messages.map(m => ({
-      role: this.isReasoningModel && m.role === 'system' ? 'developer' : m.role,
+      role: reasoning && m.role === 'system' ? 'developer' : m.role,
       content: m.content
     }));
   }
@@ -454,12 +459,13 @@ export class OpenAIProvider {
   }
 
   async _chatCompletion(messages, options = {}) {
+    const reasoning = this._isReasoning(options);
     const params = {
       model: this.model,
-      messages: this._mapMessages(messages),
+      messages: this._mapMessages(messages, options),
       max_completion_tokens: options.maxTokens || 4096,
     };
-    if (!this.isReasoningModel && options.temperature != null) {
+    if (!reasoning && options.temperature != null) {
       params.temperature = options.temperature;
     }
 
@@ -490,7 +496,7 @@ export class OpenAIProvider {
     if (systemMsg) {
       params.instructions = systemMsg.content;
     }
-    if (!this.isReasoningModel) {
+    if (!this._isReasoning(options)) {
       if (options.temperature != null) params.temperature = options.temperature;
     }
 
@@ -535,7 +541,7 @@ export class OpenAIProvider {
 
   async *chatStream(messages, options = {}) {
     const systemMsg = messages.find(m => m.role === 'system');
-    console.log(`🔌 [OpenAI] chatStream model=${this.model} | messages=${messages.length} | systemPrompt=${systemMsg ? systemMsg.content.length + ' chars' : 'NONE'} | useResponsesAPI=${this.useResponsesAPI} | isReasoning=${this.isReasoningModel}`);
+    console.log(`🔌 [OpenAI] chatStream model=${this.model} | messages=${messages.length} | systemPrompt=${systemMsg ? systemMsg.content.length + ' chars' : 'NONE'} | useResponsesAPI=${this.useResponsesAPI} | isReasoning=${this._isReasoning(options)}`);
     if (this.isCompletionModel) {
       yield* this._completionStream(messages, options);
       return;
@@ -558,14 +564,15 @@ export class OpenAIProvider {
   }
 
   async *_chatCompletionStream(messages, options = {}) {
+    const reasoning = this._isReasoning(options);
     const params = {
       model: this.model,
-      messages: this._mapMessages(messages),
+      messages: this._mapMessages(messages, options),
       max_completion_tokens: options.maxTokens || 4096,
       stream: true,
       stream_options: { include_usage: true },
     };
-    if (!this.isReasoningModel) {
+    if (!reasoning) {
       if (options.temperature != null) params.temperature = options.temperature;
     }
 
@@ -615,7 +622,7 @@ export class OpenAIProvider {
     if (systemMsg) {
       params.instructions = systemMsg.content;
     }
-    if (!this.isReasoningModel) {
+    if (!this._isReasoning(options)) {
       if (options.temperature != null) params.temperature = options.temperature;
     }
 
