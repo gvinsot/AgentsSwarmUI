@@ -1805,6 +1805,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
       description: agent.description,
       instructions: agent.instructions,
       temperature: agent.temperature,
+      temperatureEnabled: agent.temperature != null,
       maxTokens: agent.maxTokens,
       contextLength: agent.contextLength || 0,
       provider: agent.provider,
@@ -1822,7 +1823,9 @@ function SettingsTab({ agent, projects, onRefresh }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateAgent(agent.id, form);
+      const { temperatureEnabled, ...payload } = form;
+      payload.temperature = temperatureEnabled ? payload.temperature : null;
+      await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onRefresh();
@@ -2005,12 +2008,26 @@ function SettingsTab({ agent, projects, onRefresh }) {
           </>
         )}
         <div>
-          <label className="block text-xs text-dark-400 mb-1.5">Temperature: {form.temperature}</label>
-          <input
-            type="range" min="0" max="1" step="0.1" value={form.temperature}
-            onChange={(e) => updateField('temperature', parseFloat(e.target.value))}
-            className="w-full accent-indigo-500"
-          />
+          <div className="flex items-center gap-2 mb-1.5">
+            <input
+              type="checkbox" checked={form.temperatureEnabled}
+              onChange={(e) => {
+                updateField('temperatureEnabled', e.target.checked);
+                if (e.target.checked && form.temperature == null) updateField('temperature', 0.7);
+              }}
+              className="accent-indigo-500"
+            />
+            <label className="text-xs text-dark-400">
+              Temperature{form.temperatureEnabled ? `: ${form.temperature}` : ' (disabled — using model default)'}
+            </label>
+          </div>
+          {form.temperatureEnabled && (
+            <input
+              type="range" min="0" max="1" step="0.1" value={form.temperature ?? 0.7}
+              onChange={(e) => updateField('temperature', parseFloat(e.target.value))}
+              className="w-full accent-indigo-500"
+            />
+          )}
         </div>
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>

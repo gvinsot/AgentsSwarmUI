@@ -16,6 +16,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     endpoint: 'https://llm-dev.methodinfo.fr',
     apiKey: '',
     temperature: 0.7,
+    temperatureEnabled: true,
     maxTokens: 128000,
     contextLength: 0,
     icon: '🤖',
