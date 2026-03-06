@@ -1781,6 +1781,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
     description: agent.description,
     instructions: agent.instructions,
     temperature: agent.temperature,
+    temperatureEnabled: agent.temperature != null,
     maxTokens: agent.maxTokens,
     contextLength: agent.contextLength || 0,
     provider: agent.provider,
