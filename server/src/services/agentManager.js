@@ -658,7 +658,8 @@ export class AgentManager {
         if (mcpTools.length > 0) {
           systemContent += '\n\n--- MCP Tools ---\n';
           systemContent += 'Call these tools using @mcp_call(server, tool, {"arg": "value"}) syntax.\n';
-          systemContent += 'IMPORTANT: Pass actual values, NOT schema definitions. Example: @mcp_call(MyServer, my_tool, {"name": "actual-value"})\n\n';
+          systemContent += 'IMPORTANT: Replace <type> placeholders with ACTUAL values. Do NOT copy the type descriptions.\n';
+          systemContent += 'Example: @mcp_call(MyServer, my_tool, {"name": "my-actual-value", "count": 5})\n\n';
           for (const t of mcpTools) {
             const schema = _simplifyMcpSchema(t.inputSchema);
             systemContent += `@mcp_call(${t.serverName}, ${t.name}, ${schema}) — ${t.description || ''}\n`;
@@ -1882,6 +1883,19 @@ export class AgentManager {
       // ── Handle @mcp_call() — delegate to MCP server ────────────────
       if (call.tool === 'mcp_call') {
         const [serverName, toolName, argsJson] = call.args;
+
+        // Validate server and tool names are not empty
+        if (!serverName || !serverName.trim()) {
+          const errMsg = 'MCP call requires a server name. Use: @mcp_call(ServerName, tool_name, {"arg": "value"})';
+          results.push({ tool: 'mcp_call', args: call.args, success: false, error: errMsg });
+          continue;
+        }
+        if (!toolName || !toolName.trim()) {
+          const errMsg = 'MCP call requires a tool name. Use: @mcp_call(ServerName, tool_name, {"arg": "value"})';
+          results.push({ tool: 'mcp_call', args: call.args, success: false, error: errMsg });
+          continue;
+        }
+
         const mcpLabel = `MCP: ${serverName} → ${toolName}`;
         agent.currentThinking = mcpLabel;
         this._emit('agent:thinking', { agentId, thinking: mcpLabel });
@@ -1890,11 +1904,15 @@ export class AgentManager {
         try {
           let parsedArgs;
           if (typeof argsJson === 'string') {
+            // Pre-process: remove ellipsis patterns that LLMs sometimes add
+            let raw = argsJson.trim();
+            raw = raw.replace(/,?\s*\.{3}\s*/g, '');  // Remove ... or , ...
+
             try {
-              parsedArgs = JSON.parse(argsJson);
+              parsedArgs = JSON.parse(raw);
             } catch {
               // Attempt to repair common JSON issues from LLM output
-              let fixed = argsJson.trim();
+              let fixed = raw;
               // Fix unquoted keys: {key: "value"} → {"key": "value"}
               fixed = fixed.replace(/([{,])\s*([a-zA-Z_]\w*)\s*:/g, '$1"$2":');
               // Fix trailing commas: {"a": 1,} → {"a": 1}
@@ -1907,6 +1925,23 @@ export class AgentManager {
               } catch (e2) {
                 throw new Error(`Invalid JSON arguments for ${toolName}: ${e2.message}. Received: ${argsJson.slice(0, 200)}`);
               }
+            }
+
+            // Detect schema-as-arguments: LLM copied the schema definition instead of passing real values
+            // Schema values look like {"param": {"title": "...", "type": "..."}} or {"param": "<string, required>"}
+            const vals = Object.values(parsedArgs);
+            const looksLikeSchema = vals.length > 0 && vals.every(v =>
+              (typeof v === 'object' && v !== null && ('type' in v || 'title' in v || 'anyOf' in v)) ||
+              (typeof v === 'string' && /^<[^>]+>$/.test(v))
+            );
+            if (looksLikeSchema) {
+              // Extract just the parameter names so the agent knows what to fill in
+              const paramNames = Object.keys(parsedArgs);
+              throw new Error(
+                `You passed the schema definition instead of actual values. ` +
+                `Do NOT copy the type descriptions — pass real values. ` +
+                `Example: @mcp_call(${serverName}, ${toolName}, {${paramNames.map(p => `"${p}": "actual-value-here"`).join(', ')}})`
+              );
             }
           } else {
             parsedArgs = argsJson || {};

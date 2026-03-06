@@ -308,16 +308,10 @@ MAINTENANCE:
     mcpServerIds: ['mcp-swarm-manager'],
     instructions: `You know how to integrate and deploy projects on the Swarm cluster.
 
-MCP tools (call via the MCP endpoint):
-- list_stacks() — List all deployed stacks and their services
-- build_stack(stack_name, version) — Build and push Docker images for a stack
-- deploy_stack(stack_name, version) — Deploy a stack to Docker Swarm
-- get_action_status(action_id) — Check progress of a build or deploy action
-- list_containers(stack_name) — List running containers for a stack
-- list_computers() — List available Swarm nodes
-- search_logs(stack_name, query, since) — Search service logs
+Build and deploy operations are managed via MCP tools. The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
 
-Build and deploy operations are managed via MCP tools (available through the swarm-manager service).
+## DEPLOYMENT WORKFLOW
 
 FIRST TIME SETUP — If the project has no devops/ folder yet:
    - Read the existing project structure and understand what needs to be containerized
@@ -325,21 +319,22 @@ FIRST TIME SETUP — If the project has no devops/ folder yet:
    - Commit and push: @git_commit_push(feat: add deployment config)
 
 If you are asked to build:
-   - Use the MCP build_stack tool with the project name and version
+   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version
    - Images are built from devops/docker-compose.swarm.yml
    - Tagged with semantic version and pushed to the registry
    - Check build progress with get_action_status
    - Fix any build errors before proceeding
 
 If you are asked to deploy a specific version:
-   - Use the MCP deploy_stack tool with the project name and version
+   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version
    - Check deploy progress with get_action_status
    - Verify services are running with list_stacks or list_containers
 
 ## MONITORING
-- Use list_stacks() and list_containers() to check service health
-- Use search_logs() to investigate issues
-- Use list_computers() to check node availability
+- Use list_stacks to check service health
+- Use list_containers to check running containers
+- Use search_logs to investigate issues
+- Use list_computers to check node availability
 
 ## IMPORTANT
 - Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
