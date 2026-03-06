@@ -44,6 +44,7 @@ export class SkillManager {
 
   async seedDefaults(defaults) {
     let seeded = 0;
+    let updated = 0;
     for (const skill of defaults) {
       if (!this.skills.has(skill.id)) {
         const entry = normalizeSkill({
@@ -54,10 +55,24 @@ export class SkillManager {
         this.skills.set(skill.id, entry);
         await saveSkill(entry);
         seeded++;
+      } else if (skill.builtin) {
+        // Update existing builtin skills to pick up new fields (e.g. mcpServerIds)
+        const existing = this.skills.get(skill.id);
+        const entry = normalizeSkill({
+          ...existing,
+          ...skill,
+          updatedAt: new Date().toISOString()
+        });
+        this.skills.set(skill.id, entry);
+        await saveSkill(entry);
+        updated++;
       }
     }
     if (seeded > 0) {
       console.log(`✅ Seeded ${seeded} built-in skills`);
+    }
+    if (updated > 0) {
+      console.log(`✅ Updated ${updated} built-in skills`);
     }
   }
 

@@ -305,6 +305,7 @@ MAINTENANCE:
     category: 'devops',
     icon: '🚀',
     builtin: true,
+    mcpServerIds: ['mcp-swarm-manager'],
     instructions: `You know how to integrate and deploy projects on the Swarm cluster.
 
 MCP tools (call via the MCP endpoint):
