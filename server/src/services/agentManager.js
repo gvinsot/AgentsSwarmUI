@@ -25,6 +25,38 @@ async function transferUserFiles(fromId, toId) {
   }
 }
 
+// ─── MCP Schema Simplification ──────────────────────────────────────────────
+// Convert JSON Schema properties to a simple {"param": "type"} format for LLM prompts
+function _simplifyMcpSchema(inputSchema) {
+  if (!inputSchema?.properties) return '{}';
+  const props = inputSchema.properties;
+  const required = new Set(inputSchema.required || []);
+  const simplified = {};
+
+  for (const [key, def] of Object.entries(props)) {
+    let typeStr = '';
+    // Handle anyOf (e.g. nullable types)
+    if (def.anyOf) {
+      const types = def.anyOf.map(t => t.type).filter(Boolean);
+      typeStr = types.join('|');
+    } else {
+      typeStr = def.type || 'string';
+    }
+    // Add default value info
+    if (def.default !== undefined && def.default !== null) {
+      typeStr += `, default: ${def.default}`;
+    } else if (def.default === null) {
+      typeStr += ', optional';
+    }
+    // Mark required
+    if (required.has(key)) {
+      typeStr += ', required';
+    }
+    simplified[key] = `<${typeStr}>`;
+  }
+  return JSON.stringify(simplified);
+}
+
 export class AgentManager {
   constructor(io, skillManager, sandboxManager, mcpManager = null) {
     this.agents = new Map();
@@ -625,9 +657,10 @@ export class AgentManager {
         const mcpTools = this.mcpManager.getToolsForAgent(allMcpIds);
         if (mcpTools.length > 0) {
           systemContent += '\n\n--- MCP Tools ---\n';
-          systemContent += 'Call these tools using @mcp_call(server, tool, {"arg": "value"}) syntax.\n\n';
+          systemContent += 'Call these tools using @mcp_call(server, tool, {"arg": "value"}) syntax.\n';
+          systemContent += 'IMPORTANT: Pass actual values, NOT schema definitions. Example: @mcp_call(MyServer, my_tool, {"name": "actual-value"})\n\n';
           for (const t of mcpTools) {
-            const schema = t.inputSchema?.properties ? JSON.stringify(t.inputSchema.properties) : '{}';
+            const schema = _simplifyMcpSchema(t.inputSchema);
             systemContent += `@mcp_call(${t.serverName}, ${t.name}, ${schema}) — ${t.description || ''}\n`;
           }
         }
@@ -1855,7 +1888,29 @@ export class AgentManager {
         this._emit('agent:tool:start', { agentId, agentName: agent.name, project: agent.project || null, tool: 'mcp_call', args: call.args });
 
         try {
-          const parsedArgs = typeof argsJson === 'string' ? JSON.parse(argsJson) : (argsJson || {});
+          let parsedArgs;
+          if (typeof argsJson === 'string') {
+            try {
+              parsedArgs = JSON.parse(argsJson);
+            } catch {
+              // Attempt to repair common JSON issues from LLM output
+              let fixed = argsJson.trim();
+              // Fix unquoted keys: {key: "value"} → {"key": "value"}
+              fixed = fixed.replace(/([{,])\s*([a-zA-Z_]\w*)\s*:/g, '$1"$2":');
+              // Fix trailing commas: {"a": 1,} → {"a": 1}
+              fixed = fixed.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+              // Fix single-quoted strings: {'key': 'value'} → {"key": "value"}
+              fixed = fixed.replace(/'/g, '"');
+              try {
+                parsedArgs = JSON.parse(fixed);
+                console.log(`🔧 [MCP] Repaired malformed JSON for ${toolName}: ${argsJson.slice(0, 100)}`);
+              } catch (e2) {
+                throw new Error(`Invalid JSON arguments for ${toolName}: ${e2.message}. Received: ${argsJson.slice(0, 200)}`);
+              }
+            }
+          } else {
+            parsedArgs = argsJson || {};
+          }
           const mcpResult = await this.mcpManager.callToolByName(serverName, toolName, parsedArgs);
 
           if (streamCallback) {

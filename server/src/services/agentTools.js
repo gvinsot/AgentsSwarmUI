@@ -343,7 +343,9 @@ function _findTopLevelComma(text) {
   let inTripleQuote = false;
   let inDoubleQuote = false;
   let inSingleQuote = false;
-  let depth = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
 
   for (let i = 0; i < text.length; i++) {
     if (text[i] === '"' && text[i + 1] === '"' && text[i + 2] === '"') {
@@ -355,9 +357,13 @@ function _findTopLevelComma(text) {
     if (text[i] === '"' && !inSingleQuote) { inDoubleQuote = !inDoubleQuote; continue; }
     if (text[i] === "'" && !inDoubleQuote) { inSingleQuote = !inSingleQuote; continue; }
     if (!inDoubleQuote && !inSingleQuote) {
-      if (text[i] === '(') depth++;
-      if (text[i] === ')') depth--;
-      if (text[i] === ',' && depth === 0) return i;
+      if (text[i] === '(') parenDepth++;
+      else if (text[i] === ')') parenDepth--;
+      else if (text[i] === '{') braceDepth++;
+      else if (text[i] === '}') braceDepth--;
+      else if (text[i] === '[') bracketDepth++;
+      else if (text[i] === ']') bracketDepth--;
+      if (text[i] === ',' && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) return i;
     }
   }
   return -1;
