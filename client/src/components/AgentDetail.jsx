@@ -305,6 +305,27 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   const [history, setHistory] = useState(agent?.conversationHistory || []);
   const chatEndRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [currentProject, setCurrentProject] = useState(agent?.project || '');
+  const [projectSaving, setProjectSaving] = useState(false);
+
+  useEffect(() => {
+    setCurrentProject(agent?.project || '');
+  }, [agent?.id, agent?.project]);
+
+  const handleProjectChange = async (project) => {
+    setCurrentProject(project);
+    setProjectSaving(true);
+
+    try {
+      await api.updateAgent(agent.id, { project });
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+      setCurrentProject(agent?.project || '');
+    } finally {
+      setProjectSaving(false);
+    }
+  };
 
   // Sync history from agent object (pushed via socket) instead of fetching from API.
   // This eliminates the flash between stream end and API response.
@@ -374,16 +395,34 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          {/* Mobile agent switcher */}
-          <select
-            value={agent.id}
-            onChange={(e) => onSelectAgent?.(e.target.value)}
-            className="lg:hidden px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-sm font-bold text-dark-100 focus:outline-none focus:border-indigo-500 max-w-[160px] truncate appearance-none"
-          >
-            {agents.filter(a => a.enabled !== false).map(a => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
-          </select>
+          {/* Mobile agent + project switchers */}
+          <div className="lg:hidden flex items-center gap-2 min-w-0 flex-1">
+            <select
+              value={agent.id}
+              onChange={(e) => onSelectAgent?.(e.target.value)}
+              className="min-w-0 flex-1 px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-sm font-bold text-dark-100 focus:outline-none focus:border-indigo-500 truncate appearance-none"
+              title="Active agent"
+            >
+              {agents.filter(a => a.enabled !== false).map(a => (
+                <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <FolderCode className="w-3.5 h-3.5 text-dark-500 flex-shrink-0" />
+              <select
+                value={currentProject}
+                onChange={(e) => handleProjectChange(e.target.value)}
+                disabled={projectSaving}
+                className="min-w-0 flex-1 px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 disabled:opacity-60"
+                title="Working project"
+              >
+                <option value="">No project</option>
+                {projects?.map(p => (
+                  <option key={p.name} value={p.name}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           {/* Desktop: agent icon + name */}
           <span className="text-2xl flex-shrink-0 hidden lg:inline">{agent.icon}</span>
           <div className="min-w-0 hidden lg:block">
@@ -412,15 +451,13 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Project selector — auto-saves (hidden on mobile) */}
-          <div className="hidden sm:flex items-center gap-1.5">
+          <div className="hidden lg:flex items-center gap-1.5">
             <FolderCode className="w-3.5 h-3.5 text-dark-500 flex-shrink-0" />
             <select
-              value={agent.project || ''}
-              onChange={async (e) => {
-                await api.updateAgent(agent.id, { project: e.target.value });
-                onRefresh();
-              }}
-              className="px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500 max-w-[160px]"
+              value={currentProject}
+              onChange={(e) => handleProjectChange(e.target.value)}
+              disabled={projectSaving}
+              className="px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500 max-w-[160px] disabled:opacity-60"
               title="Working project"
             >
               <option value="">No project</option>
@@ -507,7 +544,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab agent={agent} projects={projects} onRefresh={onRefresh} />
+          <SettingsTab agent={agent} projects={projects} currentProject={currentProject} onRefresh={onRefresh} />
         )}
       </div>
     </div>
@@ -1774,7 +1811,7 @@ function ActionLogsTab({ agent, onRefresh }) {
 }
 
 // ─── Settings Tab ──────────────────────────────────────────────────────────
-function SettingsTab({ agent, projects, onRefresh }) {
+function SettingsTab({ agent, projects, currentProject, onRefresh }) {
   const [form, setForm] = useState({
     name: agent.name,
     role: agent.role,
@@ -1821,6 +1858,13 @@ function SettingsTab({ agent, projects, onRefresh }) {
     });
     setSaved(false);
   }, [agent.id]);
+
+  useEffect(() => {
+    setForm(prev => {
+      const nextProject = currentProject || '';
+      return prev.project === nextProject ? prev : { ...prev, project: nextProject };
+    });
+  }, [currentProject]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -1913,7 +1957,7 @@ function SettingsTab({ agent, projects, onRefresh }) {
             rows={6}
           />
         </div>
-        <div className="col-span-2">
+        <div className="col-span-2 hidden lg:block">
           <label className="block text-xs text-dark-400 mb-1.5 flex items-center gap-1.5">
             <FolderCode className="w-3.5 h-3.5" /> Working Project
           </label>
