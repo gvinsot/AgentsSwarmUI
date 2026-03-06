@@ -2,6 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { claudeRateLimiter } from './rateLimiter.js';
 
+// Helper: returns { temperature } object if temperature is set, or empty object to omit it
+function tempParam(options) {
+  return options.temperature != null ? { temperature: options.temperature } : {};
+}
+
 // ─── Ollama Provider ────────────────────────────────────────────────────────
 // Retry helper for Ollama fetch calls — handles transient 'fetch failed'
 // or HTTP 503 when Ollama is busy with another request.
@@ -101,7 +106,7 @@ export class OllamaProvider {
         role: m.role === 'system' ? 'system' : m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens ?? 4096,
       stream: false,
       tool_choice: 'none',
@@ -154,7 +159,7 @@ export class OllamaProvider {
         role: m.role === 'system' ? 'system' : m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens ?? 4096,
       stream: true,
       tool_choice: 'none',
@@ -298,7 +303,7 @@ export class ClaudeProvider {
     const params = {
       model: this.model,
       max_tokens: options.maxTokens || 4096,
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       messages: sanitized,
     };
     if (systemMsg) params.system = systemMsg.content;
@@ -328,7 +333,7 @@ export class ClaudeProvider {
     const params = {
       model: this.model,
       max_tokens: options.maxTokens || 4096,
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       messages: sanitized,
       stream: true,
     };
@@ -454,8 +459,8 @@ export class OpenAIProvider {
       messages: this._mapMessages(messages),
       max_completion_tokens: options.maxTokens || 4096,
     };
-    if (!this.isReasoningModel) {
-      params.temperature = options.temperature ?? 0.7;
+    if (!this.isReasoningModel && options.temperature != null) {
+      params.temperature = options.temperature;
     }
 
     const response = await this.client.chat.completions.create(params);
@@ -486,7 +491,7 @@ export class OpenAIProvider {
       params.instructions = systemMsg.content;
     }
     if (!this.isReasoningModel) {
-      params.temperature = options.temperature ?? 0.7;
+      if (options.temperature != null) params.temperature = options.temperature;
     }
 
     const response = await this.client.responses.create(params);
@@ -513,7 +518,7 @@ export class OpenAIProvider {
     const response = await this.client.completions.create({
       model: this.model,
       prompt,
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
     });
 
@@ -561,7 +566,7 @@ export class OpenAIProvider {
       stream_options: { include_usage: true },
     };
     if (!this.isReasoningModel) {
-      params.temperature = options.temperature ?? 0.7;
+      if (options.temperature != null) params.temperature = options.temperature;
     }
 
     const requestOpts = {};
@@ -611,7 +616,7 @@ export class OpenAIProvider {
       params.instructions = systemMsg.content;
     }
     if (!this.isReasoningModel) {
-      params.temperature = options.temperature ?? 0.7;
+      if (options.temperature != null) params.temperature = options.temperature;
     }
 
     const requestOpts = {};
@@ -649,7 +654,7 @@ export class OpenAIProvider {
     const stream = await this.client.completions.create({
       model: this.model,
       prompt,
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
       stream: true,
     });
@@ -735,7 +740,7 @@ export class VLLMProvider {
         role: m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
     };
 
@@ -759,7 +764,7 @@ export class VLLMProvider {
         role: m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
       stream: true,
       stream_options: { include_usage: true },
@@ -825,7 +830,7 @@ export class MistralProvider {
         role: m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
     };
 
@@ -849,7 +854,7 @@ export class MistralProvider {
         role: m.role,
         content: m.content
       })),
-      temperature: options.temperature ?? 0.7,
+      ...tempParam(options),
       max_tokens: options.maxTokens || 4096,
       stream: true,
       stream_options: { include_usage: true },

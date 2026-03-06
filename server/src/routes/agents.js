@@ -11,7 +11,7 @@ const createAgentSchema = z.object({
   endpoint: z.string().max(500).optional(),
   apiKey: z.string().max(500).optional(),
   instructions: z.string().max(50000).optional(),
-  temperature: z.number().min(0).max(2).optional(),
+  temperature: z.number().min(0).max(2).nullable().optional(),
   maxTokens: z.number().int().min(1).max(1000000).optional(),
   contextLength: z.number().int().min(0).optional(),
   todoList: z.array(z.any()).optional(),
