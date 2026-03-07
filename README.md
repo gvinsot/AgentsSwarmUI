@@ -113,4 +113,62 @@ Supported statuses:
 
 ### Real-time updates
 
-Task status updates are pushed through existing agent update events over Socket.IO and reflected immediately in the UI.
+Task status updates are pushed through existing agent update events over Socket.IO and reflected immediately in the UI.## ZVEC-Powered Code Indexing API
+
+The backend now ships with a code exploration service inspired by jCodeMunch and backed by **ZVEC** (with an automatic in-memory fallback if ZVEC is unavailable on the host).
+
+### What it does
+
+- Indexes a **local source folder**
+- Extracts **symbols** (classes, functions, methods) for JS/TS and Python
+- Stores metadata plus vector embeddings for **semantic search**
+- Exposes authenticated HTTP endpoints for:
+  - repo listing
+  - file tree
+  - file outline
+  - exact symbol retrieval
+  - lexical symbol search
+  - semantic search
+  - text search
+  - repo invalidation
+
+### Endpoints
+
+All endpoints require the usual JWT auth and are mounted under:
+
+- `POST /api/code-index/index-folder`
+- `GET /api/code-index/repos`
+- `GET /api/code-index/repos/:repoId`
+- `GET /api/code-index/repos/:repoId/file-tree`
+- `GET /api/code-index/repos/:repoId/file-outline?filePath=src/file.js`
+- `GET /api/code-index/repos/:repoId/symbol?symbolId=...&verify=true&contextLines=2`
+- `GET /api/code-index/repos/:repoId/search-symbols?query=token`
+- `GET /api/code-index/repos/:repoId/search-semantic?query=jwt+validation`
+- `GET /api/code-index/repos/:repoId/search-text?query=startsWith`
+- `DELETE /api/code-index/repos/:repoId`
+
+### Example
+
+```bash
+curl -X POST http://localhost:3001/api/code-index/index-folder \\
+  -H "Authorization: Bearer <JWT>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "path": "./server/src",
+    "repoName": "server-src"
+  }'
+```
+
+### Environment variables
+
+- `CODE_SEARCH_ALLOWED_ROOTS` — comma-separated list of roots that can be indexed
+- `CODE_SEARCH_INDEX_ROOT` — override on-disk index storage location
+- `CODE_SEARCH_VECTOR_BACKEND` — `auto` (default), `zvec`, or `memory`
+- `CODE_SEARCH_MAX_FILES` — max files per indexed folder
+- `CODE_SEARCH_MAX_FILE_SIZE` — max file size in bytes
+
+### Notes
+
+- Current extraction is an MVP optimized for **JavaScript/TypeScript** and **Python**
+- The semantic layer uses local hashed embeddings, while **ZVEC** provides the vector index/query engine
+- Indexed metadata is stored under `server/.data/` by default

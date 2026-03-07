@@ -7,11 +7,13 @@ import { authRouter, authenticateToken, getJwtSecret } from './middleware/auth.j
 import { agentRoutes } from './routes/agents.js';
 import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
+import { codeIndexRoutes } from './routes/codeIndex.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
 import { SandboxManager } from './services/sandboxManager.js';
 import { MCPManager } from './services/mcpManager.js';
+import { CodeIndexService } from './services/codeIndexService.js';
 import { pluginRoutes } from './routes/plugins.js';
 import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
@@ -40,6 +42,7 @@ const io = new Server(httpServer, {
 const skillManager = new SkillManager();
 const sandboxManager = new SandboxManager();
 const mcpManager = new MCPManager();
+const codeIndexService = new CodeIndexService();
 const agentManager = new AgentManager(io, skillManager, sandboxManager, mcpManager);
 
 app.use(cors({
@@ -53,7 +56,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:; font-src 'self'; object-src 'none'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:; font-src 'self'; object-src 'none'; frame-ancestors 'none'\");
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 });
@@ -75,6 +78,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
 app.use('/api/projects', authenticateToken, projectRoutes());
+app.use('/api/code-index', authenticateToken, codeIndexRoutes(codeIndexService));
 app.use('/api/plugins', authenticateToken, pluginRoutes(skillManager, mcpManager));
 // Backward compatibility
 app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager));
@@ -127,7 +131,7 @@ io.use((socket, next) => {
   // Validate Origin header to prevent cross-site WebSocket hijacking
   const origin = socket.handshake.headers.origin;
   if (origin && !corsOrigins.includes(origin)) {
-    console.warn(`WebSocket connection rejected: origin "${origin}" not in allowed list`);
+    console.warn(`WebSocket connection rejected: origin \"${origin}\" not in allowed list`);
     return next(new Error('Origin not allowed'));
   }
 
@@ -163,7 +167,7 @@ async function start() {
 
   httpServer.listen(PORT, () => {
     console.log(`\\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
-    console.log(`   WebSocket ready for connections`);
+    console.log('   WebSocket ready for connections');
   });
 }
 

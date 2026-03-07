@@ -5,3 +5,5 @@ devops/.env
 *.log
 
 .claude/settings.local.json
+server/.data/
+.data/
