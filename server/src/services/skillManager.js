@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getAllSkills, saveSkill, deleteSkillFromDb } from './database.js';
+import { BUILTIN_SKILLS } from '../data/skills.js';
 
 function normalizeMcp(mcp) {
   return {
@@ -27,6 +28,15 @@ function normalizeSkill(skill) {
     mcps,
     mcpServerIds: mcps.map((m) => m.id),
   };
+}
+
+
+function findBuiltinSkill(identifier) {
+  if (!identifier) return null;
+  const value = String(identifier).toLowerCase();
+  return BUILTIN_SKILLS.find(
+    (skill) => skill.id.toLowerCase() === value || skill.name.toLowerCase() === value
+  ) || null;
 }
 
 export class SkillManager {
@@ -77,11 +87,20 @@ export class SkillManager {
   }
 
   getAll() {
-    return Array.from(this.skills.values()).map(normalizeSkill);
+    const skills = Array.from(this.skills.values()).map(normalizeSkill);
+    const seen = new Set(skills.map((skill) => skill.id));
+
+    for (const builtin of BUILTIN_SKILLS) {
+      if (!seen.has(builtin.id)) {
+        skills.push(normalizeSkill(builtin));
+      }
+    }
+
+    return skills;
   }
 
   getById(id) {
-    const skill = this.skills.get(id) || null;
+    const skill = this.skills.get(id) || findBuiltinSkill(id) || null;
     return skill ? normalizeSkill(skill) : null;
   }
 

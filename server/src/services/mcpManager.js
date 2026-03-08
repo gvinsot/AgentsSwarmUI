@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { getJwtSecret } from '../middleware/auth.js';
 import { getAllMcpServers, saveMcpServer, deleteMcpServerFromDb } from './database.js';
+import { BUILTIN_MCP_SERVERS } from '../data/mcpServers.js';
 import { MCPClient } from './mcpClient.js';
 
 export function resolveInternalMcpConfig(serverUrl, {
@@ -36,6 +37,26 @@ export function resolveInternalMcpConfig(serverUrl, {
  * Manages MCP server registrations, connections, and tool execution.
  * Follows the same pattern as SkillManager: in-memory Map + DB persistence.
  */
+
+export function findBuiltinMcpServer(identifier) {
+  if (!identifier) return null;
+  const value = String(identifier).toLowerCase();
+  return BUILTIN_MCP_SERVERS.find(
+    (server) => server.id.toLowerCase() === value || server.name.toLowerCase() === value
+  ) || null;
+}
+
+function createBuiltinServerEntry(def) {
+  return {
+    ...def,
+    tools: [],
+    status: 'disconnected',
+    error: null,
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
 export class MCPManager {
   constructor() {
     this.servers = new Map();   // id -> server config (with tools[], status, etc.)
@@ -43,6 +64,31 @@ export class MCPManager {
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
+
+  async ensureBuiltinServerRegistered(identifier) {
+    const existingById = this.servers.get(identifier);
+    if (existingById) return existingById;
+
+    const builtin = findBuiltinMcpServer(identifier);
+    if (!builtin) return null;
+
+    const existingByBuiltinId = this.servers.get(builtin.id);
+    if (existingByBuiltinId) return existingByBuiltinId;
+
+    const entry = {
+      ...builtin,
+      tools: [],
+      status: 'disconnected',
+      error: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.servers.set(entry.id, entry);
+    await saveMcpServer(entry);
+    return entry;
+  }
+
 
   async loadFromDatabase() {
     const servers = await getAllMcpServers();
@@ -127,11 +173,18 @@ export class MCPManager {
   // ── CRUD ────────────────────────────────────────────────────────────
 
   getAll() {
-    return Array.from(this.servers.values());
+    const servers = Array.from(this.servers.values());
+    const seen = new Set(servers.map((server) => server.id));
+    for (const builtin of BUILTIN_MCP_SERVERS) {
+      if (!seen.has(builtin.id)) {
+        servers.push(createBuiltinServerEntry(builtin));
+      }
+    }
+    return servers;
   }
 
   getById(id) {
-    return this.servers.get(id) || null;
+    return this.servers.get(id) || (findBuiltinMcpServer(id) ? createBuiltinServerEntry(findBuiltinMcpServer(id)) : null);
   }
 
   async create(config) {
@@ -202,7 +255,10 @@ export class MCPManager {
   // ── Connection Management ───────────────────────────────────────────
 
   async connect(id) {
-    const server = this.servers.get(id);
+    let server = this.servers.get(id);
+    if (!server) {
+      server = await this.ensureBuiltinServerRegistered(id);
+    }
     if (!server) throw new Error(`MCP server ${id} not found`);
     if (!server.url) throw new Error(`MCP server "${server.name}" has no URL`);
 
@@ -308,10 +364,18 @@ export class MCPManager {
   }
 
   async callToolByName(serverName, toolName, args = {}) {
-    const server = Array.from(this.servers.values()).find(
+    let server = Array.from(this.servers.values()).find(
       s => s.name.toLowerCase() === serverName.toLowerCase()
     );
-    if (!server) throw new Error(`MCP server "${serverName}" not found. Available servers: ${Array.from(this.servers.values()).map(s => s.name).join(', ') || 'none'}`);
+
+    if (!server) {
+      server = await this.ensureBuiltinServerRegistered(serverName);
+    }
+
+    if (!server) {
+      const availableNames = this.getAll().map(s => s.name);
+      throw new Error(`MCP server "${serverName}" not found. Available servers: ${availableNames.join(', ') || 'none'}`);
+    }
 
     if (server.status !== 'connected') {
       console.log(`🔌 [MCP] "${server.name}" is ${server.status}, attempting reconnect for ${toolName}...`);
@@ -333,7 +397,10 @@ export class MCPManager {
 
     const reconnectPromises = [];
     for (const serverId of mcpServerIds) {
-      const server = this.servers.get(serverId);
+      let server = this.servers.get(serverId);
+      if (!server) {
+        server = await this.ensureBuiltinServerRegistered(serverId);
+      }
       if (server && server.status !== 'connected' && server.enabled && server.url) {
         console.log(`🔌 [MCP] "${server.name}" not connected — attempting reconnect for agent prompt...`);
         reconnectPromises.push(
@@ -348,7 +415,7 @@ export class MCPManager {
     }
 
     for (const serverId of mcpServerIds) {
-      const server = this.servers.get(serverId);
+      const server = this.servers.get(serverId) || findBuiltinMcpServer(serverId) && createBuiltinServerEntry(findBuiltinMcpServer(serverId));
       if (!server) {
         unavailable.push({ serverId, serverName: serverId, status: 'unknown', reason: 'Server not registered' });
         continue;

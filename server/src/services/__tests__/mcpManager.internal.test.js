@@ -3,7 +3,7 @@ import test from 'node:test';
 import jwt from 'jsonwebtoken';
 import { BUILTIN_MCP_SERVERS } from '../../data/mcpServers.js';
 import { BUILTIN_SKILLS } from '../../data/skills.js';
-import { resolveInternalMcpConfig } from '../mcpManager.js';
+import { MCPManager, resolveInternalMcpConfig } from '../mcpManager.js';
 
 test('resolveInternalMcpConfig maps internal MCP URLs and signs an auth token', () => {
   const secret = 'test-secret';
@@ -45,4 +45,19 @@ test('builtin Code Index plugin is wired to the internal MCP server', () => {
   assert.deepEqual(codeIndexSkill.mcpServerIds, ['mcp-code-index']);
   assert.match(codeIndexSkill.instructions, /Code Index/i);
   assert.match(codeIndexSkill.instructions, /search_semantic/i);
+});
+
+test('builtin MCP servers remain discoverable before explicit seeding', () => {
+  const manager = new MCPManager();
+
+  const listed = manager.getAll();
+  assert.ok(listed.some((server) => server.id === 'mcp-code-index'));
+
+  const byId = manager.getById('mcp-code-index');
+  assert.ok(byId);
+  assert.equal(byId.name, 'Code Index');
+
+  const byName = manager.getById('Code Index');
+  assert.ok(byName);
+  assert.equal(byName.id, 'mcp-code-index');
 });
