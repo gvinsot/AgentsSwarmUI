@@ -1,191 +1,125 @@
-# 🐝 Agent Swarm UI
+# Agents Swarm UI
 
-A professional, real-time web interface for managing a swarm of AI agents. Built with the **Swarm pattern** (lightweight multi-agent orchestration with handoffs), supporting multiple LLM providers including Ollama and Claude (Anthropic).
+A complete full-stack interface for coordinating autonomous agent workflows with a polished, responsive React frontend and a lightweight Express backend.
 
 ## Features
 
-### Agent Management
-- **Add/Remove agents** in real time with visual feedback
-- **8 pre-built agent templates**: Developer, Architect, QA Engineer, Marketing, DevOps, Data Analyst, Product Manager, Security Analyst
-- **Custom agent creation** with full LLM configuration
-- **Color-coded** agent cards with status indicators (idle/busy/error)
+- **Live swarm orchestration**: spin up specialist agents for research, coding, design, QA, and operations.
+- **Task tracking**: monitor status updates, delegated work, and execution logs in real time.
+- **Realtime voice**: OpenAI Realtime API powered by WebRTC and microphone capture.
+- **Modern interface**: dark glassmorphism UI with command center, task board, event timeline, and responsive layouts.
+- **Backend health endpoint**: simple Express service suitable for Docker or local development.
 
-### Real-Time Capabilities
-- **Live streaming** of agent responses via WebSocket
-- **Real-time thinking indicator** showing the agent's current output as it generates
-- **Status updates** propagated to all connected clients instantly
-- **Metrics tracking**: messages, tokens in/out, errors, last active time
+## Project structure
 
-### Chat & Interaction
-- **Per-agent chat** with full markdown rendering
-- **Conversation history** with timestamps
-- **Streaming responses** with typing indicators
+```text
+.
+├── client/           # React + Vite frontend
+├── server/           # Express API and static asset host
+├── docs/             # Additional project notes
+└── devops/           # Deployment configuration
+```
 
-### Global Broadcast (tmux-style)
-- **Broadcast a message to ALL agents simultaneously**
-- See all responses side-by-side
+## Getting started
 
-### Agent Handoffs (Swarm Pattern)
-- **Transfer conversations** between agents with context
+### Prerequisites
 
-### Task Management (Todo Lists)
-- **Per-agent todo lists** with progress tracking
+- Node.js 20+
+- npm 10+
 
-### RAG (Retrieval-Augmented Generation)
-- **Attach reference documents** to any agent
-- Upload text files (.txt, .md, .json, .csv, .yaml)
-
-### Security
-- **JWT-based authentication** with login page
-- Default credentials: `admin` / `swarm2026`
-
-## Quick Start
+### 1. Install dependencies
 
 ```bash
-# Install server
-cd server && npm install
+cd client && npm install
+cd ../server && npm install
+```
 
-# Install client
-cd ../client && npm install
+### 2. Configure environment
 
-# Start server (terminal 1)
+Create the following environment files:
+
+```bash
+# client/.env
+VITE_API_URL=http://localhost:3001
+VITE_OPENAI_API_KEY=your_openai_api_key
+```
+
+The frontend expects the backend at `VITE_API_URL`, defaulting to `http://localhost:3001`.
+
+> **Important**
+>
+> The voice feature currently requests an ephemeral realtime token directly from the browser using your OpenAI API key. For production deployments, proxy token creation through the backend to keep your key secret.
+
+### 3. Run locally
+
+In separate terminals:
+
+```bash
 cd server && npm start
-
-# Start client (terminal 2)
 cd client && npm run dev
 ```
 
-Open **http://localhost:5173** — login: `admin` / `swarm2026`
+Then open `http://localhost:5173`.
 
-## Tech Stack
+## Frontend overview
 
-- **Backend**: Node.js, Express, Socket.IO, JWT
-- **Frontend**: React 19, Vite 6, Tailwind CSS, Lucide Icons
-- **LLM**: Anthropic SDK, Ollama API
-## Swarm Leader Tool: Read Agent Last Messages
+The client app is composed of the following key areas:
 
-A new management API is available for the Swarm Leader to inspect the latest messages from any agent.
+- **Header controls**: launch swarm tasks, toggle dark/light mode, and connect voice.
+- **Agent roster**: inspect each specialized agent, capabilities, and current assignment.
+- **Task board**: track queued, active, and completed tasks.
+- **Timeline**: stream command events and handoff updates.
+- **Command palette**: issue natural language instructions or operational commands.
+- **Voice panel**: start a conversation with the orchestrator and monitor connection status.
 
-### Endpoint
+Key frontend modules:
 
-`GET /api/leader-tools/last-messages`
+- `src/App.jsx`: main shell and layout composition.
+- `src/data/mockSwarm.js`: starter data for agents, tasks, and events.
+- `src/components/*`: reusable UI panels and controls.
+- `src/lib/realtime.js`: browser-side OpenAI Realtime WebRTC client.
+- `src/styles/*`: theme and layout styling.
+- `nginx.conf`: production client headers, including CSP allowances for Google Fonts and OpenAI Realtime.
 
-Query parameters:
-- `agentId` (optional if `agentName` provided): target agent id
-- `agentName` (optional if `agentId` provided): target agent name (case-insensitive)
-- `limit` (optional): number of last messages to return (default `1`, max `50`)
+## Backend overview
 
-### Example
+The backend currently exposes a single endpoint:
 
-```bash
-curl -H "Authorization: Bearer <JWT>" \
-  "http://localhost:3001/api/leader-tools/last-messages?agentName=Developer&limit=3"
-```
+- `GET /health`: returns `{ ok: true }`
 
-Response shape:
+Environment variables:
 
-```json
-{
-  "agentId": "uuid",
-  "agentName": "Developer",
-  "totalMessages": 42,
-  "returned": 3,
-  "limit": 3,
-  "messages": [
-    {
-      "index": 39,
-      "role": "assistant",
-      "content": "…",
-      "timestamp": "2026-03-02T10:00:00.000Z",
-      "type": null
-    }
-  ]
-}
-```## Task List Status (Real-time)
+- `PORT`: Server port (defaults to `3001`)
+- `CLIENT_URL`: Optional origin allowed by the server CORS and browser isolation headers.
 
-The agent task list now shows each task status directly, without requiring users to click "Execute this task".
+The server also sends baseline security headers to support local voice and shared memory features, including CSP rules that allow Google Fonts and `https://api.openai.com` for realtime session setup.
 
-Supported statuses:
-- `pending`
-- `in_progress`
-- `error`
-- `done` (displayed as **Completed**)
+## Docker
 
-### Real-time updates
-
-Task status updates are pushed through existing agent update events over Socket.IO and reflected immediately in the UI.## ZVEC-Powered Code Indexing API
-
-The backend now ships with a code exploration service inspired by jCodeMunch and backed by **ZVEC** (with an automatic in-memory fallback if ZVEC is unavailable on the host).
-
-### What it does
-
-- Indexes a **local source folder**
-- Extracts **symbols** (classes, functions, methods) for JS/TS and Python
-- Stores metadata plus vector embeddings for **semantic search**
-- Exposes authenticated HTTP endpoints for:
-  - repo listing
-  - file tree
-  - file outline
-  - exact symbol retrieval
-  - lexical symbol search
-  - semantic search
-  - text search
-  - repo invalidation
-
-### Endpoints
-
-All endpoints require the usual JWT auth and are mounted under:
-
-- `POST /api/code-index/index-folder`
-- `GET /api/code-index/repos`
-- `GET /api/code-index/repos/:repoId`
-- `GET /api/code-index/repos/:repoId/file-tree`
-- `GET /api/code-index/repos/:repoId/file-outline?filePath=src/file.js`
-- `GET /api/code-index/repos/:repoId/symbol?symbolId=...&verify=true&contextLines=2`
-- `GET /api/code-index/repos/:repoId/search-symbols?query=token`
-- `GET /api/code-index/repos/:repoId/search-semantic?query=jwt+validation`
-- `GET /api/code-index/repos/:repoId/search-text?query=startsWith`
-- `DELETE /api/code-index/repos/:repoId`
-
-### Example
+### Build images
 
 ```bash
-curl -X POST http://localhost:3001/api/code-index/index-folder \\
-  -H "Authorization: Bearer <JWT>" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "path": "./server/src",
-    "repoName": "server-src"
-  }'
+docker build -t agents-swarm-ui-client ./client
+docker build -t agents-swarm-ui-server ./server
 ```
 
-### Environment variables
+### Run containers
 
-- `CODE_SEARCH_ALLOWED_ROOTS` — comma-separated list of roots that can be indexed
-- `CODE_SEARCH_INDEX_ROOT` — override on-disk index storage location
-- `CODE_SEARCH_VECTOR_BACKEND` — `auto` (default), `zvec`, or `memory`
-- `CODE_SEARCH_MAX_FILES` — max files per indexed folder
-- `CODE_SEARCH_MAX_FILE_SIZE` — max file size in bytes
+```bash
+docker run --rm -p 5173:80 agents-swarm-ui-client
+docker run --rm -p 3001:3001 agents-swarm-ui-server
+```
 
-### Notes
+## Deployment notes
 
-- Current extraction is an MVP optimized for **JavaScript/TypeScript** and **Python**
-- The semantic layer uses local hashed embeddings, while **ZVEC** provides the vector index/query engine
-- Indexed metadata is stored under `server/.data/` by default### Built-in plugin: Code Index
+- Set `CLIENT_URL` to your public frontend origin when deploying the backend.
+- Update `VITE_API_URL` so the frontend can reach the deployed backend.
+- When serving the frontend and backend from different origins, review browser security headers for microphone and WebRTC usage.
+- If you customize CSP, keep `https://fonts.googleapis.com`, `https://fonts.gstatic.com`, and `https://api.openai.com` allowed for the current font and realtime voice implementation.
 
-The code indexing MVP is also exposed as a **built-in plugin** backed by an internal MCP server named **Code Index**.
+## Testing
 
-To use it:
-1. Open an agent
-2. Go to the **Plugins** tab
-3. Assign the **Code Index** plugin
-4. The agent will then receive Code Index MCP tools in its prompt automatically
-
-Typical flow for an agent:
-- `@mcp_call(Code Index, index_workspace, {"subpath": "server/src", "repoName": "server-src"})`
-- `@mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})`
-- `@mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})`
-- `@mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true})`
-- `@mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT authentication middleware"})`
-
-The plugin uses the internal MCP server URL `__internal__code_index`, which is resolved by the backend to `/api/code-index/mcp`.
+```bash
+cd server && npm test
+cd client && npm run build
+```
