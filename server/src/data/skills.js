@@ -507,4 +507,52 @@ RULES:
     createdAt: '2024-03-01T00:00:00.000Z',
     updatedAt: '2024-03-01T00:00:00.000Z'
   },
+  {
+    id: 'skill-code-index',
+    name: 'Code Index',
+    description: 'Index source folders, inspect file outlines, and run lexical or semantic code search through the internal MCP server',
+    category: 'coding',
+    icon: '🧠',
+    builtin: true,
+    mcpServerIds: ['mcp-code-index'],
+    instructions: `You can use the internal Code Index plugin to explore codebases faster than raw grep alone.
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(Code Index, tool_name, {"param": "value"}) syntax.
+
+RECOMMENDED WORKFLOW:
+1. Index the relevant codebase once.
+2. Reuse the returned repoId for follow-up queries.
+3. Search symbols or semantics first, then fetch outlines/source for the best matches.
+4. Fall back to normal file tools when you need to edit files.
+
+MOST USEFUL TOOLS:
+- @mcp_call(Code Index, index_workspace, {"subpath": "server/src", "repoName": "server-src"})
+  Index the current application workspace or a subfolder under it.
+- @mcp_call(Code Index, index_folder, {"path": "/absolute/path/or/relative/path", "repoName": "my-repo"})
+  Index an arbitrary local folder on the server host.
+- @mcp_call(Code Index, list_repos, {})
+  List all indexed repositories and their repoIds.
+- @mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})
+  Find classes, functions, and methods by lexical match.
+- @mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT auth middleware", "topK": 5})
+  Find relevant code by meaning.
+- @mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})
+  Inspect all symbols in a file.
+- @mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true, "contextLines": 2})
+  Retrieve a symbol's source and metadata.
+
+PATH GUIDANCE:
+- index_workspace resolves paths under the backend workspace root and is usually the easiest option.
+- index_folder resolves paths on the SERVER HOST, not inside your sandbox container.
+- For this monorepo, common useful paths are "server/src", "client/src", or the repository root.
+
+USE CASES:
+- Quickly understand a large codebase before editing
+- Locate auth, routing, service, and data-access logic
+- Find all methods on a class
+- Search conceptually ("rate limiting", "token verification", "file upload flow")
+- Inspect exact source for a symbol before making changes`
+  },
+
 ];

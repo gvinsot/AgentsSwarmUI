@@ -18,5 +18,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-code-index',
+    name: 'Code Index',
+    url: '__internal__code_index',
+    description: 'Local code indexing, symbol lookup, file outlines, and semantic code search',
+    icon: '🧠',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

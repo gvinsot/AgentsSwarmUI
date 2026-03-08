@@ -171,4 +171,21 @@ curl -X POST http://localhost:3001/api/code-index/index-folder \\
 
 - Current extraction is an MVP optimized for **JavaScript/TypeScript** and **Python**
 - The semantic layer uses local hashed embeddings, while **ZVEC** provides the vector index/query engine
-- Indexed metadata is stored under `server/.data/` by default
+- Indexed metadata is stored under `server/.data/` by default### Built-in plugin: Code Index
+
+The code indexing MVP is also exposed as a **built-in plugin** backed by an internal MCP server named **Code Index**.
+
+To use it:
+1. Open an agent
+2. Go to the **Plugins** tab
+3. Assign the **Code Index** plugin
+4. The agent will then receive Code Index MCP tools in its prompt automatically
+
+Typical flow for an agent:
+- `@mcp_call(Code Index, index_workspace, {"subpath": "server/src", "repoName": "server-src"})`
+- `@mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})`
+- `@mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})`
+- `@mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true})`
+- `@mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT authentication middleware"})`
+
+The plugin uses the internal MCP server URL `__internal__code_index`, which is resolved by the backend to `/api/code-index/mcp`.

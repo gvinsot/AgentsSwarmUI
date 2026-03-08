@@ -1,6 +1,36 @@
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { getJwtSecret } from '../middleware/auth.js';
 import { getAllMcpServers, saveMcpServer, deleteMcpServerFromDb } from './database.js';
 import { MCPClient } from './mcpClient.js';
+
+export function resolveInternalMcpConfig(serverUrl, {
+  port = process.env.PORT || 3001,
+  jwtSecret = null,
+} = {}) {
+  const mappings = {
+    '__internal__onedrive': `http://localhost:${port}/api/onedrive/mcp`,
+    '__internal__code_index': `http://localhost:${port}/api/code-index/mcp`,
+    '__internal__code-index': `http://localhost:${port}/api/code-index/mcp`,
+  };
+
+  if (!mappings[serverUrl]) {
+    return { url: serverUrl, headers: {} };
+  }
+
+  const token = jwt.sign(
+    { username: 'internal-mcp', role: 'admin', internal: true },
+    jwtSecret || getJwtSecret(),
+    { expiresIn: '1h' }
+  );
+
+  return {
+    url: mappings[serverUrl],
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+}
 
 /**
  * Manages MCP server registrations, connections, and tool execution.
@@ -26,6 +56,8 @@ export class MCPManager {
 
   async seedDefaults(defaults) {
     let seeded = 0;
+    let updated = 0;
+
     for (const def of defaults) {
       if (!this.servers.has(def.id)) {
         const entry = {
@@ -39,10 +71,34 @@ export class MCPManager {
         this.servers.set(entry.id, entry);
         await saveMcpServer(entry);
         seeded++;
+      } else if (def.builtin) {
+        const existing = this.servers.get(def.id);
+        const entry = {
+          ...existing,
+          id: def.id,
+          name: def.name,
+          url: def.url,
+          description: def.description,
+          icon: def.icon,
+          builtin: true,
+          enabled: existing.enabled !== undefined ? existing.enabled : def.enabled !== false,
+          apiKey: existing.apiKey || '',
+          tools: existing.tools || [],
+          status: existing.status || 'disconnected',
+          error: existing.error || null,
+          updatedAt: new Date().toISOString(),
+        };
+        this.servers.set(entry.id, entry);
+        await saveMcpServer(entry);
+        updated++;
       }
     }
+
     if (seeded > 0) {
       console.log(`✅ Seeded ${seeded} built-in MCP server(s)`);
+    }
+    if (updated > 0) {
+      console.log(`✅ Updated ${updated} built-in MCP server(s)`);
     }
   }
 
@@ -99,7 +155,6 @@ export class MCPManager {
     this.servers.set(id, server);
     await saveMcpServer(server);
 
-    // Auto-connect if enabled
     if (server.enabled && server.url) {
       this.connect(id).catch(() => {});
     }
@@ -123,7 +178,6 @@ export class MCPManager {
     server.updatedAt = new Date().toISOString();
     await saveMcpServer(server);
 
-    // Reconnect if URL, apiKey, or enabled changed
     if (urlChanged || apiKeyChanged || updates.enabled !== undefined) {
       if (server.enabled && server.url) {
         this.connect(id).catch(() => {});
@@ -152,7 +206,6 @@ export class MCPManager {
     if (!server) throw new Error(`MCP server ${id} not found`);
     if (!server.url) throw new Error(`MCP server "${server.name}" has no URL`);
 
-    // Disconnect existing client if any
     await this.disconnect(id);
 
     server.status = 'connecting';
@@ -161,15 +214,19 @@ export class MCPManager {
     try {
       const client = new MCPClient('AgentSwarm');
       const connectOpts = {};
+
       if (server.apiKey) {
         connectOpts.headers = { Authorization: `Bearer ${server.apiKey}` };
       }
 
-      // Resolve internal MCP URLs to local endpoints
-      let connectUrl = server.url;
-      if (connectUrl === '__internal__onedrive') {
-        const port = process.env.PORT || 3001;
-        connectUrl = `http://localhost:${port}/api/onedrive/mcp`;
+      const internalConfig = resolveInternalMcpConfig(server.url);
+      let connectUrl = internalConfig.url;
+
+      if (Object.keys(internalConfig.headers).length > 0) {
+        connectOpts.headers = {
+          ...(connectOpts.headers || {}),
+          ...internalConfig.headers,
+        };
       }
 
       const { tools } = await client.connect(connectUrl, connectOpts);
@@ -210,9 +267,6 @@ export class MCPManager {
 
   // ── Tool Execution ──────────────────────────────────────────────────
 
-  /**
-   * Call a tool on a specific server by server ID.
-   */
   async callTool(serverId, toolName, args = {}) {
     const client = this.clients.get(serverId);
     const server = this.servers.get(serverId);
@@ -220,12 +274,10 @@ export class MCPManager {
 
     try {
       const result = await client.callTool(toolName, args);
-
-      // Extract text content from the MCP content array
       const textParts = result.content
         .filter(c => c.type === 'text')
         .map(c => c.text);
-      const output = textParts.join('\n') || JSON.stringify(result.content);
+      const output = textParts.join('\\n') || JSON.stringify(result.content);
 
       return {
         success: !result.isError,
@@ -233,7 +285,6 @@ export class MCPManager {
         raw: result.content
       };
     } catch (err) {
-      // If session expired (404), try reconnecting once
       if (err.message?.includes('404') || err.message?.includes('session')) {
         console.log(`🔌 [MCP] Session expired for "${server.name}", reconnecting...`);
         try {
@@ -244,7 +295,7 @@ export class MCPManager {
             const textParts = result.content.filter(c => c.type === 'text').map(c => c.text);
             return {
               success: !result.isError,
-              result: textParts.join('\n') || JSON.stringify(result.content),
+              result: textParts.join('\\n') || JSON.stringify(result.content),
               raw: result.content
             };
           }
@@ -256,17 +307,12 @@ export class MCPManager {
     }
   }
 
-  /**
-   * Call a tool by server name (used by agents via @mcp_call syntax).
-   * Auto-reconnects if the server is registered but not connected.
-   */
   async callToolByName(serverName, toolName, args = {}) {
     const server = Array.from(this.servers.values()).find(
       s => s.name.toLowerCase() === serverName.toLowerCase()
     );
     if (!server) throw new Error(`MCP server "${serverName}" not found. Available servers: ${Array.from(this.servers.values()).map(s => s.name).join(', ') || 'none'}`);
 
-    // Auto-reconnect if server exists but is not connected
     if (server.status !== 'connected') {
       console.log(`🔌 [MCP] "${server.name}" is ${server.status}, attempting reconnect for ${toolName}...`);
       try {
@@ -281,18 +327,10 @@ export class MCPManager {
 
   // ── Agent Integration ───────────────────────────────────────────────
 
-  /**
-   * Get all tools available to an agent based on their assigned MCP server IDs.
-   * Attempts to reconnect disconnected servers before reporting unavailability.
-   * Returns { tools: [...], unavailable: [...] }
-   * - tools: flat array of { serverName, serverId, name, description, inputSchema }
-   * - unavailable: array of { serverName, serverId, status, reason } for non-connected servers
-   */
   async getToolsForAgent(mcpServerIds) {
     const tools = [];
     const unavailable = [];
 
-    // First pass: attempt to reconnect any disconnected servers
     const reconnectPromises = [];
     for (const serverId of mcpServerIds) {
       const server = this.servers.get(serverId);
@@ -309,7 +347,6 @@ export class MCPManager {
       await Promise.allSettled(reconnectPromises);
     }
 
-    // Second pass: collect tools from connected servers
     for (const serverId of mcpServerIds) {
       const server = this.servers.get(serverId);
       if (!server) {

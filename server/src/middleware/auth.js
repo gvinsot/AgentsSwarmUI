@@ -59,12 +59,13 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 // Periodically clean up expired rate limit entries to prevent memory leaks
-setInterval(() => {
+const loginAttemptsCleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of loginAttempts) {
     if (now > entry.resetAt) loginAttempts.delete(ip);
   }
 }, LOGIN_WINDOW_MS);
+loginAttemptsCleanupInterval.unref?.();
 
 function checkLoginRateLimit(ip) {
   const now = Date.now();

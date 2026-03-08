@@ -14,6 +14,7 @@ import { SkillManager } from './services/skillManager.js';
 import { SandboxManager } from './services/sandboxManager.js';
 import { MCPManager } from './services/mcpManager.js';
 import { CodeIndexService } from './services/codeIndexService.js';
+import { createCodeIndexMcpHandler } from './services/codeIndexMcp.js';
 import { pluginRoutes } from './routes/plugins.js';
 import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
@@ -56,7 +57,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Content-Security-Policy', \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:; font-src 'self'; object-src 'none'; frame-ancestors 'none'\");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:; font-src 'self'; object-src 'none'; frame-ancestors 'none'");
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 });
@@ -87,9 +88,12 @@ app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 
-// OneDrive internal MCP endpoint (used by the MCP client for tool discovery and calls)
+// Internal MCP endpoints (used by the MCP client for tool discovery and calls)
 const onedriveMcpHandler = createOneDriveMcpHandler();
 app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler(req, res));
+
+const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
+app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
 
 // Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
@@ -131,7 +135,7 @@ io.use((socket, next) => {
   // Validate Origin header to prevent cross-site WebSocket hijacking
   const origin = socket.handshake.headers.origin;
   if (origin && !corsOrigins.includes(origin)) {
-    console.warn(`WebSocket connection rejected: origin \"${origin}\" not in allowed list`);
+    console.warn(`WebSocket connection rejected: origin "${origin}" not in allowed list`);
     return next(new Error('Origin not allowed'));
   }
 
