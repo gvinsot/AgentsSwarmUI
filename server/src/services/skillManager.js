@@ -39,6 +39,8 @@ function findBuiltinSkill(identifier) {
   ) || null;
 }
 
+const ACTIVE_BUILTIN_SKILL_IDS = new Set(BUILTIN_SKILLS.map((skill) => skill.id));
+
 export class SkillManager {
   constructor() {
     this.skills = new Map();
@@ -46,10 +48,22 @@ export class SkillManager {
 
   async loadFromDatabase() {
     const skills = await getAllSkills();
+    let retiredBuiltins = 0;
+
     for (const skill of skills) {
+      if (skill.builtin && !ACTIVE_BUILTIN_SKILL_IDS.has(skill.id)) {
+        await deleteSkillFromDb(skill.id);
+        retiredBuiltins++;
+        continue;
+      }
+
       this.skills.set(skill.id, normalizeSkill(skill));
     }
-    console.log(`✅ Loaded ${skills.length} skills from database`);
+
+    console.log(`✅ Loaded ${this.skills.size} skills from database`);
+    if (retiredBuiltins > 0) {
+      console.log(`🧹 Removed ${retiredBuiltins} retired built-in skill(s)`);
+    }
   }
 
   async seedDefaults(defaults) {

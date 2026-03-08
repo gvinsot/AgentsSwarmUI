@@ -1,558 +1,68 @@
 export const BUILTIN_SKILLS = [
   {
-    id: 'skill-docker-expert',
-    name: 'Docker Expert',
-    description: 'Container orchestration, Dockerfiles, docker-compose, multi-stage builds',
-    category: 'devops',
-    icon: '🐳',
-    builtin: true,
-    instructions: `You have advanced Docker and containerization expertise.
-
-DOCKERFILE BEST PRACTICES:
-- Always use multi-stage builds to minimize image size
-- Pin base image versions (avoid :latest in production)
-- Order layers from least to most frequently changing for optimal caching
-- Use .dockerignore to exclude unnecessary files
-- Run as non-root user (USER directive)
-- Use COPY instead of ADD unless extracting archives
-- Combine RUN commands with && to reduce layers
-- Set HEALTHCHECK instructions for production images
-
-DOCKER COMPOSE:
-- Use named volumes for persistent data
-- Define networks for service isolation
-- Use depends_on with healthcheck conditions
-- Set resource limits (mem_limit, cpus)
-- Use env_file for environment variables
-- Define restart policies
-
-OPTIMIZATION:
-- Use alpine-based images when possible
-- Clean package manager caches in the same RUN layer
-- Use BuildKit features (--mount=type=cache)
-- Scan images for vulnerabilities (trivy, snyk)
-
-DEBUGGING:
-- Use docker logs, docker exec, docker inspect
-- Check container health with docker ps and healthcheck
-- Use docker stats for resource monitoring`
+    "id": "skill-swarm-devops",
+    "name": "Swarm DevOps",
+    "description": "Deploy projects to the Docker Swarm cluster using the standard build & deploy pipeline",
+    "category": "devops",
+    "icon": "🚀",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-swarm-manager"
+    ],
+    "instructions": "You know how to integrate and deploy projects on the Swarm cluster.\n\nBuild and deploy operations are managed via MCP tools. The MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\nCall them using the @mcp_call(ServerName, tool_name, {\"param\": \"value\"}) syntax shown there.\n\n## DEPLOYMENT WORKFLOW\n\nFIRST TIME SETUP — If the project has no devops/ folder yet:\n   - Read the existing project structure and understand what needs to be containerized\n   - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts\n   - Commit and push: @git_commit_push(feat: add deployment config)\n\nIf you are asked to build:\n   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version\n   - Images are built from devops/docker-compose.swarm.yml\n   - Tagged with semantic version and pushed to the registry\n   - Check build progress with get_action_status\n   - Fix any build errors before proceeding\n\nIf you are asked to deploy a specific version:\n   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version\n   - Check deploy progress with get_action_status\n   - Verify services are running with list_stacks or list_containers\n\n## MONITORING\n- Use list_stacks to check service health\n- Use list_containers to check running containers\n- Use search_logs to investigate issues\n- Use list_computers to check node availability\n\n## IMPORTANT\n- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work."
   },
   {
-    id: 'skill-code-review',
-    name: 'Code Review',
-    description: 'Systematic code review with focus on quality, security, and maintainability',
-    category: 'coding',
-    icon: '🔍',
-    builtin: true,
-    instructions: `You perform thorough, systematic code reviews.
-
-REVIEW CHECKLIST:
-1. CORRECTNESS: Does the code do what it's supposed to? Edge cases handled?
-2. SECURITY: Input validation, injection risks, auth checks, secret exposure
-3. PERFORMANCE: N+1 queries, unnecessary loops, missing indexes, memory leaks
-4. READABILITY: Clear naming, appropriate comments, consistent formatting
-5. MAINTAINABILITY: DRY principle, single responsibility, loose coupling
-6. ERROR HANDLING: Graceful failures, meaningful error messages, proper logging
-7. TESTING: Test coverage, edge cases tested, mocks appropriate
-
-REVIEW STYLE:
-- Be constructive, suggest fixes not just problems
-- Categorize feedback: blocking vs suggestion vs nitpick
-- Explain WHY something should change, not just what
-- Acknowledge good patterns when you see them
-- Prioritize: security > correctness > performance > style`
+    "id": "skill-basic-tools",
+    "name": "Basic Tools",
+    "description": "Essential tools for reading, writing, searching files and running commands",
+    "category": "general",
+    "icon": "🔧",
+    "builtin": true,
+    "instructions": "## TOOLS — USE THEM, DON'T JUST TALK\n- @read_file(path) — examine existing code\n- @list_dir(path) — explore project structure\n- @write_file(path, \"\"\"content\"\"\") — create or update files\n- @search_files(pattern, query) — find relevant code\n- @run_command(command) — run tests, builds, git commands, etc.\n- @list_my_tasks() — list your assigned tasks with their status and ID\n- @update_todo(todoId, status) — update a task status (in_progress, done, error)\n- Use @run_command to execute git commands\n\nWORKFLOW:\n1. Always start by exploring the project structure with @list_dir(.)\n2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use\n3. Read existing files before modifying them with @read_file(path)\n4. Write changes with @write_file(path, \"\"\"content\"\"\") — follow the existing code style\n5. Verify your changes by reading the file back\n6. Run tests or builds with @run_command(npm test) or similar\n7. Use @search_files(*.js, keyword) to find relevant code across the project\n\nIMPORTANT:\n- Each tool call MUST be on its own line\n- Do NOT add decorative text before tool calls — just call the tool directly\n- NEVER stop yourself — keep working until the task is fully complete\n- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.\n- GIT COMMITS: Always include your agent name in the commit message. Format: \"message (by YourName)\" — e.g. @git_commit_push(feat: add login page (by Developer))"
   },
   {
-    id: 'skill-api-design',
-    name: 'API Design',
-    description: 'REST/GraphQL API design, OpenAPI specs, versioning, error handling',
-    category: 'coding',
-    icon: '🔌',
-    builtin: true,
-    instructions: `You are an expert in API design and implementation.
-
-REST API PRINCIPLES:
-- Use nouns for resources, HTTP verbs for actions (GET/POST/PUT/PATCH/DELETE)
-- Consistent URL patterns: /resources, /resources/:id, /resources/:id/sub-resources
-- Use proper HTTP status codes (200, 201, 204, 400, 401, 403, 404, 409, 422, 500)
-- Implement pagination for list endpoints (cursor-based preferred)
-- Support filtering, sorting, and field selection
-- Version APIs via URL path (/v1/) or headers
-
-ERROR RESPONSES:
-- Consistent error format: { error: { code, message, details } }
-- Include request ID for debugging
-- Never expose internal errors to clients
-
-SECURITY:
-- Always validate and sanitize input
-- Use rate limiting
-- Implement proper CORS
-- Use Bearer token authentication
-- Validate Content-Type headers
-
-DOCUMENTATION:
-- Write OpenAPI/Swagger specs
-- Include examples for every endpoint
-- Document error responses
-- Provide SDKs or code examples`
+    "id": "skill-delegation",
+    "name": "Delegation & Management",
+    "description": "Delegate tasks to other agents, assign projects, and manage agent context",
+    "category": "general",
+    "icon": "👥",
+    "builtin": true,
+    "instructions": "You can delegate tasks to other agents and manage them.\n\n## DELEGATION\n@delegate(AgentName, \"detailed task description with specific file paths when possible\")\n\nExamples:\n@delegate(Developer, \"Read the auth module at src/auth/ and implement password reset functionality\")\n@delegate(Security Analyst, \"Scan the codebase for SQL injection vulnerabilities and fix any found\")\n@delegate(QA Engineer, \"Write unit tests for the user service and run them\")\n\nPlease do one delegate per task.\nAfter delegations complete, you will receive the results and should synthesize them.\n\n## PROJECT ASSIGNMENT\n@assign_project(AgentName, \"project_name\") — Assign an agent to a project so they can use file and command tools on it. Context is automatically saved and restored per-project.\n\nExample:\n@assign_project(Developer, \"MyWebApp\")\n\n## AGENT MANAGEMENT\n@get_project(AgentName) — Check which project an agent is currently working on.\n@clear_context(AgentName) — Clear an agent's conversation history for a fresh start.\n@rollback(AgentName, X) — Remove the last X messages from an agent's history.\n@stop_agent(AgentName) — Stop an agent's current task immediately.\n@list_projects() — List all available projects.\n@list_agents() — List all enabled agents with their current status, project, role, and current task (if busy).\n@agent_status(AgentName) — Check a specific agent's status (busy/idle/error), project, current task, pending todos, and message count.\n@clear_all_chats() — Clear ALL agents' conversation histories at once.\n@clear_all_action_logs() — Clear ALL agents' action logs at once.\n@get_available_agent(role) — Get the first idle agent with the specified role (e.g. \"developer\"). Returns agent name, status, and project.\n\nExamples:\n@get_project(Developer)\n@clear_context(QA Engineer)\n@rollback(Developer, 4)\n@stop_agent(Developer)\n@list_projects()\n@list_agents()\n@agent_status(Developer)\n@clear_all_chats()\n@clear_all_action_logs()\n@get_available_agent(developer)"
   },
   {
-    id: 'skill-testing',
-    name: 'Testing',
-    description: 'Unit tests, integration tests, TDD, mocking strategies',
-    category: 'coding',
-    icon: '🧪',
-    builtin: true,
-    instructions: `You write comprehensive, maintainable tests.
-
-TESTING PRINCIPLES:
-- Follow AAA pattern: Arrange, Act, Assert
-- Test behavior, not implementation
-- One assertion per test when possible
-- Use descriptive test names: "should [expected behavior] when [condition]"
-- Test edge cases: empty inputs, null values, boundaries, error paths
-
-UNIT TESTS:
-- Test pure functions and isolated logic
-- Mock external dependencies (APIs, databases, file system)
-- Keep tests fast — no network calls, no disk I/O
-- Use factories/builders for test data, avoid hardcoded fixtures
-
-INTEGRATION TESTS:
-- Test real interactions between components
-- Use test databases with proper setup/teardown
-- Test API endpoints end-to-end
-- Verify side effects (emails sent, events emitted)
-
-MOCKING:
-- Mock at the boundary, not the internals
-- Prefer dependency injection over monkey-patching
-- Use spies to verify function calls without changing behavior
-- Reset mocks between tests
-
-COVERAGE:
-- Aim for meaningful coverage, not 100%
-- Focus on critical paths and business logic
-- Don't test framework code or trivial getters/setters
-
-SANDBOX TOOLS AVAILABLE:
-Your sandbox includes the following tools pre-installed globally:
-- jest / vitest — Test runners (use @run_command(npx jest) or @run_command(npx vitest run))
-- typescript / ts-node — TypeScript compilation and execution (@run_command(npx tsc --noEmit) to type-check)
-- eslint / prettier — Linting and formatting (@run_command(npx eslint src/) or @run_command(npx prettier --check src/))
-- lighthouse — Web performance audits (@run_command(npx lighthouse https://url --output json --chrome-flags="--headless --no-sandbox"))
-
-BROWSER / E2E TESTING:
-The sandbox has headless Chromium pre-installed. Use it for E2E and visual testing:
-- Playwright: @run_command(npx playwright-core test) — uses system Chromium automatically (PLAYWRIGHT_BROWSERS_PATH is set)
-- Puppeteer: require('puppeteer-core') with executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
-- Direct Chromium: @run_command(chromium-browser --headless --no-sandbox --dump-dom https://example.com)
-- When writing Playwright/Puppeteer scripts, always use --no-sandbox flag and the system Chromium (do NOT download browsers)
-- For Playwright config, use: { use: { channel: 'chromium', launchOptions: { executablePath: '/usr/bin/chromium-browser', args: ['--no-sandbox'] } } }`
+    "id": "skill-onedrive",
+    "name": "OneDrive",
+    "description": "Browse, search, read, upload, and manage files in Microsoft OneDrive via the Graph API",
+    "category": "general",
+    "icon": "☁️",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-onedrive"
+    ],
+    "instructions": "You can interact with Microsoft OneDrive files using the OneDrive MCP tools.\n\n## AVAILABLE TOOLS\nThe MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\nCall them using the @mcp_call(ServerName, tool_name, {\"param\": \"value\"}) syntax shown there.\n\n## OneDrive MCP Tools Reference\n\n@mcp_call(OneDrive, list_files, {\"path\": \"/\", \"top\": 50})\n  — List files and folders at a given path. Use \"/\" for the root directory.\n\n@mcp_call(OneDrive, search_files, {\"query\": \"keyword\", \"top\": 25})\n  — Search for files by name or content across the entire OneDrive.\n\n@mcp_call(OneDrive, read_file, {\"path\": \"/Documents/notes.txt\"})\n  — Read the text content of a file. Works best with text-based files (txt, json, md, csv, etc.).\n\n@mcp_call(OneDrive, get_file_info, {\"path\": \"/Documents/report.pdf\"})\n  — Get detailed metadata about a file or folder (size, type, modified date, web URL).\n\n@mcp_call(OneDrive, create_folder, {\"parentPath\": \"/\", \"name\": \"NewFolder\"})\n  — Create a new folder. parentPath is where to create it.\n\n@mcp_call(OneDrive, upload_file, {\"path\": \"/Documents/file.txt\", \"content\": \"Hello World\"})\n  — Upload or create a text file (up to 4MB).\n\n@mcp_call(OneDrive, delete_item, {\"path\": \"/Documents/old-file.txt\"})\n  — Delete a file or folder (moves to recycle bin).\n\n@mcp_call(OneDrive, get_share_link, {\"path\": \"/Documents/report.pdf\", \"type\": \"view\"})\n  — Create a sharing link. type can be \"view\" (read-only) or \"edit\" (read-write).\n\n@mcp_call(OneDrive, get_drive_info, {})\n  — Get OneDrive storage info (space used, remaining, owner).\n\n## USAGE GUIDELINES\n- Always start by listing the root directory to orient yourself: @mcp_call(OneDrive, list_files, {\"path\": \"/\"})\n- Use search_files to find specific files when you don't know the exact path\n- Use get_file_info to check file details before reading large files\n- Paths use forward slashes and start from the root: /Documents/subfolder/file.txt\n- When the user asks about \"my files\" or \"my documents\", start by listing the root\n- For binary files (images, PDFs), provide the web URL or share link instead of reading content\n- Be cautious with delete_item — always confirm with the user before deleting"
   },
   {
-    id: 'skill-git-workflow',
-    name: 'Git Workflow',
-    description: 'Git flow, conventional commits, branching strategies, conflict resolution',
-    category: 'devops',
-    icon: '🌿',
-    builtin: true,
-    instructions: `You follow Git best practices and help manage version control.
-
-COMMIT CONVENTIONS:
-- Use conventional commits: type(scope): description
-- Types: feat, fix, docs, style, refactor, test, chore, ci, perf
-- Keep commits atomic — one logical change per commit
-- Write meaningful commit messages explaining WHY, not just WHAT
-- Reference issue numbers in commits
-
-BRANCHING:
-- main/master: production-ready code
-- develop: integration branch
-- feature/*: new features
-- fix/*: bug fixes
-- release/*: release preparation
-- hotfix/*: urgent production fixes
-
-PULL REQUESTS:
-- Keep PRs small and focused (< 400 lines)
-- Write clear PR descriptions with context
-- Include testing instructions
-- Request reviews from relevant team members
-- Address all review comments before merging
-
-CONFLICT RESOLUTION:
-- Pull from target branch before creating PR
-- Resolve conflicts locally, test after resolution
-- Use rebase for linear history when appropriate
-- Communicate with team when conflicts affect shared code`
+    "id": "skill-agents-direct-access",
+    "name": "Agents Direct Access",
+    "description": "Ask quick questions to other agents without creating tasks",
+    "category": "general",
+    "icon": "💬",
+    "builtin": true,
+    "instructions": "You can ask questions directly to other agents in the swarm.\n\n## DIRECT QUESTIONS\n@ask(AgentName, \"your question here\")\n\nUse this for quick answers — no task is created on the target agent.\nThe target agent will receive your question and respond concisely.\nTheir answer will be provided back to you inline.\n\nWHEN TO USE @ask vs @delegate:\n- @ask: quick questions (\"What framework is used?\", \"Did the tests pass?\")\n- @delegate (leaders only): full tasks requiring work\n\nExamples:\n@ask(Developer, \"What testing framework is configured in this project?\")\n@ask(Security Analyst, \"Are there known vulnerabilities in express 4.21?\")\n@ask(QA Engineer, \"Did the last test run pass?\")\n\nRULES:\n- One @ask per question\n- Keep questions concise and specific\n- The target agent will give a brief answer — this is not for delegating work",
+    "mcpServerIds": [],
+    "createdAt": "2024-03-01T00:00:00.000Z",
+    "updatedAt": "2024-03-01T00:00:00.000Z"
   },
   {
-    id: 'skill-security-audit',
-    name: 'Security Audit',
-    description: 'OWASP top 10, vulnerability scanning, secure coding practices',
-    category: 'security',
-    icon: '🛡️',
-    builtin: true,
-    instructions: `You perform thorough security audits following OWASP guidelines.
-
-OWASP TOP 10 CHECKS:
-1. INJECTION: SQL, NoSQL, OS command, LDAP injection — use parameterized queries
-2. BROKEN AUTH: Weak passwords, missing MFA, session management issues
-3. SENSITIVE DATA: Encryption at rest and transit, PII exposure, secrets in code
-4. XXE: Disable external entity processing in XML parsers
-5. BROKEN ACCESS CONTROL: IDOR, missing auth checks, privilege escalation
-6. MISCONFIG: Default credentials, verbose errors, unnecessary services
-7. XSS: Reflected, stored, DOM-based — sanitize all output
-8. INSECURE DESERIALIZATION: Validate and sanitize serialized data
-9. VULNERABLE COMPONENTS: Check dependencies for known CVEs
-10. INSUFFICIENT LOGGING: Ensure security events are logged and monitored
-
-CODE REVIEW FOR SECURITY:
-- Check all user inputs are validated and sanitized
-- Verify authentication on all protected endpoints
-- Check authorization (not just authentication)
-- Look for hardcoded secrets, API keys, passwords
-- Verify CORS configuration
-- Check for path traversal vulnerabilities
-- Ensure proper error handling (no stack traces to users)
-- Check rate limiting on sensitive endpoints
-
-REPORTING:
-- Classify severity: Critical, High, Medium, Low
-- Provide proof-of-concept or reproduction steps
-- Suggest specific fixes, not just descriptions
-- Prioritize fixes by risk and effort`
-  },
-  {
-    id: 'skill-performance',
-    name: 'Performance Optimization',
-    description: 'Profiling, caching, query optimization, load testing',
-    category: 'coding',
-    icon: '⚡',
-    builtin: true,
-    instructions: `You optimize application performance systematically.
-
-METHODOLOGY:
-1. MEASURE first — don't optimize without profiling
-2. IDENTIFY bottlenecks — focus on the slowest parts
-3. OPTIMIZE the critical path
-4. VERIFY improvement with benchmarks
-
-BACKEND OPTIMIZATION:
-- Database: Add indexes, optimize queries, avoid N+1, use EXPLAIN ANALYZE
-- Caching: Redis/Memcached for hot data, HTTP caching headers, CDN for static assets
-- Async: Use non-blocking I/O, message queues for heavy work
-- Connection pooling: Reuse database and HTTP connections
-- Pagination: Never return unbounded result sets
-
-FRONTEND OPTIMIZATION:
-- Bundle size: Code splitting, tree shaking, lazy loading
-- Rendering: Virtual scrolling for long lists, debounce/throttle events
-- Images: Lazy loading, responsive images, WebP format, compression
-- Caching: Service workers, localStorage for API responses
-- Critical path: Inline critical CSS, defer non-essential scripts
-
-MONITORING:
-- Set performance budgets
-- Monitor p50, p95, p99 latencies
-- Track Core Web Vitals (LCP, FID, CLS)
-- Set up alerts for performance regressions`
-  },
-  {
-    id: 'skill-documentation',
-    name: 'Technical Documentation',
-    description: 'API docs, README, architecture docs, user guides',
-    category: 'writing',
-    icon: '📝',
-    builtin: true,
-    instructions: `You write clear, comprehensive technical documentation.
-
-DOCUMENTATION TYPES:
-- README: Project overview, quick start, installation, usage examples
-- API docs: Endpoints, parameters, responses, error codes, examples
-- Architecture: System design, data flow, component interactions
-- User guides: Step-by-step instructions for end users
-- Contributing: How to set up dev environment, coding standards, PR process
-- Changelog: Track changes by version, follow Keep a Changelog format
-
-WRITING PRINCIPLES:
-- Lead with the most important information
-- Use concrete examples, not abstract descriptions
-- Keep sentences short and direct
-- Use consistent terminology throughout
-- Include code examples that can be copy-pasted and run
-- Add diagrams for complex flows (Mermaid, PlantUML)
-
-STRUCTURE:
-- Use clear headings and hierarchy
-- Include a table of contents for long documents
-- Cross-reference related sections
-- Keep sections focused on one topic
-- Use admonitions (Note, Warning, Tip) for callouts
-
-MAINTENANCE:
-- Keep docs close to code (same repo)
-- Update docs in the same PR as code changes
-- Mark deprecated features clearly
-- Include last-updated dates`
-  },
-  {
-    id: 'skill-swarm-devops',
-    name: 'Swarm DevOps',
-    description: 'Deploy projects to the Docker Swarm cluster using the standard build & deploy pipeline',
-    category: 'devops',
-    icon: '🚀',
-    builtin: true,
-    mcpServerIds: ['mcp-swarm-manager'],
-    instructions: `You know how to integrate and deploy projects on the Swarm cluster.
-
-Build and deploy operations are managed via MCP tools. The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
-Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
-
-## DEPLOYMENT WORKFLOW
-
-FIRST TIME SETUP — If the project has no devops/ folder yet:
-   - Read the existing project structure and understand what needs to be containerized
-   - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts
-   - Commit and push: @git_commit_push(feat: add deployment config)
-
-If you are asked to build:
-   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version
-   - Images are built from devops/docker-compose.swarm.yml
-   - Tagged with semantic version and pushed to the registry
-   - Check build progress with get_action_status
-   - Fix any build errors before proceeding
-
-If you are asked to deploy a specific version:
-   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version
-   - Check deploy progress with get_action_status
-   - Verify services are running with list_stacks or list_containers
-
-## MONITORING
-- Use list_stacks to check service health
-- Use list_containers to check running containers
-- Use search_logs to investigate issues
-- Use list_computers to check node availability
-
-## IMPORTANT
-- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
-  },
-  {
-    id: 'skill-basic-tools',
-    name: 'Basic Tools',
-    description: 'Essential tools for reading, writing, searching files and running commands',
-    category: 'general',
-    icon: '🔧',
-    builtin: true,
-    instructions: `## TOOLS — USE THEM, DON'T JUST TALK
-- @read_file(path) — examine existing code
-- @list_dir(path) — explore project structure
-- @write_file(path, """content""") — create or update files
-- @search_files(pattern, query) — find relevant code
-- @run_command(command) — run tests, builds, git commands, etc.
-- @list_my_tasks() — list your assigned tasks with their status and ID
-- @update_todo(todoId, status) — update a task status (in_progress, done, error)
-- Use @run_command to execute git commands
-
-WORKFLOW:
-1. Always start by exploring the project structure with @list_dir(.)
-2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use
-3. Read existing files before modifying them with @read_file(path)
-4. Write changes with @write_file(path, """content""") — follow the existing code style
-5. Verify your changes by reading the file back
-6. Run tests or builds with @run_command(npm test) or similar
-7. Use @search_files(*.js, keyword) to find relevant code across the project
-
-IMPORTANT:
-- Each tool call MUST be on its own line
-- Do NOT add decorative text before tool calls — just call the tool directly
-- NEVER stop yourself — keep working until the task is fully complete
-- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
-- GIT COMMITS: Always include your agent name in the commit message. Format: "message (by YourName)" — e.g. @git_commit_push(feat: add login page (by Developer))`
-  },
-  {
-    id: 'skill-delegation',
-    name: 'Delegation & Management',
-    description: 'Delegate tasks to other agents, assign projects, and manage agent context',
-    category: 'general',
-    icon: '👥',
-    builtin: true,
-    instructions: `You can delegate tasks to other agents and manage them.
-
-## DELEGATION
-@delegate(AgentName, "detailed task description with specific file paths when possible")
-
-Examples:
-@delegate(Developer, "Read the auth module at src/auth/ and implement password reset functionality")
-@delegate(Security Analyst, "Scan the codebase for SQL injection vulnerabilities and fix any found")
-@delegate(QA Engineer, "Write unit tests for the user service and run them")
-
-Please do one delegate per task.
-After delegations complete, you will receive the results and should synthesize them.
-
-## PROJECT ASSIGNMENT
-@assign_project(AgentName, "project_name") — Assign an agent to a project so they can use file and command tools on it. Context is automatically saved and restored per-project.
-
-Example:
-@assign_project(Developer, "MyWebApp")
-
-## AGENT MANAGEMENT
-@get_project(AgentName) — Check which project an agent is currently working on.
-@clear_context(AgentName) — Clear an agent's conversation history for a fresh start.
-@rollback(AgentName, X) — Remove the last X messages from an agent's history.
-@stop_agent(AgentName) — Stop an agent's current task immediately.
-@list_projects() — List all available projects.
-@list_agents() — List all enabled agents with their current status, project, role, and current task (if busy).
-@agent_status(AgentName) — Check a specific agent's status (busy/idle/error), project, current task, pending todos, and message count.
-@clear_all_chats() — Clear ALL agents' conversation histories at once.
-@clear_all_action_logs() — Clear ALL agents' action logs at once.
-@get_available_agent(role) — Get the first idle agent with the specified role (e.g. "developer"). Returns agent name, status, and project.
-
-Examples:
-@get_project(Developer)
-@clear_context(QA Engineer)
-@rollback(Developer, 4)
-@stop_agent(Developer)
-@list_projects()
-@list_agents()
-@agent_status(Developer)
-@clear_all_chats()
-@clear_all_action_logs()
-@get_available_agent(developer)`
-  },
-  {
-    id: 'skill-onedrive',
-    name: 'OneDrive',
-    description: 'Browse, search, read, upload, and manage files in Microsoft OneDrive via the Graph API',
-    category: 'general',
-    icon: '☁️',
-    builtin: true,
-    mcpServerIds: ['mcp-onedrive'],
-    instructions: `You can interact with Microsoft OneDrive files using the OneDrive MCP tools.
-
-## AVAILABLE TOOLS
-The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
-Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
-
-## OneDrive MCP Tools Reference
-
-@mcp_call(OneDrive, list_files, {"path": "/", "top": 50})
-  — List files and folders at a given path. Use "/" for the root directory.
-
-@mcp_call(OneDrive, search_files, {"query": "keyword", "top": 25})
-  — Search for files by name or content across the entire OneDrive.
-
-@mcp_call(OneDrive, read_file, {"path": "/Documents/notes.txt"})
-  — Read the text content of a file. Works best with text-based files (txt, json, md, csv, etc.).
-
-@mcp_call(OneDrive, get_file_info, {"path": "/Documents/report.pdf"})
-  — Get detailed metadata about a file or folder (size, type, modified date, web URL).
-
-@mcp_call(OneDrive, create_folder, {"parentPath": "/", "name": "NewFolder"})
-  — Create a new folder. parentPath is where to create it.
-
-@mcp_call(OneDrive, upload_file, {"path": "/Documents/file.txt", "content": "Hello World"})
-  — Upload or create a text file (up to 4MB).
-
-@mcp_call(OneDrive, delete_item, {"path": "/Documents/old-file.txt"})
-  — Delete a file or folder (moves to recycle bin).
-
-@mcp_call(OneDrive, get_share_link, {"path": "/Documents/report.pdf", "type": "view"})
-  — Create a sharing link. type can be "view" (read-only) or "edit" (read-write).
-
-@mcp_call(OneDrive, get_drive_info, {})
-  — Get OneDrive storage info (space used, remaining, owner).
-
-## USAGE GUIDELINES
-- Always start by listing the root directory to orient yourself: @mcp_call(OneDrive, list_files, {"path": "/"})
-- Use search_files to find specific files when you don't know the exact path
-- Use get_file_info to check file details before reading large files
-- Paths use forward slashes and start from the root: /Documents/subfolder/file.txt
-- When the user asks about "my files" or "my documents", start by listing the root
-- For binary files (images, PDFs), provide the web URL or share link instead of reading content
-- Be cautious with delete_item — always confirm with the user before deleting`
-  },
-  {
-    id: 'skill-agents-direct-access',
-    name: 'Agents Direct Access',
-    description: 'Ask quick questions to other agents without creating tasks',
-    category: 'general',
-    icon: '💬',
-    builtin: true,
-    instructions: `You can ask questions directly to other agents in the swarm.
-
-## DIRECT QUESTIONS
-@ask(AgentName, "your question here")
-
-Use this for quick answers — no task is created on the target agent.
-The target agent will receive your question and respond concisely.
-Their answer will be provided back to you inline.
-
-WHEN TO USE @ask vs @delegate:
-- @ask: quick questions ("What framework is used?", "Did the tests pass?")
-- @delegate (leaders only): full tasks requiring work
-
-Examples:
-@ask(Developer, "What testing framework is configured in this project?")
-@ask(Security Analyst, "Are there known vulnerabilities in express 4.21?")
-@ask(QA Engineer, "Did the last test run pass?")
-
-RULES:
-- One @ask per question
-- Keep questions concise and specific
-- The target agent will give a brief answer — this is not for delegating work`,
-    mcpServerIds: [],
-    createdAt: '2024-03-01T00:00:00.000Z',
-    updatedAt: '2024-03-01T00:00:00.000Z'
-  },
-  {
-    id: 'skill-code-index',
-    name: 'Code Index',
-    description: 'Index source folders, inspect file outlines, and run lexical or semantic code search through the internal MCP server',
-    category: 'coding',
-    icon: '🧠',
-    builtin: true,
-    mcpServerIds: ['mcp-code-index'],
-    instructions: `You can use the internal Code Index plugin to explore codebases faster than raw grep alone.
-
-The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
-Call them using the @mcp_call(Code Index, tool_name, {"param": "value"}) syntax.
-
-RECOMMENDED WORKFLOW:
-1. Index the relevant codebase once.
-2. Reuse the returned repoId for follow-up queries.
-3. Search symbols or semantics first, then fetch outlines/source for the best matches.
-4. Fall back to normal file tools when you need to edit files.
-
-MOST USEFUL TOOLS:
-- @mcp_call(Code Index, index_workspace, {"subpath": "server/src", "repoName": "server-src"})
-  Index the current application workspace or a subfolder under it.
-- @mcp_call(Code Index, index_folder, {"path": "/absolute/path/or/relative/path", "repoName": "my-repo"})
-  Index an arbitrary local folder on the server host.
-- @mcp_call(Code Index, list_repos, {})
-  List all indexed repositories and their repoIds.
-- @mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})
-  Find classes, functions, and methods by lexical match.
-- @mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT auth middleware", "topK": 5})
-  Find relevant code by meaning.
-- @mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})
-  Inspect all symbols in a file.
-- @mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true, "contextLines": 2})
-  Retrieve a symbol's source and metadata.
-
-PATH GUIDANCE:
-- index_workspace resolves paths under the backend workspace root and is usually the easiest option.
-- index_folder resolves paths on the SERVER HOST, not inside your sandbox container.
-- For this monorepo, common useful paths are "server/src", "client/src", or the repository root.
-
-USE CASES:
-- Quickly understand a large codebase before editing
-- Locate auth, routing, service, and data-access logic
-- Find all methods on a class
-- Search conceptually ("rate limiting", "token verification", "file upload flow")
-- Inspect exact source for a symbol before making changes`
-  },
-
+    "id": "skill-code-index",
+    "name": "Code Index",
+    "description": "Index source folders, inspect file outlines, and run lexical or semantic code search through the internal MCP server",
+    "category": "coding",
+    "icon": "🧠",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-code-index"
+    ],
+    "instructions": "You can use the internal Code Index plugin to explore codebases faster than raw grep alone.\n\nThe MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\nCall them using the @mcp_call(Code Index, tool_name, {\"param\": \"value\"}) syntax.\n\nRECOMMENDED WORKFLOW:\n1. Index the relevant codebase once.\n2. Reuse the returned repoId for follow-up queries.\n3. Search symbols or semantics first, then fetch outlines/source for the best matches.\n4. Fall back to normal file tools when you need to edit files.\n\nMOST USEFUL TOOLS:\n- @mcp_call(Code Index, index_workspace, {\"subpath\": \"server/src\", \"repoName\": \"server-src\"})\n  Index the current application workspace or a subfolder under it.\n- @mcp_call(Code Index, index_folder, {\"path\": \"/absolute/path/or/relative/path\", \"repoName\": \"my-repo\"})\n  Index an arbitrary local folder on the server host.\n- @mcp_call(Code Index, list_repos, {})\n  List all indexed repositories and their repoIds.\n- @mcp_call(Code Index, search_symbols, {\"repoId\": \"...\", \"query\": \"authenticateToken\", \"topK\": 5})\n  Find classes, functions, and methods by lexical match.\n- @mcp_call(Code Index, search_semantic, {\"repoId\": \"...\", \"query\": \"JWT auth middleware\", \"topK\": 5})\n  Find relevant code by meaning.\n- @mcp_call(Code Index, get_file_outline, {\"repoId\": \"...\", \"filePath\": \"src/middleware/auth.js\"})\n  Inspect all symbols in a file.\n- @mcp_call(Code Index, get_symbol, {\"repoId\": \"...\", \"symbolId\": \"...\", \"verify\": true, \"contextLines\": 2})\n  Retrieve a symbol's source and metadata.\n\nPATH GUIDANCE:\n- index_workspace resolves paths under the backend workspace root and is usually the easiest option.\n- index_folder resolves paths on the SERVER HOST, not inside your sandbox container.\n- For this monorepo, common useful paths are \"server/src\", \"client/src\", or the repository root.\n\nUSE CASES:\n- Quickly understand a large codebase before editing\n- Locate auth, routing, service, and data-access logic\n- Find all methods on a class\n- Search conceptually (\"rate limiting\", \"token verification\", \"file upload flow\")\n- Inspect exact source for a symbol before making changes"
+  }
 ];

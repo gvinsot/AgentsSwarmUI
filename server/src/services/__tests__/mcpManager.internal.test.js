@@ -61,3 +61,21 @@ test('builtin MCP servers remain discoverable before explicit seeding', () => {
   assert.ok(byName);
   assert.equal(byName.id, 'mcp-code-index');
 });
+test('deprecated builtin skills are no longer exposed', () => {
+  const removedSkillIds = [
+    'skill-docker-expert',
+    'skill-code-review',
+    'skill-api-design',
+    'skill-testing',
+    'skill-git-workflow',
+    'skill-security-audit',
+    'skill-performance',
+    'skill-documentation',
+  ];
+
+  const activeIds = new Set(BUILTIN_SKILLS.map((skill) => skill.id));
+
+  for (const skillId of removedSkillIds) {
+    assert.equal(activeIds.has(skillId), false);
+  }
+});
