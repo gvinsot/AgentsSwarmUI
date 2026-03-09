@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS base
 
 WORKDIR /app
 
@@ -35,6 +35,13 @@ RUN npm ci --production
 
 # Copy source code
 COPY server/src ./src
+
+# ── Test stage ──────────────────────────────────────────────
+FROM base AS test
+CMD ["sh", "-c", "node --test src/services/__tests__/*.test.js"]
+
+# ── Production stage ────────────────────────────────────────
+FROM base AS production
 COPY server/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

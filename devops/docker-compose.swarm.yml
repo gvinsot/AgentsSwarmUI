@@ -5,6 +5,7 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
+      target: production
     environment:
       - NODE_ENV=production
       - PORT=${PORT}
@@ -108,13 +109,32 @@ services:
         - "traefik.http.routers.agentswarm-frontend-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.agentswarm-frontend-http.service=noop@internal"
 
+  test:
+    image: registry.methodinfo.fr/agentswarm-test:latest
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      target: test
+    deploy:
+      replicas: 0  # Only used for CI — never deployed as a service
+
   sandbox:
     image: ${DOCKER_REGISTRY_URL}/agentswarm-sandbox:latest
     build:
       context: ..
       dockerfile: server/sandbox.Dockerfile
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SSH_KEYS_HOST_PATH}:/root/.ssh:ro
+    networks:
+      - proxy
     deploy:
-      replicas: 0  # Never deployed as a service — only built and pushed to registry
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == server-b
+      restart_policy:
+        condition: on-failure
 
 networks:
   proxy:
