@@ -285,4 +285,20 @@ export const api = {
   // Projects
   getProjects: () =>
     fetch(`${API_BASE}/projects`, { headers: getHeaders() }).then(handleResponse),
+
+  // API Key (MCP)
+  getApiKeyInfo: () =>
+    fetch(`${API_BASE}/settings/api-key`, { headers: getHeaders() }).then(handleResponse),
+
+  generateApiKey: () =>
+    fetch(`${API_BASE}/settings/api-key`, {
+      method: 'POST',
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  revokeApiKey: () =>
+    fetch(`${API_BASE}/settings/api-key`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
 };

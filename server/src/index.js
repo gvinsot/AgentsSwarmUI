@@ -24,6 +24,11 @@ import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase } from './services/database.js';
 import { onedriveRoutes } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
+import { apiKeyRoutes } from './routes/apiKeys.js';
+import { createSwarmApiMcpHandler } from './services/swarmApiMcp.js';
+import { ensureApiKeysTable } from './services/apiKeyManager.js';
+import { authenticateApiKey } from './middleware/apiKeyAuth.js';
+import { swarmApiRoutes } from './routes/swarmApi.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -99,6 +104,7 @@ app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
+app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 
 // Internal MCP endpoints (used by the MCP client for tool discovery and calls)
 const onedriveMcpHandler = createOneDriveMcpHandler();
@@ -106,6 +112,11 @@ app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
+
+// External Swarm API — secured via API key (Bearer token)
+const swarmApiMcpHandler = createSwarmApiMcpHandler(agentManager);
+app.all('/api/swarm/mcp', authenticateApiKey, (req, res) => swarmApiMcpHandler(req, res));
+app.use('/api/swarm', authenticateApiKey, swarmApiRoutes(agentManager));
 
 // Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
@@ -171,6 +182,7 @@ const PORT = process.env.PORT || 3001;
 
 async function start() {
   await initDatabase();
+  await ensureApiKeysTable();
   await skillManager.loadFromDatabase();
   await skillManager.seedDefaults(BUILTIN_SKILLS);
   await mcpManager.loadFromDatabase();

@@ -5,18 +5,16 @@ const execAsync = promisify(exec);
 
 /**
  * Shared sandbox manager:
- * - Maintains a single shared Docker container
+ * - Connects to an externally-managed sandbox container (Docker Swarm service)
  * - Creates one Linux user per agent inside that container
  * - Executes tool commands as the corresponding agent user
  */
 export class SandboxManager {
   constructor() {
-    this.sharedContainerName = this._validateName(process.env.SANDBOX_SHARED_CONTAINER_NAME || 'sandbox-shared', 'container name');
-    this.sharedImage = this._validateImageRef(process.env.SANDBOX_IMAGE || 'agentswarm-sandbox:latest', 'image');
-    this.network = this._validateName(process.env.SANDBOX_NETWORK || 'bridge', 'network');
+    this.sandboxServiceFilter = process.env.SANDBOX_SHARED_CONTAINER_NAME || 'sandbox';
     this.baseWorkspace = process.env.SANDBOX_BASE_WORKSPACE || '/workspace';
     this.agentUsers = new Map(); // agentId -> { username, project }
-    this._containerStartLock = null;
+    this._resolvedContainerName = null;
   }
 
   async ensureSandbox(agentId, project = null, gitUrl = null) {
@@ -64,24 +62,12 @@ export class SandboxManager {
 
   async destroyAll() {
     this.agentUsers.clear();
-    await this._forceRemove(this.sharedContainerName);
-    console.log('🗑️  [Sandbox] Destroyed shared sandbox container');
+    this._resolvedContainerName = null;
+    console.log('🗑️  [Sandbox] Cleared all agent user mappings (container managed by Swarm)');
   }
 
   async cleanupOrphans() {
-    try {
-      const { stdout } = await execAsync(
-        `docker ps -a --filter "name=^/${this.sharedContainerName}$" --format "{{.Names}} {{.Status}}"`
-      );
-      const line = stdout.trim();
-      if (!line) return;
-      if (line.includes('Exited') || line.includes('Created')) {
-        await this._forceRemove(this.sharedContainerName);
-        console.log(`🧹 [Sandbox] Removed stale shared container ${this.sharedContainerName}`);
-      }
-    } catch {
-      // Docker may not be available
-    }
+    // Container lifecycle is managed by Docker Swarm — nothing to clean up
   }
 
   hasSandbox(agentId) {
@@ -122,7 +108,7 @@ export class SandboxManager {
     const innerCmd = `cat > ${this._sh(fullPath)}`;
     return new Promise((resolve, reject) => {
       const proc = exec(
-        `docker exec -i -u ${this._sh(entry.username)} ${this._sh(this.sharedContainerName)} /bin/bash -c ${this._sh(innerCmd)}`,
+        `docker exec -i -u ${this._sh(entry.username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(innerCmd)}`,
         { timeout: 30000, maxBuffer: 5 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err) reject(new Error(`Write failed: ${err.message}`));
@@ -145,7 +131,7 @@ export class SandboxManager {
     const innerCmd = `cat >> ${this._sh(fullPath)}`;
     return new Promise((resolve, reject) => {
       const proc = exec(
-        `docker exec -i -u ${this._sh(entry.username)} ${this._sh(this.sharedContainerName)} /bin/bash -c ${this._sh(innerCmd)}`,
+        `docker exec -i -u ${this._sh(entry.username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(innerCmd)}`,
         { timeout: 30000, maxBuffer: 5 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err) reject(new Error(`Append failed: ${err.message}`));
@@ -207,39 +193,29 @@ export class SandboxManager {
   }
 
   async _ensureSharedContainerRunning() {
-    if (await this._isRunning(this.sharedContainerName)) return;
+    // Check if cached container name is still valid
+    if (this._resolvedContainerName && await this._isRunning(this._resolvedContainerName)) return;
 
-    // Mutex: if another call is already starting the container, just wait for it
-    if (!this._containerStartLock) {
-      this._containerStartLock = this._startContainer().finally(() => {
-        this._containerStartLock = null;
-      });
-    }
-    await this._containerStartLock;
+    // Discover the Swarm-managed sandbox container
+    this._resolvedContainerName = await this._discoverContainer();
+    console.log(`📦 [Sandbox] Connected to Swarm sandbox container: ${this._resolvedContainerName}`);
   }
 
-  async _startContainer() {
-    await this._forceRemove(this.sharedContainerName);
-
-    const sshMount = process.env.SSH_KEYS_HOST_PATH || '/root/.ssh';
-    const gitName = process.env.GIT_USER_NAME || '';
-    const gitEmail = process.env.GIT_USER_EMAIL || '';
-
-    const cmd = [
-      'docker run -d',
-      `--name ${this._sh(this.sharedContainerName)}`,
-      '--restart unless-stopped',
-      `--network ${this._sh(this.network)}`,
-      `-v ${this._sh(sshMount + ':/root/.ssh:ro')}`,
-      // NOTE: Docker socket mount removed for security — it grants host-level
-      // root access from inside the sandbox container.
-      `-e ${this._sh('GIT_USER_NAME=' + gitName)}`,
-      `-e ${this._sh('GIT_USER_EMAIL=' + gitEmail)}`,
-      this._sh(this.sharedImage)
-    ].join(' ');
-
-    await execAsync(cmd, { timeout: 30000 });
-    console.log(`📦 [Sandbox] Started shared sandbox container ${this.sharedContainerName}`);
+  async _discoverContainer() {
+    const filter = this.sandboxServiceFilter;
+    try {
+      const { stdout } = await execAsync(
+        `docker ps --filter "name=${filter}" --filter "status=running" --format "{{.Names}}"`,
+        { timeout: 5000 }
+      );
+      const names = stdout.trim().split('\n').filter(Boolean);
+      if (names.length === 0) {
+        throw new Error(`No running sandbox container found matching filter "${filter}"`);
+      }
+      return names[0];
+    } catch (err) {
+      throw new Error(`Failed to discover sandbox container: ${err.message}`);
+    }
   }
 
   async _ensureLinuxUser(username) {
@@ -288,13 +264,13 @@ export class SandboxManager {
   }
 
   async _execAsRoot(command, { timeout = 120000 } = {}) {
-    const cmd = `docker exec ${this._sh(this.sharedContainerName)} /bin/bash -c ${this._sh(command)}`;
+    const cmd = `docker exec ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
     return execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
   }
 
   async _execAsAgentUser(username, command, { cwd = null, timeout = 120000 } = {}) {
     const cwdArg = cwd ? `-w ${this._sh(cwd)}` : '';
-    const cmd = `docker exec ${cwdArg} -u ${this._sh(username)} ${this._sh(this.sharedContainerName)} /bin/bash -c ${this._sh(command)}`;
+    const cmd = `docker exec ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
     return execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
   }
 
@@ -304,14 +280,6 @@ export class SandboxManager {
       return stdout.trim() === 'true';
     } catch {
       return false;
-    }
-  }
-
-  async _forceRemove(containerName) {
-    try {
-      await execAsync(`docker rm -f ${containerName}`, { timeout: 15000 });
-    } catch {
-      // ignore
     }
   }
 
@@ -337,20 +305,6 @@ export class SandboxManager {
     return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
   }
 
-  _validateName(value, label) {
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(value)) {
-      throw new Error(`Invalid ${label}: "${value}" — only alphanumeric, dots, dashes, underscores allowed`);
-    }
-    return value;
-  }
-
-  _validateImageRef(value, label) {
-    // Allow registry/image:tag format (e.g. registry.example.com/image:latest)
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_./:@-]*$/.test(value)) {
-      throw new Error(`Invalid ${label}: "${value}" — contains disallowed characters`);
-    }
-    return value;
-  }
 }
 
 export const sandboxManager = new SandboxManager();

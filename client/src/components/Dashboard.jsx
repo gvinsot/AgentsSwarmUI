@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
-  RefreshCw, Zap, Settings, MessageSquare
+  RefreshCw, Zap, Settings, MessageSquare, Key
 } from 'lucide-react';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
@@ -9,6 +9,7 @@ import AddAgentModal from './AddAgentModal';
 import BroadcastPanel from './BroadcastPanel';
 import SwarmOverview from './SwarmOverview';
 import ActiveVoiceIndicator from './ActiveVoiceIndicator';
+import ApiKeyModal from './ApiKeyModal';
 
 export default function Dashboard({
   user, agents, templates, projects, skills, mcpServers, thinkingMap, streamBuffers,
@@ -20,6 +21,7 @@ export default function Dashboard({
   const [viewMode, setViewMode] = useState('grid'); // grid | list
   const [detailActiveTab, setDetailActiveTab] = useState('chat');
   const [requestedTab, setRequestedTab] = useState(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const handleNavigateToVoiceAgent = useCallback((agentId) => {
     setSelectedAgent(agentId);
@@ -79,6 +81,13 @@ export default function Dashboard({
             >
               <Globe className="w-4 h-4" />
               <span className="hidden sm:inline">Global</span>
+            </button>
+            <button
+              onClick={() => setShowApiKeyModal(true)}
+              className="p-2 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors"
+              title="MCP API Key"
+            >
+              <Key className="w-4 h-4" />
             </button>
             <button
               onClick={onRefresh}
@@ -220,6 +229,14 @@ export default function Dashboard({
             setShowAddModal(false);
             setSelectedAgent(agent.id);
           }}
+        />
+      )}
+
+      {/* API Key Modal */}
+      {showApiKeyModal && (
+        <ApiKeyModal
+          onClose={() => setShowApiKeyModal(false)}
+          showToast={showToast}
         />
       )}
 

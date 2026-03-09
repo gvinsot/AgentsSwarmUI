@@ -20,9 +20,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - GIT_USER_NAME=${GIT_USER_NAME}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL}
-      - SANDBOX_IMAGE=${DOCKER_REGISTRY_URL}/agentswarm-sandbox:latest
-      - SANDBOX_SHARED_CONTAINER_NAME=sandbox-shared
-      - SANDBOX_NETWORK=bridge
+      - SANDBOX_SHARED_CONTAINER_NAME=sandbox
       - SANDBOX_BASE_WORKSPACE=/workspace
       - SSH_KEYS_HOST_PATH=${SSH_KEYS_HOST_PATH}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
