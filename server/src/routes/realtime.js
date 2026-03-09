@@ -5,29 +5,31 @@ export const DEFAULT_REALTIME_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
 const DELEGATE_TOOL = {
   type: 'function',
   name: 'delegate',
-  description: 'Delegate a task to another agent in the swarm. Use this when the user asks you to assign work to a specific agent or when a task requires a specialist.',
+  description:
+    'Delegate a task to another agent in the swarm. Use this when the user asks you to assign work to a specific agent or when a task requires a specialist.',
   parameters: {
     type: 'object',
     properties: {
       agent_name: { type: 'string', description: 'Name of the target agent to delegate to' },
-      task: { type: 'string', description: 'Detailed task description for the agent' }
+      task: { type: 'string', description: 'Detailed task description for the agent' },
     },
-    required: ['agent_name', 'task']
-  }
+    required: ['agent_name', 'task'],
+  },
 };
 
 const ASK_TOOL = {
   type: 'function',
   name: 'ask',
-  description: 'Ask a quick question to another agent without creating a task. Use this for short questions that need a concise answer.',
+  description:
+    'Ask a quick question to another agent without creating a task. Use this for short questions that need a concise answer.',
   parameters: {
     type: 'object',
     properties: {
       agent_name: { type: 'string', description: 'Name of the agent to ask' },
-      question: { type: 'string', description: 'The question to ask' }
+      question: { type: 'string', description: 'The question to ask' },
     },
-    required: ['agent_name', 'question']
-  }
+    required: ['agent_name', 'question'],
+  },
 };
 
 const ASSIGN_PROJECT_TOOL = {
@@ -38,10 +40,10 @@ const ASSIGN_PROJECT_TOOL = {
     type: 'object',
     properties: {
       agent_name: { type: 'string', description: 'Name of the agent' },
-      project_name: { type: 'string', description: 'Name of the project to assign' }
+      project_name: { type: 'string', description: 'Name of the project to assign' },
     },
-    required: ['agent_name', 'project_name']
-  }
+    required: ['agent_name', 'project_name'],
+  },
 };
 
 const GET_PROJECT_TOOL = {
@@ -51,30 +53,30 @@ const GET_PROJECT_TOOL = {
   parameters: {
     type: 'object',
     properties: {
-      agent_name: { type: 'string', description: 'Name of the agent' }
+      agent_name: { type: 'string', description: 'Name of the agent' },
     },
-    required: ['agent_name']
-  }
+    required: ['agent_name'],
+  },
 };
 
 const LIST_AGENTS_TOOL = {
   type: 'function',
   name: 'list_agents',
   description: 'List all enabled agents with their current status, project, and role.',
-  parameters: { type: 'object', properties: {} }
+  parameters: { type: 'object', properties: {} },
 };
 
 const AGENT_STATUS_TOOL = {
   type: 'function',
   name: 'agent_status',
-  description: 'Check a specific agent\\'s status (busy/idle/error), project, pending todos, and message count.',
+  description: "Check a specific agent's status (busy/idle/error), project, pending todos, and message count.",
   parameters: {
     type: 'object',
     properties: {
-      agent_name: { type: 'string', description: 'Name of the agent to check' }
+      agent_name: { type: 'string', description: 'Name of the agent to check' },
     },
-    required: ['agent_name']
-  }
+    required: ['agent_name'],
+  },
 };
 
 const GET_AVAILABLE_AGENT_TOOL = {
@@ -84,71 +86,71 @@ const GET_AVAILABLE_AGENT_TOOL = {
   parameters: {
     type: 'object',
     properties: {
-      role: { type: 'string', description: 'Role to search for (e.g. \"developer\")' }
+      role: { type: 'string', description: 'Role to search for (e.g. "developer")' },
     },
-    required: ['role']
-  }
+    required: ['role'],
+  },
 };
 
 const LIST_PROJECTS_TOOL = {
   type: 'function',
   name: 'list_projects',
   description: 'List all available projects.',
-  parameters: { type: 'object', properties: {} }
+  parameters: { type: 'object', properties: {} },
 };
 
 const CLEAR_CONTEXT_TOOL = {
   type: 'function',
   name: 'clear_context',
-  description: 'Clear an agent\\'s entire conversation history, giving them a fresh start.',
+  description: "Clear an agent's entire conversation history, giving them a fresh start.",
   parameters: {
     type: 'object',
     properties: {
-      agent_name: { type: 'string', description: 'Name of the agent' }
+      agent_name: { type: 'string', description: 'Name of the agent' },
     },
-    required: ['agent_name']
-  }
+    required: ['agent_name'],
+  },
 };
 
 const ROLLBACK_TOOL = {
   type: 'function',
   name: 'rollback',
-  description: 'Remove the last X messages from an agent\\'s conversation history.',
+  description: "Remove the last X messages from an agent's conversation history.",
   parameters: {
     type: 'object',
     properties: {
       agent_name: { type: 'string', description: 'Name of the agent' },
-      count: { type: 'integer', description: 'Number of messages to remove' }
+      count: { type: 'integer', description: 'Number of messages to remove' },
     },
-    required: ['agent_name', 'count']
-  }
+    required: ['agent_name', 'count'],
+  },
 };
 
 const STOP_AGENT_TOOL = {
   type: 'function',
   name: 'stop_agent',
-  description: 'Stop an agent\\'s current task immediately.',
+  description: "Stop an agent's current task immediately.",
   parameters: {
     type: 'object',
     properties: {
-      agent_name: { type: 'string', description: 'Name of the agent to stop' }
+      agent_name: { type: 'string', description: 'Name of the agent to stop' },
     },
-    required: ['agent_name']
-  }
+    required: ['agent_name'],
+  },
 };
 
 const CLEAR_ALL_CHATS_TOOL = {
   type: 'function',
   name: 'clear_all_chats',
-  description: 'Clear ALL agents\\' conversation histories at once.',
-  parameters: { type: 'object', properties: {} }
+  description: "Clear ALL agents' conversation histories at once.",
+  parameters: { type: 'object', properties: {} },
 };
 
 const CLEAR_ALL_ACTION_LOGS_TOOL = {
   type: 'function',
   name: 'clear_all_action_logs',
-  description: 'Clear ALL agents\\' action logs at once.',
-  parameters: { type: 'object', properties: {} }
+  description: "Clear ALL agents' action logs at once.",
+  parameters: { type: 'object', properties: {} },
 };
 
 export const VOICE_TOOLS = [
@@ -197,27 +199,34 @@ export function buildRealtimeSessionConfig({
 export function realtimeRoutes(agentManager) {
   const router = express.Router();
 
-  // Create an ephemeral token for WebRTC connection to OpenAI Realtime API
   router.post('/token', async (req, res) => {
-    const { agentId } = req.body;
-    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const { agentId } = req.body || {};
+    if (!agentId) {
+      return res.status(400).json({ error: 'agentId required' });
+    }
 
     const agent = agentManager.agents.get(agentId);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!agent.isVoice) return res.status(400).json({ error: 'Agent is not a voice agent' });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    if (!agent.isVoice) {
+      return res.status(400).json({ error: 'Agent is not a voice agent' });
+    }
 
-    // Use agent-level API key or fall back to server env
     const apiKey = agent.apiKey || process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'No OpenAI API key configured. Set OPENAI_API_KEY in .env or in agent settings.' });
+      return res.status(500).json({
+        error: 'No OpenAI API key configured. Set OPENAI_API_KEY in .env or in agent settings.',
+      });
     }
 
     try {
-      // Build the voice instructions (system prompt with RAG, skills, agents, etc.)
       const instructions = agentManager.buildVoiceInstructions(agentId);
-      const voice = agent.voice || 'alloy';
-      const model = agent.model || 'gpt-realtime-1.5';
-      const transcriptionModel = process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL || DEFAULT_REALTIME_TRANSCRIPTION_MODEL;
+      const voice = agent.voice || process.env.OPENAI_REALTIME_VOICE || 'alloy';
+      const model = process.env.OPENAI_REALTIME_MODEL || agent.model || 'gpt-realtime-1.5';
+      const transcriptionModel =
+        process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL || DEFAULT_REALTIME_TRANSCRIPTION_MODEL;
+
       const session = buildRealtimeSessionConfig({
         instructions,
         voice,
@@ -225,24 +234,23 @@ export function realtimeRoutes(agentManager) {
         transcriptionModel,
       });
 
-      // Request an ephemeral client secret from OpenAI
       const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ session })
+        body: JSON.stringify({ session }),
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error('OpenAI Realtime token error:', error);
-        return res.status(response.status).json({ error: `OpenAI API error: ${error}` });
+        const errorText = await response.text();
+        console.error('OpenAI Realtime token error:', errorText);
+        return res.status(response.status).json({ error: `OpenAI API error: ${errorText}` });
       }
 
       const data = await response.json();
-      res.json({
+      return res.json({
         token: data.client_secret?.value || data.value,
         expiresAt: data.client_secret?.expires_at || data.expires_at,
         voice,
@@ -250,8 +258,8 @@ export function realtimeRoutes(agentManager) {
         transcriptionModel,
       });
     } catch (err) {
-      console.error('Failed to create realtime token:', err.message);
-      res.status(500).json({ error: err.message });
+      console.error('Failed to create realtime token:', err);
+      return res.status(500).json({ error: err.message || 'Failed to create realtime token' });
     }
   });
 

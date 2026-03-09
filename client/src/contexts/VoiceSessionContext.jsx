@@ -1,7 +1,39 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 
-const VoiceSessionContext = createContext(null);
+export const STATUS = {
+  DISCONNECTED: 'disconnected',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  LISTENING: 'listening',
+  SPEAKING: 'speaking',
+  DELEGATING: 'delegating',
+  ERROR: 'error',
+};
+
+export const STATUS_LABELS = {
+  [STATUS.DISCONNECTED]: 'Disconnected',
+  [STATUS.CONNECTING]: 'Connecting...',
+  [STATUS.CONNECTED]: 'Connected — ready',
+  [STATUS.LISTENING]: 'Listening...',
+  [STATUS.SPEAKING]: 'Speaking...',
+  [STATUS.DELEGATING]: 'Delegating...',
+  [STATUS.ERROR]: 'Error',
+};
+
+const MANAGEMENT_FUNCTIONS = new Set([
+  'assign_project',
+  'get_project',
+  'list_agents',
+  'agent_status',
+  'get_available_agent',
+  'list_projects',
+  'clear_context',
+  'rollback',
+  'stop_agent',
+  'clear_all_chats',
+  'clear_all_action_logs',
+]);
 
 const DEFAULT_TRANSCRIPTION_MODEL =
   import.meta.env.VITE_OPENAI_REALTIME_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe';
@@ -12,14 +44,11 @@ const DEFAULT_TURN_DETECTION = Object.freeze({
   interrupt_response: true,
 });
 
-const DEFAULT_STATE = {
-  status: 'disconnected',
-  isMuted: false,
-  currentTranscript: '',
-  currentResponse: '',
-  currentFunction: '',
-  agentId: null,
-};
+const VoiceSessionContext = createContext(null);
+
+function pushEvent(list, type, text) {
+  return [...list.slice(-99), { type, text, time: new Date() }];
+}
 
 function buildSessionUpdate(voice, transcriptionModel = DEFAULT_TRANSCRIPTION_MODEL) {
   return {
@@ -37,75 +66,107 @@ function buildSessionUpdate(voice, transcriptionModel = DEFAULT_TRANSCRIPTION_MO
   };
 }
 
-export function VoiceSessionProvider({ children, socket, agents }) {
-  const [state, setState] = useState(DEFAULT_STATE);
+function normalizeFunctionOutput(output) {
+  if (typeof output === 'string') {
+    return output.slice(0, 4000);
+  }
+
+  try {
+    return JSON.stringify(output).slice(0, 4000);
+  } catch {
+    return String(output ?? '').slice(0, 4000);
+  }
+}
+
+function isAutoplayBlocked(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    error?.name === 'NotAllowedError'
+    || message.includes('autoplay')
+    || message.includes('user gesture')
+  );
+}
+
+export function VoiceSessionProvider({ socket, agents, children }) {
+  const [status, setStatus] = useState(STATUS.DISCONNECTED);
+  const [activeAgentId, setActiveAgentId] = useState(null);
+  const [muted, setMuted] = useState(false);
+  const [speakerOff, setSpeakerOff] = useState(false);
+  const [error, setError] = useState(null);
+  const [delegationTarget, setDelegationTarget] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [currentTranscript, setCurrentTranscript] = useState('');
+  const [currentResponse, setCurrentResponse] = useState('');
+  const [currentFunction, setCurrentFunction] = useState('');
+
   const pcRef = useRef(null);
   const dcRef = useRef(null);
   const audioElRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const socketRef = useRef(socket);
+  const activeAgentIdRef = useRef(activeAgentId);
   const responseBufferRef = useRef('');
   const transcriptBufferRef = useRef('');
-  const currentResponseIdRef = useRef(null);
-  const currentItemIdRef = useRef(null);
-  const activeAgentIdRef = useRef(null);
 
-  const ensureAudioElement = useCallback(() => {
-    if (audioElRef.current) return audioElRef.current;
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
 
-    const audio = document.createElement('audio');
-    audio.autoplay = true;
-    audio.playsInline = true;
-    audio.muted = false;
-    audio.volume = 1;
-    audio.preload = 'auto';
-    audio.style.display = 'none';
-    audio.setAttribute('data-voice-output', 'true');
-    document.body.appendChild(audio);
+  useEffect(() => {
+    activeAgentIdRef.current = activeAgentId;
+  }, [activeAgentId]);
 
-    audioElRef.current = audio;
-    return audio;
+  useEffect(() => {
+    if (audioElRef.current) {
+      audioElRef.current.muted = speakerOff;
+    }
+  }, [speakerOff]);
+
+  const addEvent = useCallback((type, text) => {
+    setEvents((prev) => pushEvent(prev, type, text));
   }, []);
 
-  const playRemoteAudio = useCallback(async (stream) => {
-    if (!stream) return;
-
-    const audio = ensureAudioElement();
-
-    if (audio.srcObject !== stream) {
-      audio.srcObject = stream;
-    }
-
-    try {
-      await audio.play();
-    } catch (err) {
-      console.error('Failed to autoplay remote voice audio:', err);
-      setState(prev => ({
-        ...prev,
-        currentFunction: 'Audio reçu, mais le navigateur bloque la lecture. Vérifiez que l’onglet n’est pas muet.',
-      }));
-    }
-  }, [ensureAudioElement]);
-
   const cleanupConnection = useCallback(() => {
-    if (dcRef.current) {
-      dcRef.current.close();
-      dcRef.current = null;
+    const dc = dcRef.current;
+    dcRef.current = null;
+    if (dc) {
+      dc.onopen = null;
+      dc.onclose = null;
+      dc.onmessage = null;
+      dc.onerror = null;
+      try {
+        dc.close();
+      } catch (err) {
+        console.warn('Failed to close data channel cleanly:', err);
+      }
     }
 
-    if (pcRef.current) {
-      pcRef.current.getSenders().forEach(sender => sender.track?.stop?.());
-      pcRef.current.close();
-      pcRef.current = null;
+    const pc = pcRef.current;
+    pcRef.current = null;
+    if (pc) {
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
+      try {
+        pc.getSenders().forEach((sender) => sender.track?.stop?.());
+      } catch (err) {
+        console.warn('Failed to stop peer senders cleanly:', err);
+      }
+      try {
+        pc.close();
+      } catch (err) {
+        console.warn('Failed to close peer connection cleanly:', err);
+      }
     }
 
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
 
     if (remoteStreamRef.current) {
-      remoteStreamRef.current.getTracks().forEach(track => track.stop?.());
+      remoteStreamRef.current.getTracks().forEach((track) => track.stop?.());
       remoteStreamRef.current = null;
     }
 
@@ -116,390 +177,484 @@ export function VoiceSessionProvider({ children, socket, agents }) {
 
     responseBufferRef.current = '';
     transcriptBufferRef.current = '';
-    currentResponseIdRef.current = null;
-    currentItemIdRef.current = null;
-    activeAgentIdRef.current = null;
-
-    setState(DEFAULT_STATE);
   }, []);
 
-  const sendToolResult = useCallback((event, output) => {
+  const requestMicPermission = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone access requires a secure connection (HTTPS).');
+    }
+
+    if (navigator.permissions?.query) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'microphone' });
+        if (permission.state === 'denied') {
+          throw new Error(
+            'Microphone access is blocked. Please allow microphone access for this site, then try again.',
+          );
+        }
+      } catch (err) {
+        const message = String(err?.message || '');
+        if (message.includes('blocked') || message.includes('allow microphone')) {
+          throw err;
+        }
+      }
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+  }, []);
+
+  const playRemoteAudio = useCallback(async () => {
+    const audio = audioElRef.current;
+    const remoteStream = remoteStreamRef.current;
+    if (!audio || !remoteStream) {
+      return;
+    }
+
+    if (audio.srcObject !== remoteStream) {
+      audio.srcObject = remoteStream;
+    }
+    audio.muted = speakerOff;
+
+    try {
+      await audio.play();
+    } catch (err) {
+      console.error('Failed to autoplay remote voice audio:', err);
+      if (isAutoplayBlocked(err)) {
+        setCurrentFunction('Audio received, but the browser blocked playback. Check that the tab is not muted.');
+        addEvent('error', 'Browser autoplay blocked remote voice playback');
+      }
+    }
+  }, [addEvent, speakerOff]);
+
+  const sendFunctionOutput = useCallback((callId, output) => {
     const dc = dcRef.current;
-    if (!dc || dc.readyState !== 'open') return;
+    if (!dc || dc.readyState !== 'open') {
+      return;
+    }
 
     dc.send(JSON.stringify({
       type: 'conversation.item.create',
       item: {
         type: 'function_call_output',
-        call_id: event.call_id,
-        output: JSON.stringify(output),
+        call_id: callId,
+        output: normalizeFunctionOutput(output),
       },
     }));
-
     dc.send(JSON.stringify({ type: 'response.create' }));
   }, []);
 
-  const handleToolCall = useCallback((event) => {
-    if (!socket) return;
-    const agentId = activeAgentIdRef.current;
-    if (!agentId) return;
+  const handleDelegation = useCallback((callId, agentName, task) => {
+    setStatus(STATUS.DELEGATING);
+    setDelegationTarget(agentName);
+    setCurrentFunction(`Delegating to ${agentName}...`);
+    addEvent('delegation', `Delegating to ${agentName}: ${task}`);
 
+    const sock = socketRef.current;
+    const agentId = activeAgentIdRef.current;
+    if (!sock || !agentId) {
+      sendFunctionOutput(callId, 'Voice session socket is not connected.');
+      return;
+    }
+
+    const handler = (data) => {
+      if (data.agentId !== agentId) {
+        return;
+      }
+
+      sock.off('voice:delegate:result', handler);
+      setDelegationTarget(null);
+      setStatus(STATUS.CONNECTED);
+
+      const resultText = data.error
+        ? `Error from ${agentName}: ${data.error}`
+        : data.result || 'Task completed.';
+      setCurrentFunction(data.error ? `delegate failed: ${data.error}` : `delegated to ${agentName}`);
+      addEvent(data.error ? 'error' : 'delegation-result', `${agentName}: ${resultText.slice(0, 200)}`);
+      sendFunctionOutput(callId, resultText);
+    };
+
+    sock.on('voice:delegate:result', handler);
+    sock.emit('voice:delegate', { agentId, targetAgentName: agentName, task });
+  }, [addEvent, sendFunctionOutput]);
+
+  const handleAsk = useCallback((callId, agentName, question) => {
+    setStatus(STATUS.DELEGATING);
+    setDelegationTarget(agentName);
+    setCurrentFunction(`Asking ${agentName}...`);
+    addEvent('delegation', `Asking ${agentName}: ${question}`);
+
+    const sock = socketRef.current;
+    const agentId = activeAgentIdRef.current;
+    if (!sock || !agentId) {
+      sendFunctionOutput(callId, 'Voice session socket is not connected.');
+      return;
+    }
+
+    const handler = (data) => {
+      if (data.agentId !== agentId) {
+        return;
+      }
+
+      sock.off('voice:ask:result', handler);
+      setDelegationTarget(null);
+      setStatus(STATUS.CONNECTED);
+
+      const resultText = data.error
+        ? `Error from ${agentName}: ${data.error}`
+        : data.result || 'No answer.';
+      setCurrentFunction(data.error ? `ask failed: ${data.error}` : `asked ${agentName}`);
+      addEvent(data.error ? 'error' : 'delegation-result', `${agentName}: ${resultText.slice(0, 200)}`);
+      sendFunctionOutput(callId, resultText);
+    };
+
+    sock.on('voice:ask:result', handler);
+    sock.emit('voice:ask', { agentId, targetAgentName: agentName, question });
+  }, [addEvent, sendFunctionOutput]);
+
+  const handleManagement = useCallback((callId, functionName, args) => {
+    setCurrentFunction(`${functionName}...`);
+    addEvent('system', `${functionName}(${JSON.stringify(args)})`);
+
+    const sock = socketRef.current;
+    const agentId = activeAgentIdRef.current;
+    if (!sock || !agentId) {
+      sendFunctionOutput(callId, 'Voice session socket is not connected.');
+      return;
+    }
+
+    const handler = (data) => {
+      if (data.agentId !== agentId || data.functionName !== functionName) {
+        return;
+      }
+
+      sock.off('voice:management:result', handler);
+
+      const resultText = data.error
+        ? `Error: ${data.error}`
+        : data.result || 'Done.';
+      setCurrentFunction(data.error ? `${functionName} failed: ${data.error}` : `${functionName} complete`);
+      addEvent(data.error ? 'error' : 'system', `${functionName}: ${String(resultText).slice(0, 200)}`);
+      sendFunctionOutput(callId, resultText);
+    };
+
+    sock.on('voice:management:result', handler);
+    sock.emit('voice:management', { agentId, functionName, args });
+  }, [addEvent, sendFunctionOutput]);
+
+  const handleToolCall = useCallback((event) => {
     let args = {};
     try {
       args = JSON.parse(event.arguments || '{}');
     } catch (err) {
       console.error('Failed to parse tool arguments:', err);
+      setCurrentFunction('Failed to parse tool arguments.');
+      addEvent('error', 'Failed to parse tool arguments from Realtime event');
+      sendFunctionOutput(event.call_id, 'Failed to parse tool arguments.');
+      return;
     }
 
-    setState(prev => ({ ...prev, currentFunction: `${event.name}…` }));
-
-    const emitResult = (channel, payload) => new Promise((resolve) => {
-      socket.emit(channel, { agentId, ...payload });
-      const resultEvent = `${channel}:result`;
-
-      const onResult = (result) => {
-        if (result.agentId !== agentId) return;
-        socket.off(resultEvent, onResult);
-        resolve(result);
-      };
-
-      socket.on(resultEvent, onResult);
-    });
-
-    switch (event.name) {
-      case 'delegate': {
-        emitResult('voice:delegate', {
-          targetAgentName: args.agent_name,
-          task: args.task,
-        }).then((result) => {
-          const output = result.error
-            ? { success: false, error: result.error }
-            : { success: true, result: result.result };
-          setState(prev => ({
-            ...prev,
-            currentFunction: result.error
-              ? `delegate failed: ${result.error}`
-              : `delegated to ${args.agent_name}`,
-          }));
-          sendToolResult(event, output);
-        });
-        break;
-      }
-
-      case 'ask': {
-        emitResult('voice:ask', {
-          targetAgentName: args.agent_name,
-          question: args.question,
-        }).then((result) => {
-          const output = result.error
-            ? { success: false, error: result.error }
-            : { success: true, result: result.result };
-          setState(prev => ({
-            ...prev,
-            currentFunction: result.error
-              ? `ask failed: ${result.error}`
-              : `asked ${args.agent_name}`,
-          }));
-          sendToolResult(event, output);
-        });
-        break;
-      }
-
-      case 'assign_project':
-      case 'get_project':
-      case 'list_agents':
-      case 'agent_status':
-      case 'get_available_agent':
-      case 'list_projects':
-      case 'clear_context':
-      case 'rollback':
-      case 'stop_agent':
-      case 'clear_all_chats':
-      case 'clear_all_action_logs': {
-        emitResult('voice:management', {
-          functionName: event.name,
-          arguments: args,
-        }).then((result) => {
-          const output = result.error
-            ? { success: false, error: result.error }
-            : { success: true, result: result.result };
-          setState(prev => ({
-            ...prev,
-            currentFunction: result.error
-              ? `${event.name} failed: ${result.error}`
-              : `${event.name} complete`,
-          }));
-          sendToolResult(event, output);
-        });
-        break;
-      }
-
-      default:
-        console.warn('Unhandled tool call:', event.name);
-        sendToolResult(event, { success: false, error: `Unknown tool ${event.name}` });
+    if (event.name === 'delegate') {
+      handleDelegation(event.call_id, args.agent_name, args.task);
+      return;
     }
-  }, [sendToolResult, socket]);
+
+    if (event.name === 'ask') {
+      handleAsk(event.call_id, args.agent_name, args.question);
+      return;
+    }
+
+    if (MANAGEMENT_FUNCTIONS.has(event.name)) {
+      handleManagement(event.call_id, event.name, args);
+      return;
+    }
+
+    console.warn('Unknown function call:', event.name);
+    addEvent('error', `Unknown tool call: ${event.name}`);
+    sendFunctionOutput(event.call_id, `Unknown tool call: ${event.name}`);
+  }, [addEvent, handleAsk, handleDelegation, handleManagement, sendFunctionOutput]);
 
   const handleRealtimeEvent = useCallback((event) => {
     switch (event.type) {
       case 'input_audio_buffer.speech_started':
-        setState(prev => ({ ...prev, currentFunction: 'Listening…' }));
+        setStatus(STATUS.LISTENING);
+        setCurrentFunction('Listening...');
         break;
 
       case 'input_audio_buffer.speech_stopped':
-        setState(prev => ({ ...prev, currentFunction: 'Processing speech…' }));
+        setStatus(STATUS.CONNECTED);
+        setCurrentFunction('Processing speech...');
         break;
 
       case 'conversation.item.input_audio_transcription.completed':
         transcriptBufferRef.current = event.transcript || '';
-        setState(prev => ({ ...prev, currentTranscript: transcriptBufferRef.current }));
+        setCurrentTranscript(transcriptBufferRef.current);
         break;
 
       case 'conversation.item.input_audio_transcription.failed':
-        setState(prev => ({
-          ...prev,
-          currentFunction: event.error?.message || 'Speech transcription failed.',
-        }));
+        setCurrentFunction(event.error?.message || 'Speech transcription failed.');
+        addEvent('error', event.error?.message || 'Speech transcription failed.');
         break;
 
       case 'response.created':
-        currentResponseIdRef.current = event.response?.id || null;
         responseBufferRef.current = '';
-        setState(prev => ({ ...prev, currentResponse: '' }));
+        setCurrentResponse('');
         break;
 
       case 'response.audio_transcript.delta':
         responseBufferRef.current += event.delta || '';
-        setState(prev => ({ ...prev, currentResponse: responseBufferRef.current }));
+        setCurrentResponse(responseBufferRef.current);
         break;
 
       case 'response.audio_transcript.done':
-        setState(prev => ({ ...prev, currentResponse: event.transcript || responseBufferRef.current }));
+        setCurrentResponse(event.transcript || responseBufferRef.current);
         break;
 
-      case 'response.output_item.added':
-        if (event.item?.type === 'function_call') {
-          currentItemIdRef.current = event.item.id;
-        }
+      case 'response.audio.delta':
+      case 'output_audio_buffer.audio_started':
+        setStatus(STATUS.SPEAKING);
+        setCurrentFunction('Agent speaking...');
+        break;
+
+      case 'response.audio.done':
+      case 'output_audio_buffer.audio_stopped':
+        setStatus(STATUS.CONNECTED);
+        setCurrentFunction('Response complete.');
         break;
 
       case 'response.function_call_arguments.done':
         handleToolCall(event);
         break;
 
-      case 'output_audio_buffer.audio_started':
-        setState(prev => ({ ...prev, currentFunction: 'Agent speaking…' }));
-        break;
-
-      case 'output_audio_buffer.audio_stopped':
-        setState(prev => ({ ...prev, currentFunction: 'Response complete.' }));
-        break;
-
       case 'response.done':
-        currentResponseIdRef.current = null;
-        currentItemIdRef.current = null;
+        setDelegationTarget(null);
         break;
 
       case 'error':
         console.error('Realtime error:', event);
-        setState(prev => ({
-          ...prev,
-          status: 'error',
-          currentFunction: event.error?.message || event.message || 'Realtime connection error.',
-        }));
+        setError(event.error?.message || event.message || 'Unknown realtime error');
+        setStatus(STATUS.ERROR);
+        setCurrentFunction(event.error?.message || event.message || 'Unknown realtime error');
+        addEvent('error', event.error?.message || event.message || 'Unknown realtime error');
         break;
 
       default:
         break;
     }
-  }, [handleToolCall]);
+  }, [addEvent, handleToolCall]);
 
   const connect = useCallback(async (agentId) => {
-    if (!agentId) return;
+    if (!agentId) {
+      return;
+    }
+
+    if (activeAgentIdRef.current === agentId && pcRef.current) {
+      return;
+    }
 
     cleanupConnection();
-    setState({
-      ...DEFAULT_STATE,
-      status: 'connecting',
-      agentId,
-      currentFunction: 'Requesting microphone access…',
-    });
+    setEvents([]);
+    setError(null);
+    setDelegationTarget(null);
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    setCurrentFunction('Requesting microphone access...');
+    setMuted(false);
+    setStatus(STATUS.CONNECTING);
+    setActiveAgentId(agentId);
+    activeAgentIdRef.current = agentId;
 
     try {
-      const { token, model, voice, transcriptionModel } = await api.getRealtimeToken(agentId);
+      let stream;
+      try {
+        stream = await requestMicPermission();
+      } catch (micErr) {
+        const message =
+          micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError'
+            ? 'Microphone access denied. Please allow microphone permission in your browser settings and try again.'
+            : micErr.message;
+        throw new Error(message);
+      }
 
-      const audioEl = ensureAudioElement();
-      audioEl.srcObject = null;
+      localStreamRef.current = stream;
+
+      const microphoneTrack = stream.getAudioTracks()[0];
+      if (!microphoneTrack) {
+        throw new Error('No microphone track is available.');
+      }
+      if (microphoneTrack.readyState !== 'live') {
+        throw new Error('Microphone is not active.');
+      }
+
+      microphoneTrack.onended = () => {
+        setStatus(STATUS.ERROR);
+        setError('Microphone disconnected.');
+        setCurrentFunction('Microphone disconnected.');
+        addEvent('error', 'Microphone disconnected');
+      };
+
+      const {
+        token,
+        model,
+        voice = 'alloy',
+        transcriptionModel = DEFAULT_TRANSCRIPTION_MODEL,
+      } = await api.getRealtimeToken(agentId);
+
+      if (!token) {
+        throw new Error('Realtime token was not returned by the server.');
+      }
 
       const pc = new RTCPeerConnection();
       const remoteStream = new MediaStream();
 
       pcRef.current = pc;
       remoteStreamRef.current = remoteStream;
-      activeAgentIdRef.current = agentId;
 
       pc.ontrack = (event) => {
-        const stream = event.streams?.[0];
+        if (pcRef.current !== pc) {
+          return;
+        }
 
-        if (stream) {
-          stream.getTracks().forEach((track) => {
-            if (!remoteStream.getTracks().some(existingTrack => existingTrack.id === track.id)) {
+        const incomingStream = event.streams?.[0];
+        if (incomingStream) {
+          incomingStream.getTracks().forEach((track) => {
+            if (!remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
               remoteStream.addTrack(track);
             }
           });
-        } else if (event.track && !remoteStream.getTracks().some(track => track.id === event.track.id)) {
+        } else if (event.track && !remoteStream.getTracks().some((track) => track.id === event.track.id)) {
           remoteStream.addTrack(event.track);
         }
 
         if (event.track) {
           event.track.onunmute = () => {
-            playRemoteAudio(remoteStream).catch((err) => {
+            playRemoteAudio().catch((err) => {
               console.error('Failed to play remote audio after unmute:', err);
             });
           };
         }
 
-        playRemoteAudio(remoteStream).catch((err) => {
+        playRemoteAudio().catch((err) => {
           console.error('Failed to attach remote audio stream:', err);
         });
       };
 
-      const localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+      pc.onconnectionstatechange = () => {
+        if (pcRef.current !== pc) {
+          return;
         }
-      });
-      localStreamRef.current = localStream;
 
-      const [microphoneTrack] = localStream.getAudioTracks();
-      if (!microphoneTrack) {
-        throw new Error('No microphone track is available.');
-      }
-
-      if (microphoneTrack.readyState !== 'live') {
-        throw new Error('Microphone is not active.');
-      }
-
-      microphoneTrack.onended = () => {
-        setState(prev => ({
-          ...prev,
-          status: 'error',
-          currentFunction: 'Microphone disconnected.',
-        }));
+        if (pc.connectionState === 'failed') {
+          setStatus(STATUS.ERROR);
+          setError('Peer connection failed.');
+          setCurrentFunction('Peer connection failed.');
+          addEvent('error', 'Peer connection failed');
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+          setStatus(STATUS.DISCONNECTED);
+          setCurrentFunction('Disconnected.');
+          setActiveAgentId(null);
+          activeAgentIdRef.current = null;
+          addEvent('system', 'Voice session disconnected');
+        }
       };
 
-      microphoneTrack.onmute = () => {
-        setState(prev => ({
-          ...prev,
-          currentFunction: 'Microphone muted by browser.',
-        }));
+      pc.oniceconnectionstatechange = () => {
+        if (pcRef.current !== pc) {
+          return;
+        }
+
+        if (pc.iceConnectionState === 'failed') {
+          setStatus(STATUS.ERROR);
+          setError('ICE connection failed.');
+          setCurrentFunction('ICE connection failed.');
+          addEvent('error', 'ICE connection failed');
+        }
       };
 
-      microphoneTrack.onunmute = () => {
-        setState(prev => ({
-          ...prev,
-          currentFunction: prev.isMuted ? 'Microphone muted.' : 'Listening…',
-        }));
-      };
-
-      pc.addTrack(microphoneTrack, localStream);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       const dc = pc.createDataChannel('oai-events');
       dcRef.current = dc;
 
       const applySessionUpdate = () => {
-        if (dc.readyState !== 'open') return;
-
-        setState(prev => ({
-          ...prev,
-          status: 'connected',
-          agentId,
-          currentFunction: prev.isMuted ? 'Microphone muted.' : 'Listening…',
-        }));
+        if (dcRef.current !== dc || dc.readyState !== 'open') {
+          return;
+        }
 
         dc.send(JSON.stringify(buildSessionUpdate(voice, transcriptionModel)));
+        setStatus(STATUS.CONNECTED);
+        setError(null);
+        setCurrentFunction(muted ? 'Microphone muted.' : 'Listening...');
       };
 
-      dc.onopen = applySessionUpdate;
+      dc.onopen = () => {
+        if (dcRef.current !== dc) {
+          return;
+        }
+
+        addEvent('system', 'Connected to voice agent');
+        applySessionUpdate();
+      };
+
+      dc.onmessage = (messageEvent) => {
+        if (dcRef.current !== dc) {
+          return;
+        }
+
+        try {
+          handleRealtimeEvent(JSON.parse(messageEvent.data));
+        } catch (err) {
+          console.warn('Failed to parse realtime event:', err);
+        }
+      };
 
       dc.onclose = () => {
-        setState(prev => ({
-          ...prev,
-          status: prev.status === 'error' ? 'error' : 'disconnected',
-        }));
-      };
-
-      dc.onerror = (event) => {
-        console.error('Realtime data channel error:', event);
-        setState(prev => ({
-          ...prev,
-          status: 'error',
-          currentFunction: 'Realtime data channel error.',
-        }));
-      };
-
-      dc.onmessage = (evt) => {
-        try {
-          const event = JSON.parse(evt.data);
-          handleRealtimeEvent(event);
-        } catch (err) {
-          console.error('Failed to parse Realtime event:', err);
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected' && dc.readyState === 'open') {
-          setState(prev => ({
-            ...prev,
-            status: 'connected',
-          }));
+        if (dcRef.current !== dc) {
+          return;
         }
 
-        if (
-          pc.connectionState === 'failed' ||
-          pc.connectionState === 'disconnected' ||
-          pc.connectionState === 'closed'
-        ) {
-          setState(prev => ({
-            ...prev,
-            status: pc.connectionState === 'failed' ? 'error' : 'disconnected',
-            currentFunction:
-              pc.connectionState === 'failed'
-                ? 'Peer connection failed.'
-                : prev.currentFunction,
-          }));
-        }
+        setStatus(STATUS.DISCONNECTED);
+        setCurrentFunction('Disconnected.');
+        setActiveAgentId(null);
+        activeAgentIdRef.current = null;
+        addEvent('system', 'Voice session disconnected');
       };
 
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed') {
-          setState(prev => ({
-            ...prev,
-            status: 'error',
-            currentFunction: 'ICE connection failed.',
-          }));
+      dc.onerror = (channelError) => {
+        console.error('Realtime data channel error:', channelError);
+        if (dcRef.current !== dc) {
+          return;
         }
+
+        setStatus(STATUS.ERROR);
+        setError('Realtime data channel error.');
+        setCurrentFunction('Realtime data channel error.');
+        addEvent('error', 'Realtime data channel error');
       };
 
-      setState(prev => ({
-        ...prev,
-        currentFunction: 'Microphone connected. Finishing realtime setup…',
-      }));
+      setCurrentFunction('Microphone connected. Finishing realtime setup...');
 
       const offer = await pc.createOffer({ offerToReceiveAudio: true });
       await pc.setLocalDescription(offer);
 
-      const realtimeBaseUrl = import.meta.env.VITE_OPENAI_REALTIME_URL || 'https://api.openai.com/v1/realtime';
-      const sdpResponse = await fetch(`${realtimeBaseUrl}?model=${encodeURIComponent(model)}`, {
-        method: 'POST',
-        body: offer.sdp,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/sdp',
+      const realtimeBaseUrl =
+        import.meta.env.VITE_OPENAI_REALTIME_URL || 'https://api.openai.com/v1/realtime';
+      const sdpResponse = await fetch(
+        `${realtimeBaseUrl}?model=${encodeURIComponent(model || 'gpt-realtime-1.5')}`,
+        {
+          method: 'POST',
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/sdp',
+          },
         },
-      });
+      );
 
       if (!sdpResponse.ok) {
         throw new Error(`Realtime SDP exchange failed (${sdpResponse.status})`);
@@ -514,59 +669,165 @@ export function VoiceSessionProvider({ children, socket, agents }) {
     } catch (err) {
       console.error('Voice connection error:', err);
       cleanupConnection();
-      setState(prev => ({
-        ...prev,
-        status: 'error',
-        currentResponse: '',
-        currentTranscript: '',
-        currentFunction: err.message || 'Voice connection failed',
-      }));
+      setStatus(STATUS.ERROR);
+      setError(err.message || 'Voice connection failed.');
+      setCurrentFunction(err.message || 'Voice connection failed.');
+      setCurrentTranscript('');
+      setCurrentResponse('');
+      setActiveAgentId(null);
+      activeAgentIdRef.current = null;
+      addEvent('error', err.message || 'Voice connection failed.');
       throw err;
     }
-  }, [cleanupConnection, ensureAudioElement, handleRealtimeEvent, playRemoteAudio]);
+  }, [addEvent, cleanupConnection, handleRealtimeEvent, muted, playRemoteAudio, requestMicPermission]);
 
   const disconnect = useCallback(() => {
     cleanupConnection();
-  }, [cleanupConnection]);
+    setStatus(STATUS.DISCONNECTED);
+    setActiveAgentId(null);
+    activeAgentIdRef.current = null;
+    setMuted(false);
+    setError(null);
+    setDelegationTarget(null);
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    setCurrentFunction('');
+    addEvent('system', 'Session ended');
+  }, [addEvent, cleanupConnection]);
+
+  const reconnect = useCallback(() => {
+    const agentId = activeAgentIdRef.current;
+    if (!agentId) {
+      return;
+    }
+
+    cleanupConnection();
+    setStatus(STATUS.DISCONNECTED);
+    setError(null);
+    setDelegationTarget(null);
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    setCurrentFunction('');
+    setEvents([]);
+    setMuted(false);
+
+    setTimeout(() => {
+      connect(agentId).catch((err) => {
+        console.error('Voice reconnect failed:', err);
+      });
+    }, 100);
+  }, [cleanupConnection, connect]);
 
   const toggleMute = useCallback(() => {
-    const stream = localStreamRef.current;
-    if (!stream) return;
+    if (!localStreamRef.current) {
+      return;
+    }
 
-    setState(prev => {
-      const nextMuted = !prev.isMuted;
-      stream.getAudioTracks().forEach(track => {
+    setMuted((prev) => {
+      const nextMuted = !prev;
+      localStreamRef.current?.getAudioTracks().forEach((track) => {
         track.enabled = !nextMuted;
       });
+      setCurrentFunction(nextMuted ? 'Microphone muted.' : 'Listening...');
+      return nextMuted;
+    });
+  }, []);
 
-      return {
-        ...prev,
-        isMuted: nextMuted,
-        currentFunction: nextMuted ? 'Microphone muted.' : 'Listening…',
-      };
+  const toggleSpeaker = useCallback(() => {
+    setSpeakerOff((prev) => {
+      const nextSpeakerOff = !prev;
+      if (audioElRef.current) {
+        audioElRef.current.muted = nextSpeakerOff;
+      }
+      return nextSpeakerOff;
     });
   }, []);
 
   useEffect(() => {
+    if (!activeAgentId || !agents) {
+      return;
+    }
+
+    const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+    if (!activeAgent || activeAgent.isVoice !== true) {
+      disconnect();
+    }
+  }, [activeAgentId, agents, disconnect]);
+
+  useEffect(() => {
+    if (socket || !activeAgentId) {
+      return;
+    }
+
+    cleanupConnection();
+    setStatus(STATUS.DISCONNECTED);
+    setActiveAgentId(null);
+    activeAgentIdRef.current = null;
+    setMuted(false);
+    setError(null);
+    setDelegationTarget(null);
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    setCurrentFunction('');
+  }, [activeAgentId, cleanupConnection, socket]);
+
+  useEffect(() => {
     return () => {
       cleanupConnection();
-      if (audioElRef.current) {
-        audioElRef.current.remove();
-        audioElRef.current = null;
-      }
     };
   }, [cleanupConnection]);
 
+  const isActive = status !== STATUS.DISCONNECTED && status !== STATUS.ERROR;
+
+  const isSessionForAgent = useCallback(
+    (agentId) => activeAgentId === agentId,
+    [activeAgentId],
+  );
+
   const value = useMemo(() => ({
-    ...state,
-    isConnected: state.status === 'connected',
+    status,
+    activeAgentId,
+    agentId: activeAgentId,
+    muted,
+    isMuted: muted,
+    speakerOff,
+    error,
+    delegationTarget,
+    events,
+    currentTranscript,
+    currentResponse,
+    currentFunction,
     connect,
     disconnect,
+    reconnect,
     toggleMute,
-  }), [connect, disconnect, state, toggleMute]);
+    toggleSpeaker,
+    isActive,
+    isConnected: status !== STATUS.DISCONNECTED && status !== STATUS.ERROR && status !== STATUS.CONNECTING,
+    isSessionForAgent,
+  }), [
+    status,
+    activeAgentId,
+    muted,
+    speakerOff,
+    error,
+    delegationTarget,
+    events,
+    currentTranscript,
+    currentResponse,
+    currentFunction,
+    connect,
+    disconnect,
+    reconnect,
+    toggleMute,
+    toggleSpeaker,
+    isActive,
+    isSessionForAgent,
+  ]);
 
   return (
     <VoiceSessionContext.Provider value={value}>
+      <audio ref={audioElRef} autoPlay playsInline muted={speakerOff} style={{ display: 'none' }} />
       {children}
     </VoiceSessionContext.Provider>
   );
