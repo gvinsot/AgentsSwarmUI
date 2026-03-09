@@ -1,5 +1,7 @@
 import express from 'express';
 
+export const DEFAULT_REALTIME_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
+
 const DELEGATE_TOOL = {
   type: 'function',
   name: 'delegate',
@@ -65,7 +67,7 @@ const LIST_AGENTS_TOOL = {
 const AGENT_STATUS_TOOL = {
   type: 'function',
   name: 'agent_status',
-  description: 'Check a specific agent\'s status (busy/idle/error), project, pending todos, and message count.',
+  description: 'Check a specific agent\\'s status (busy/idle/error), project, pending todos, and message count.',
   parameters: {
     type: 'object',
     properties: {
@@ -82,7 +84,7 @@ const GET_AVAILABLE_AGENT_TOOL = {
   parameters: {
     type: 'object',
     properties: {
-      role: { type: 'string', description: 'Role to search for (e.g. "developer")' }
+      role: { type: 'string', description: 'Role to search for (e.g. \"developer\")' }
     },
     required: ['role']
   }
@@ -98,7 +100,7 @@ const LIST_PROJECTS_TOOL = {
 const CLEAR_CONTEXT_TOOL = {
   type: 'function',
   name: 'clear_context',
-  description: 'Clear an agent\'s entire conversation history, giving them a fresh start.',
+  description: 'Clear an agent\\'s entire conversation history, giving them a fresh start.',
   parameters: {
     type: 'object',
     properties: {
@@ -111,7 +113,7 @@ const CLEAR_CONTEXT_TOOL = {
 const ROLLBACK_TOOL = {
   type: 'function',
   name: 'rollback',
-  description: 'Remove the last X messages from an agent\'s conversation history.',
+  description: 'Remove the last X messages from an agent\\'s conversation history.',
   parameters: {
     type: 'object',
     properties: {
@@ -125,7 +127,7 @@ const ROLLBACK_TOOL = {
 const STOP_AGENT_TOOL = {
   type: 'function',
   name: 'stop_agent',
-  description: 'Stop an agent\'s current task immediately.',
+  description: 'Stop an agent\\'s current task immediately.',
   parameters: {
     type: 'object',
     properties: {
@@ -138,14 +140,14 @@ const STOP_AGENT_TOOL = {
 const CLEAR_ALL_CHATS_TOOL = {
   type: 'function',
   name: 'clear_all_chats',
-  description: 'Clear ALL agents\' conversation histories at once.',
+  description: 'Clear ALL agents\\' conversation histories at once.',
   parameters: { type: 'object', properties: {} }
 };
 
 const CLEAR_ALL_ACTION_LOGS_TOOL = {
   type: 'function',
   name: 'clear_all_action_logs',
-  description: 'Clear ALL agents\' action logs at once.',
+  description: 'Clear ALL agents\\' action logs at once.',
   parameters: { type: 'object', properties: {} }
 };
 
@@ -164,6 +166,33 @@ export const VOICE_TOOLS = [
   CLEAR_ALL_CHATS_TOOL,
   CLEAR_ALL_ACTION_LOGS_TOOL,
 ];
+
+export function buildRealtimeSessionConfig({
+  instructions,
+  voice = 'alloy',
+  model = 'gpt-realtime-1.5',
+  transcriptionModel = DEFAULT_REALTIME_TRANSCRIPTION_MODEL,
+} = {}) {
+  return {
+    type: 'realtime',
+    model,
+    instructions,
+    audio: {
+      input: {
+        turn_detection: {
+          type: 'semantic_vad',
+          create_response: true,
+          interrupt_response: true,
+        },
+        transcription: {
+          model: transcriptionModel,
+        },
+      },
+      output: { voice },
+    },
+    tools: VOICE_TOOLS,
+  };
+}
 
 export function realtimeRoutes(agentManager) {
   const router = express.Router();
@@ -188,6 +217,13 @@ export function realtimeRoutes(agentManager) {
       const instructions = agentManager.buildVoiceInstructions(agentId);
       const voice = agent.voice || 'alloy';
       const model = agent.model || 'gpt-realtime-1.5';
+      const transcriptionModel = process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL || DEFAULT_REALTIME_TRANSCRIPTION_MODEL;
+      const session = buildRealtimeSessionConfig({
+        instructions,
+        voice,
+        model,
+        transcriptionModel,
+      });
 
       // Request an ephemeral client secret from OpenAI
       const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
@@ -196,20 +232,7 @@ export function realtimeRoutes(agentManager) {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          session: {
-            type: 'realtime',
-            model,
-            instructions,
-            audio: {
-              input: {
-                turn_detection: { type: 'semantic_vad' }
-              },
-              output: { voice }
-            },
-            tools: VOICE_TOOLS
-          }
-        })
+        body: JSON.stringify({ session })
       });
 
       if (!response.ok) {
@@ -223,7 +246,8 @@ export function realtimeRoutes(agentManager) {
         token: data.client_secret?.value || data.value,
         expiresAt: data.client_secret?.expires_at || data.expires_at,
         voice,
-        model
+        model,
+        transcriptionModel,
       });
     } catch (err) {
       console.error('Failed to create realtime token:', err.message);
