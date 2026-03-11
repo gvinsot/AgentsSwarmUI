@@ -114,8 +114,6 @@ services:
     image: registry.methodinfo.fr/coder-service:latest
     networks:
       proxy:
-        # Réseau proxy pour l'accès au service (API REST publique)
-      backend:
         aliases:
           - coder-service
     environment:
