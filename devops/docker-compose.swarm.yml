@@ -201,6 +201,7 @@ services:
       context: ..
       dockerfile: api/Dockerfile
       target: test
+    volumes: []  # No volumes for test service - prevents Docker socket mount
     deploy:
       replicas: 0  # Only used for CI — never deployed as a service
 
