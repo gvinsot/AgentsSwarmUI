@@ -529,6 +529,7 @@ export class AgentManager {
           this._taskQueues.delete(subId);
           subAgent.currentThinking = '';
           subAgent.currentTask = null;
+          this._chatLocks.delete(subId);
           this.setStatus(subId, 'idle', 'Stopped by leader');
           saveAgent(subAgent);
           this._emit('agent:stopped', { id: subId, name: subAgent.name, project: subAgent.project || null });
@@ -539,6 +540,7 @@ export class AgentManager {
     // Reset agent state
     agent.currentThinking = '';
     agent.currentTask = null;
+    this._chatLocks.delete(id); // Release lock immediately so new messages can be sent right away
     this.setStatus(id, 'idle', 'Agent stopped by user');
     saveAgent(agent);
 
