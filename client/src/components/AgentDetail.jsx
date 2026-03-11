@@ -302,6 +302,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   }, [requestedTab]);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false); // Ref-based guard to prevent double-sends
   const [history, setHistory] = useState(agent?.conversationHistory || []);
   const chatEndRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -343,10 +344,11 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   }, [history, streamBuffer, thinking, autoScroll]);
 
   const handleSend = async () => {
-    if (!message.trim() || sending) return;
+    if (!message.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(true);
     const msg = message.trim();
     setMessage('');
-    setSending(true);
 
     // Use socket for streaming
     if (socket) {
@@ -365,6 +367,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
         console.error(err);
       }
     }
+    sendingRef.current = false;
     setSending(false);
   };
 

@@ -19,6 +19,9 @@ export function setupSocketHandlers(io, agentManager) {
     // Per-socket rate limiter — 30 mutating events per minute
     const checkSocketRate = createSocketRateLimiter(30, 60_000);
 
+    // Track agents with in-flight chat requests on this socket to prevent duplicates
+    const chatInFlight = new Set();
+
     // Send initial state
     socket.emit('agents:list', agentManager.getAll());
 
@@ -30,6 +33,13 @@ export function setupSocketHandlers(io, agentManager) {
         socket.emit('error', { message: 'Rate limit exceeded. Please wait before sending more messages.' });
         return;
       }
+
+      // Prevent duplicate concurrent requests for the same agent
+      if (chatInFlight.has(agentId)) {
+        console.warn(`⚠️ Duplicate chat request ignored for agent ${agentId} (already in-flight)`);
+        return;
+      }
+      chatInFlight.add(agentId);
 
       const agentData = agentManager.agents.get(agentId);
       const project = agentData?.project || null;
@@ -53,6 +63,8 @@ export function setupSocketHandlers(io, agentManager) {
         if (agent) io.emit('agent:updated', agent);
       } catch (err) {
         socket.emit('agent:stream:error', { agentId, project, error: err.message });
+      } finally {
+        chatInFlight.delete(agentId);
       }
     });
 

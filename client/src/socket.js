@@ -3,7 +3,15 @@ import { io } from 'socket.io-client';
 let socket = null;
 
 export function connectSocket(token) {
-  if (socket?.connected) return socket;
+  // Return existing socket if it's connected or still connecting
+  if (socket && (socket.connected || socket.active)) return socket;
+
+  // Disconnect any stale socket before creating a new one
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
 
   // In production (behind reverse proxy), connect to same origin
   // In dev, Vite proxies /socket.io to the backend
