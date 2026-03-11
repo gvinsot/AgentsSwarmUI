@@ -80,8 +80,22 @@ export default function App() {
     }
   }, []);
 
+  // Use a ref to hold showToast so socket handlers always call the latest version
+  const showToastRef = useRef(showToast);
+  useEffect(() => { showToastRef.current = showToast; }, [showToast]);
+
+  // All socket event names we register — used for cleanup
+  const SOCKET_EVENTS = [
+    'agents:list', 'agent:created', 'agent:updated', 'agent:deleted',
+    'agent:status', 'agent:thinking', 'agent:stream:start', 'agent:stream:chunk',
+    'agent:stream:end', 'agent:stream:error', 'agent:error:report', 'agent:handoff'
+  ];
+
   const initSocket = useCallback((token) => {
     const sock = connectSocket(token);
+
+    // Remove any previously registered listeners to prevent duplicates
+    SOCKET_EVENTS.forEach(ev => sock.off(ev));
 
     sock.on('agents:list', (list) => setAgents(list));
     sock.on('agent:created', (agent) => setAgents(prev => [...prev, agent]));
@@ -149,7 +163,7 @@ export default function App() {
         'too long', 'maximum context', 'exceeds', 'out of memory', 'oom',
         'kv cache', 'model error', 'ollama error'
       ].some(kw => errorLower.includes(kw));
-      showToast(
+      showToastRef.current(
         error || 'An error occurred while streaming response',
         'error',
         isModelError ? 0 : 8000
@@ -162,14 +176,15 @@ export default function App() {
     });
 
     sock.on('agent:error:report', ({ agentName, description }) => {
-      showToast(`🚨 ${agentName} reports an error: ${description.slice(0, 200)}`, 'error', 12000);
+      showToastRef.current(`🚨 ${agentName} reports an error: ${description.slice(0, 200)}`, 'error', 12000);
     });
 
     sock.on('agent:handoff', (data) => {
       console.log('Handoff:', data);
     });
 
-  }, [loadData, showToast]);
+    return sock;
+  }, []); // No deps — uses refs for callbacks, setState is stable
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -187,6 +202,11 @@ export default function App() {
     } else {
       setLoading(false);
     }
+    return () => {
+      // Cleanup: remove all socket listeners when effect re-runs
+      const sock = getSocket();
+      if (sock) SOCKET_EVENTS.forEach(ev => sock.off(ev));
+    };
   }, [initSocket, loadData]);
 
   const handleLogin = async (username, password) => {
