@@ -1,5 +1,35 @@
 import React from 'react';
 
+const SOURCE_META = {
+  agent: { color: '#a855f7', label: name => `Agent: ${name}` },
+  user:  { color: '#3b82f6', label: () => 'User' },
+  api:   { color: '#6b7280', label: () => 'API' },
+  mcp:   { color: '#f97316', label: () => 'MCP' },
+};
+
+function SourceBadge({ source }) {
+  if (!source) return null;
+  const meta = SOURCE_META[source.type] || { color: '#6b7280', label: () => source.type };
+  const label = meta.label(source.name || '');
+  return (
+    <span
+      title={`Assigned by: ${label}`}
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        padding: '1px 6px',
+        borderRadius: 4,
+        background: `${meta.color}22`,
+        color: meta.color,
+        border: `1px solid ${meta.color}44`,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 const STATUS_META = {
   pending: { label: 'Pending', color: '#f59e0b' },
   in_progress: { label: 'In Progress', color: '#3b82f6' },
@@ -95,6 +125,7 @@ export default function TodoList({
                           {todo.project}
                         </span>
                       )}
+                      <SourceBadge source={todo.source} />
                       <span style={{ textDecoration: isDone ? 'line-through' : 'none', opacity: isDone ? 0.75 : 1 }}>
                         {todo.text}
                       </span>

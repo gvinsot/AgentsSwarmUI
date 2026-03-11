@@ -217,9 +217,10 @@ export function agentRoutes(agentManager) {
 
   // ── Todo endpoints ──────────────────────────────────────────────────
   router.post('/:id/todos', (req, res) => {
-    const { text, project } = req.body;
+    const { text, project, source } = req.body;
     if (!text) return res.status(400).json({ error: 'Text required' });
-    const todo = agentManager.addTodo(req.params.id, text, project);
+    const resolvedSource = source || { type: 'user' };
+    const todo = agentManager.addTodo(req.params.id, text, project, resolvedSource);
     if (!todo) return res.status(404).json({ error: 'Agent not found' });
     res.status(201).json(todo);
   });

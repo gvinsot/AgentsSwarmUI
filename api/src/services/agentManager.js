@@ -903,7 +903,7 @@ export class AgentManager {
               });
 
               // Create todo immediately (inherit source agent's project)
-              const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`, agent.project || null);
+              const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`, agent.project || null, { type: 'agent', name: agent.name, id });
 
               // Enqueue execution — the queue will process it when the agent is free
               const promise = this._enqueueAgentTask(targetAgent.id, async () => {
@@ -1223,7 +1223,7 @@ export class AgentManager {
             to: { id: targetAgent.id, name: targetAgent.name, project: targetAgent.project || null },
             task: delegation.task
           });
-          const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`, agent.project || null);
+          const todo = this.addTodo(targetAgent.id, `[From ${agent.name}] ${delegation.task}`, agent.project || null, { type: 'agent', name: agent.name, id });
 
           const promise = this._enqueueAgentTask(targetAgent.id, async () => {
             // Mark todo as in_progress
@@ -2528,7 +2528,7 @@ export class AgentManager {
         task: delegation.task
       });
 
-      const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`, leader.project || null);
+      const todo = this.addTodo(targetAgent.id, `[From ${leader.name}] ${delegation.task}`, leader.project || null, { type: 'agent', name: leader.name, id: leaderId });
 
       // Mark todo as in_progress
       if (todo) {
@@ -2668,7 +2668,7 @@ export class AgentManager {
   }
 
   // ─── Todo Management ───────────────────────────────────────────────
-  addTodo(agentId, text, project) {
+  addTodo(agentId, text, project, source) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const todo = {
@@ -2676,6 +2676,7 @@ export class AgentManager {
       text,
       status: 'pending',
       project: project !== undefined ? project : (agent.project || null),
+      source: source || null,
       createdAt: new Date().toISOString()
     };
     agent.todoList.push(todo);

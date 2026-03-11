@@ -55,6 +55,68 @@ else
     echo "WARNING: No auth configured! Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API credits)."
 fi
 
+# ─── Configure Claude Code MCP servers ────────────────────────────────────────
+if [ -n "$SWARM_API_BASE_URL" ] && [ -n "$JWT_SECRET" ]; then
+    echo "Configuring Claude Code MCP servers..."
+
+    # Generate a long-lived service JWT using Python stdlib (no extra deps)
+    SERVICE_TOKEN=$(JWT_SECRET="$JWT_SECRET" python3 -c "
+import os, json, hmac, hashlib, base64, time
+
+secret = os.environ['JWT_SECRET'].encode()
+
+def b64url(data):
+    if isinstance(data, (dict, list)):
+        data = json.dumps(data, separators=(',', ':')).encode()
+    elif isinstance(data, str):
+        data = data.encode()
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+header = b64url({'alg': 'HS256', 'typ': 'JWT'})
+payload = b64url({'username': 'coder-service', 'role': 'service', 'iat': int(time.time()), 'exp': 9999999999})
+signing_input = f'{header}.{payload}'
+sig = hmac.new(secret, signing_input.encode(), hashlib.sha256).digest()
+print(f'{signing_input}.{b64url(sig)}', end='')
+" 2>/dev/null)
+
+    if [ -n "$SERVICE_TOKEN" ]; then
+        MCP_SWARM_URL="${MCP_ENDPOINT:-http://swarm-manager:8000/ai/mcp}"
+        CLAUDE_SETTINGS_DIR="$CODER_HOME/.claude"
+        mkdir -p "$CLAUDE_SETTINGS_DIR"
+
+        cat > "$CLAUDE_SETTINGS_DIR/settings.json" << SETTINGS_EOF
+{
+  "mcpServers": {
+    "swarm-manager": {
+      "type": "http",
+      "url": "${MCP_SWARM_URL}"
+    },
+    "code-index": {
+      "type": "http",
+      "url": "${SWARM_API_BASE_URL}/api/code-index/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SERVICE_TOKEN}"
+      }
+    },
+    "onedrive": {
+      "type": "http",
+      "url": "${SWARM_API_BASE_URL}/api/onedrive/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SERVICE_TOKEN}"
+      }
+    }
+  }
+}
+SETTINGS_EOF
+        chown -R "$PUID:$PGID" "$CLAUDE_SETTINGS_DIR"
+        echo "Claude Code MCP servers configured (swarm-manager, code-index, onedrive)"
+    else
+        echo "WARNING: Failed to generate service token — MCP servers not configured"
+    fi
+elif [ -n "$SWARM_API_BASE_URL" ]; then
+    echo "WARNING: SWARM_API_BASE_URL set but JWT_SECRET missing — skipping MCP auth setup"
+fi
+
 echo "Configuration:"
 echo "  User: $CODER_USER ($PUID:$PGID)"
 echo "  Model: ${CLAUDE_MODEL:-claude-sonnet-4-20250514}"

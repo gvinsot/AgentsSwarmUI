@@ -134,6 +134,10 @@ services:
       # Run as host user (match /projects owner for file permissions)
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
+      # MCP servers (same cluster services as agents in sandbox)
+      - SWARM_API_BASE_URL=http://api:3001
+      - JWT_SECRET=${JWT_SECRET}
+      - MCP_ENDPOINT=${MCP_ENDPOINT:-http://swarm-manager:8000/ai/mcp}
       # Python settings
       - PYTHONUNBUFFERED=1
       - PYTHONFAULTHANDLER=1

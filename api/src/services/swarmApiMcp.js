@@ -148,7 +148,7 @@ export function createSwarmApiMcpServer(agentManager) {
         };
       }
 
-      const todo = agentManager.addTodo(agent.id, task, project || undefined);
+      const todo = agentManager.addTodo(agent.id, task, project || undefined, { type: 'mcp' });
 
       return {
         content: [{
