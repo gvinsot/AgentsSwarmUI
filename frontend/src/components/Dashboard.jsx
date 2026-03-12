@@ -68,7 +68,7 @@ export default function Dashboard({
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-dark-100">Agent Swarm</h1>
+              <h1 className="text-lg font-bold text-dark-100">Pulsar Team</h1>
               <p className="text-xs text-dark-400 -mt-0.5">{sortedAgents.length} agents active</p>
             </div>
             <div className="hidden sm:flex items-center border border-dark-700 rounded-lg overflow-hidden ml-2">

@@ -43,7 +43,7 @@ export default function LoginPage({ onLogin }) {
             </svg>
           </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            Agent Swarm
+            Pulsar Team
           </h1>
           <p className="text-dark-400 mt-2">Multi-Agent Orchestration Platform</p>
         </div>
