@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -311,55 +310,16 @@ export function createCodeIndexMcpServer(codeIndexService) {
 }
 
 export function createCodeIndexMcpHandler(codeIndexService) {
-  const transports = new Map();
-
-  async function createSession() {
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-    });
-    const server = createCodeIndexMcpServer(codeIndexService);
-    await server.connect(transport);
-    transports.set(transport.sessionId, transport);
-    return transport;
-  }
-
   return async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
     try {
-      // Set proper headers for MCP protocol
-      res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Mcp-Session-Id', 'code-index-session');
-
-      // Handle GET requests (SSE fallback)
-      if (req.method === 'GET') {
-        // For SSE fallback, return a simple 200 OK to indicate the endpoint is available
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        });
-        res.write(': connected\\n\\n');
-        return;
-      }
-
-      // Handle POST requests (Streamable HTTP)
-      if (req.method === 'POST') {
-        const sessionId = req.headers['mcp-session-id'];
-        let transport;
-
-        if (sessionId && transports.has(sessionId)) {
-          transport = transports.get(sessionId);
-        } else {
-          transport = await createSession();
-          res.on('close', () => transports.delete(transport.sessionId));
-        }
-
-        await transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      // Handle other methods
-      res.writeHead(405, { 'Allow': 'GET, POST' });
-      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      const server = createCodeIndexMcpServer(codeIndexService);
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
     } catch (error) {
       console.error('[Code Index MCP] Error:', error);
       if (!res.headersSent) {

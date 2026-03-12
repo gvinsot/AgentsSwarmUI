@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -366,34 +365,15 @@ export function createOneDriveMcpServer() {
  * This bridges HTTP requests to the MCP server.
  */
 export function createOneDriveMcpHandler() {
-  const transports = new Map();
-
-  async function createSession() {
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
-    const server = createOneDriveMcpServer();
-    await server.connect(transport);
-    transports.set(transport.sessionId, transport);
-    return transport;
-  }
-
   return async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
     try {
-      if (req.method === 'GET') {
-        const transport = await createSession();
-        res.on('close', () => transports.delete(transport.sessionId));
-        await transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      const sessionId = req.headers['mcp-session-id'];
-      if (sessionId && transports.has(sessionId)) {
-        const transport = transports.get(sessionId);
-        await transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      const transport = await createSession();
-      res.on('close', () => transports.delete(transport.sessionId));
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      const server = createOneDriveMcpServer();
+      await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       console.error('[OneDrive MCP] Error:', err);
