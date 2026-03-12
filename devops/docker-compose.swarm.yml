@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: registry.methodinfo.fr/agentswarm-server:latest
+    image: registry.methodinfo.fr/pulsarteam-server:latest
     build:
       context: ..
       dockerfile: api/Dockerfile
@@ -53,30 +53,30 @@ services:
         - "traefik.enable=true"
 
         # Service port
-        - "traefik.http.services.agentswarm-api.loadbalancer.server.port=3001"
+        - "traefik.http.services.pulsarteam-api.loadbalancer.server.port=3001"
 
         # HTTPS Router — API + WebSocket (/api and /socket.io)
         # Using realtime-global (no WAF) to avoid blocking AI chat content with code patterns
-        - "traefik.http.routers.agentswarm-api.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
-        - "traefik.http.routers.agentswarm-api.entrypoints=websecure"
-        - "traefik.http.routers.agentswarm-api.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.agentswarm-api.middlewares=realtime-global@file"
-        - "traefik.http.routers.agentswarm-api.service=agentswarm-api"
-        - "traefik.http.routers.agentswarm-api.priority=100"
+        - "traefik.http.routers.pulsarteam-api.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.pulsarteam-api.entrypoints=websecure"
+        - "traefik.http.routers.pulsarteam-api.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.pulsarteam-api.middlewares=realtime-global@file"
+        - "traefik.http.routers.pulsarteam-api.service=pulsarteam-api"
+        - "traefik.http.routers.pulsarteam-api.priority=100"
 
         # HTTP redirect
-        - "traefik.http.routers.agentswarm-api-http.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
-        - "traefik.http.routers.agentswarm-api-http.entrypoints=web"
-        - "traefik.http.routers.agentswarm-api-http.middlewares=redirect-to-https@file"
-        - "traefik.http.routers.agentswarm-api-http.service=noop@internal"
+        - "traefik.http.routers.pulsarteam-api-http.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.pulsarteam-api-http.entrypoints=web"
+        - "traefik.http.routers.pulsarteam-api-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.pulsarteam-api-http.service=noop@internal"
 
   frontend:
-    image: registry.methodinfo.fr/agentswarm-client:latest
+    image: registry.methodinfo.fr/pulsarteam-client:latest
     build:
       context: ..
       dockerfile: frontend/Dockerfile
     volumes:
-      - ${HOST_CODE_PATH}/AgentsSwarmUI/frontend/dist:/usr/share/nginx/html
+      - ${HOST_CODE_PATH}/PulsarTeam/frontend/dist:/usr/share/nginx/html
     networks:
       - proxy
     deploy:
@@ -91,21 +91,21 @@ services:
         - "traefik.enable=true"
 
         # Service port
-        - "traefik.http.services.agentswarm-frontend.loadbalancer.server.port=80"
+        - "traefik.http.services.pulsarteam-frontend.loadbalancer.server.port=80"
 
         # HTTPS Router — Frontend (catch-all for swarm.methodinfo.fr)
-        - "traefik.http.routers.agentswarm-frontend.rule=Host(`swarm.methodinfo.fr`)"
-        - "traefik.http.routers.agentswarm-frontend.entrypoints=websecure"
-        - "traefik.http.routers.agentswarm-frontend.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.agentswarm-frontend.middlewares=global@file"
-        - "traefik.http.routers.agentswarm-frontend.service=agentswarm-frontend"
-        - "traefik.http.routers.agentswarm-frontend.priority=1"
+        - "traefik.http.routers.pulsarteam-frontend.rule=Host(`swarm.methodinfo.fr`)"
+        - "traefik.http.routers.pulsarteam-frontend.entrypoints=websecure"
+        - "traefik.http.routers.pulsarteam-frontend.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.pulsarteam-frontend.middlewares=global@file"
+        - "traefik.http.routers.pulsarteam-frontend.service=pulsarteam-frontend"
+        - "traefik.http.routers.pulsarteam-frontend.priority=1"
 
         # HTTP redirect
-        - "traefik.http.routers.agentswarm-frontend-http.rule=Host(`swarm.methodinfo.fr`)"
-        - "traefik.http.routers.agentswarm-frontend-http.entrypoints=web"
-        - "traefik.http.routers.agentswarm-frontend-http.middlewares=redirect-to-https@file"
-        - "traefik.http.routers.agentswarm-frontend-http.service=noop@internal"
+        - "traefik.http.routers.pulsarteam-frontend-http.rule=Host(`swarm.methodinfo.fr`)"
+        - "traefik.http.routers.pulsarteam-frontend-http.entrypoints=web"
+        - "traefik.http.routers.pulsarteam-frontend-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.pulsarteam-frontend-http.service=noop@internal"
 
   coder-service:
     build:
@@ -200,7 +200,7 @@ services:
       start_period: 120s
 
   test:
-    image: registry.methodinfo.fr/agentswarm-test:latest
+    image: registry.methodinfo.fr/pulsarteam-test:latest
     build:
       context: ..
       dockerfile: api/Dockerfile
@@ -210,7 +210,7 @@ services:
       replicas: 0  # Only used for CI — never deployed as a service
 
   sandbox:
-    image: ${DOCKER_REGISTRY_URL}/agentswarm-sandbox:latest
+    image: ${DOCKER_REGISTRY_URL}/pulsarteam-sandbox:latest
     build:
       context: ..
       dockerfile: api/sandbox.Dockerfile

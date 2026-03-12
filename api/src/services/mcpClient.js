@@ -7,7 +7,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
  * Handles connect (Streamable HTTP with SSE fallback), tool discovery, and tool calls.
  */
 export class MCPClient {
-  constructor(name = 'AgentSwarm') {
+  constructor(name = 'PulsarTeam') {
     this.clientName = name;
     this.client = null;
     this.transport = null;

@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 
 /**
  * OneDrive OAuth2 routes.
@@ -19,6 +20,28 @@ import express from 'express';
 
 // In-memory token store: username → { accessToken, refreshToken, expiresAt }
 const tokenStore = new Map();
+
+// In-memory OAuth state store: state → { username, expiresAt }
+const stateStore = new Map();
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function generateOAuthState(username) {
+  const now = Date.now();
+  for (const [k, v] of stateStore) {
+    if (v.expiresAt < now) stateStore.delete(k);
+  }
+  const state = crypto.randomBytes(32).toString('hex');
+  stateStore.set(state, { username, expiresAt: now + STATE_TTL_MS });
+  return state;
+}
+
+function consumeOAuthState(state) {
+  const entry = stateStore.get(state);
+  if (!entry) return null;
+  stateStore.delete(state); // one-time use
+  if (entry.expiresAt < Date.now()) return null;
+  return entry.username;
+}
 
 function getConfig() {
   const clientId = process.env.ONEDRIVE_CLIENT_ID;
@@ -79,7 +102,7 @@ export function onedriveRoutes() {
       redirect_uri: config.redirectUri,
       scope: scopes.join(' '),
       response_mode: 'query',
-      state: req.user?.username || 'unknown',
+      state: generateOAuthState(req.user?.username || 'default'),
     });
 
     const authUrl = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/authorize?${params}`;
@@ -93,9 +116,17 @@ export function onedriveRoutes() {
       return res.status(500).json({ error: 'OneDrive not configured' });
     }
 
-    const { code } = req.body;
+    const { code, state } = req.body;
     if (!code) {
       return res.status(400).json({ error: 'Authorization code is required' });
+    }
+    if (!state) {
+      return res.status(400).json({ error: 'State parameter required' });
+    }
+
+    const stateUsername = consumeOAuthState(state);
+    if (!stateUsername) {
+      return res.status(400).json({ error: 'Invalid or expired state' });
     }
 
     try {
@@ -118,12 +149,10 @@ export function onedriveRoutes() {
 
       if (!response.ok) {
         console.error('[OneDrive] Token exchange failed:', data);
-        return res.status(400).json({
-          error: data.error_description || data.error || 'Token exchange failed',
-        });
+        return res.status(400).json({ error: 'Token exchange failed' });
       }
 
-      const username = req.user?.username || 'default';
+      const username = stateUsername;
       tokenStore.set(username, {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -134,7 +163,7 @@ export function onedriveRoutes() {
       res.json({ success: true, expiresIn: data.expires_in });
     } catch (err) {
       console.error('[OneDrive] Token exchange error:', err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Token exchange failed' });
     }
   });
 

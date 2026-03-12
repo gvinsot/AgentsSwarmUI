@@ -268,7 +268,7 @@ export class MCPManager {
     server.error = null;
 
     try {
-      const client = new MCPClient('AgentSwarm');
+      const client = new MCPClient('PulsarTeam');
       const connectOpts = {};
 
       if (server.apiKey) {

@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/.env"
 set +a
 
 echo "========================================"
-echo "  Agent Swarm UI — Pre-deployment"
+echo "  PulsarTeam — Pre-deployment"
 echo "========================================"
 
 # 0. Auto-detect RUN_AS_USER UID/GID from the host
@@ -40,7 +40,7 @@ docker compose -f docker-compose.swarm.yml push
 # 3. Build client dist on the host (for bind-mounted volume)
 echo ""
 echo "📦 Building frontend assets on host..."
-CLIENT_DIR="${HOST_CODE_PATH}/AgentsSwarmUI/frontend"
+CLIENT_DIR="${HOST_CODE_PATH}/PulsarTeam/frontend"
 if [ -d "${CLIENT_DIR}" ]; then
   docker run --rm \
     -v "${CLIENT_DIR}:/build" \
@@ -55,12 +55,12 @@ fi
 
 # 4. Ensure api source exists on host
 echo ""
-SERVER_DIR="${HOST_CODE_PATH}/AgentsSwarmUI/api"
+SERVER_DIR="${HOST_CODE_PATH}/PulsarTeam/api"
 if [ -d "${SERVER_DIR}/src" ]; then
   echo "✅ API source found at ${SERVER_DIR}/src"
 else
   echo "⚠️  API source not found at ${SERVER_DIR}/src"
-  echo "   Make sure the repo is cloned at ${HOST_CODE_PATH}/AgentsSwarmUI"
+  echo "   Make sure the repo is cloned at ${HOST_CODE_PATH}/PulsarTeam"
 fi
 
 echo ""

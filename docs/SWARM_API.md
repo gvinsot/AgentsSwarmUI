@@ -167,7 +167,7 @@ Pour les clients MCP (Claude, Claude Code, etc.), ajouter la configuration suiva
 ```json
 {
   "mcpServers": {
-    "agent-swarm": {
+    "pulsar-team": {
       "url": "https://swarm.example.com/api/swarm/mcp",
       "headers": {
         "Authorization": "Bearer swarm_sk_abc123..."

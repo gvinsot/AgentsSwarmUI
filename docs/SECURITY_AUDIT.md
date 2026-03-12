@@ -1,4 +1,4 @@
-# Security Audit Report — AgentsSwarmUI
+# Security Audit Report — PulsarTeam
 
 **Date:** 2026-03-05
 **Auditor:** CLAUDE (automated security review)
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The AgentsSwarmUI project has a solid security foundation with JWT authentication, parameterized SQL queries, shell escaping, input validation via Zod, and proper CORS configuration. However, several critical and high-severity issues were identified that should be addressed before production deployment.
+The PulsarTeam project has a solid security foundation with JWT authentication, parameterized SQL queries, shell escaping, input validation via Zod, and proper CORS configuration. However, several critical and high-severity issues were identified that should be addressed before production deployment.
 
 **Total findings: 15**
 - Critical: 2

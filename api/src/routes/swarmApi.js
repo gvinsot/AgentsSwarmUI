@@ -1,4 +1,10 @@
 import express from 'express';
+import { z } from 'zod';
+
+const createTaskSchema = z.object({
+  task: z.string().min(1).max(5000),
+  project: z.string().min(1).max(200),
+});
 
 /**
  * REST API for external swarm access, secured via API key.
@@ -76,12 +82,14 @@ export function swarmApiRoutes(agentManager) {
 
   // ── Add task ───────────────────────────────────────────────────────────
   router.post('/agents/:id/tasks', (req, res) => {
-    const { task, project } = req.body;
-    if (!task) {
-      return res.status(400).json({ error: 'task field is required' });
-    }
-    if (!project) {
-      return res.status(400).json({ error: 'project field is required' });
+    let task, project;
+    try {
+      ({ task, project } = createTaskSchema.parse(req.body));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.issues });
+      }
+      return res.status(400).json({ error: 'Invalid request body' });
     }
 
     const agent = agentManager.agents.get(req.params.id)

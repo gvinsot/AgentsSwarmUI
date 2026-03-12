@@ -1,4 +1,4 @@
-# Security Review — AgentsSwarmUI
+# Security Review — PulsarTeam
 
 **Date:** 2026-03-05 (Full Independent Audit)
 **Reviewer:** CLAUDE (Autonomous Security Agent)
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The AgentsSwarmUI project demonstrates **good security awareness overall**, with many best practices already in place: JWT-based auth, bcrypt password hashing, rate limiting (4 layers), Zod input validation, parameterized SQL queries, shell argument escaping, path traversal prevention, security headers, WebSocket origin validation, per-socket rate limiting, API key sanitization, and commit message sanitization.
+The PulsarTeam project demonstrates **good security awareness overall**, with many best practices already in place: JWT-based auth, bcrypt password hashing, rate limiting (4 layers), Zod input validation, parameterized SQL queries, shell argument escaping, path traversal prevention, security headers, WebSocket origin validation, per-socket rate limiting, API key sanitization, and commit message sanitization.
 
 Several issues remain open, ranging from **CRITICAL** (infrastructure) to **LOW** (hardening). All remaining issues are **architectural** and require design decisions from the team.
 
@@ -209,7 +209,7 @@ There's no request ID middleware for correlating log entries across a request li
 ### 14. `client/dist/` Mounted from Host
 **Location:** `docker-compose.swarm.yml:76`
 ```yaml
-- ${HOST_CODE_PATH}/AgentsSwarmUI/client/dist:/usr/share/nginx/html
+- ${HOST_CODE_PATH}/PulsarTeam/client/dist:/usr/share/nginx/html
 ```
 **Risk:** Any modification to host files immediately changes what's served
 **Status:** OPEN

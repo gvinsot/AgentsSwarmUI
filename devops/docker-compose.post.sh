@@ -2,12 +2,12 @@
 set -e
 
 echo "========================================"
-echo "  Agent Swarm UI — Post-deployment"
+echo "  PulsarTeam — Post-deployment"
 echo "========================================"
 
 echo ""
 echo "🔍 Checking stack services..."
-docker stack services agentswarm 2>/dev/null || echo "   Stack 'agentswarm' not found — deploy with: docker stack deploy -c docker-compose.swarm.yml agentswarm"
+docker stack services pulsarteam 2>/dev/null || echo "   Stack 'pulsarteam' not found — deploy with: docker stack deploy -c docker-compose.swarm.yml pulsarteam"
 
 echo ""
 echo "🌐 Application should be available at:"

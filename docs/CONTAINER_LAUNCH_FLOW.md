@@ -26,7 +26,7 @@ Primary code paths:
 - Network: `--network bridge`
 - Resource limits: `--memory 2g --cpus 2`
 - Image:
-  - `process.env.SANDBOX_IMAGE` or default `agentswarm-sandbox:latest`
+  - `process.env.SANDBOX_IMAGE` or default `pulsarteam-sandbox:latest`
 - Mounts:
   - SSH keys (read-only): `${SSH_KEYS_HOST_PATH || '/home/gildas/.ssh'}:/root/.ssh:ro`
   - Docker socket: `/var/run/docker.sock:/var/run/docker.sock`

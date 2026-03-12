@@ -225,7 +225,7 @@ export default function ApiKeyModal({ onClose, showToast }) {
             <pre className="bg-dark-800 border border-dark-700 rounded-lg p-3 text-xs font-mono text-dark-300 overflow-x-auto whitespace-pre">
 {`{
   "mcpServers": {
-    "agent-swarm": {
+    "pulsar-team": {
       "url": "${mcpEndpoint}",
       "headers": {
         "Authorization": "Bearer <your-api-key>"

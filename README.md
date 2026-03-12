@@ -1,4 +1,4 @@
-# 🐝 Agent Swarm UI
+# PulsarTeam
 
 A professional, real-time web interface for managing a swarm of AI agents. Built with the **Swarm pattern** (lightweight multi-agent orchestration with handoffs), supporting multiple LLM providers including Ollama and Claude (Anthropic).
 
