@@ -255,6 +255,14 @@ export function agentRoutes(agentManager) {
     res.json({ success: true });
   });
 
+  router.post('/:id/todos/:todoId/transfer', (req, res) => {
+    const { targetAgentId } = req.body;
+    if (!targetAgentId) return res.status(400).json({ error: 'targetAgentId required' });
+    const todo = agentManager.transferTodo(req.params.id, req.params.todoId, targetAgentId);
+    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
+    res.status(201).json(todo);
+  });
+
   // ── RAG Document endpoints ─────────────────────────────────────────
   router.post('/:id/rag', (req, res) => {
     const { name, content } = req.body;

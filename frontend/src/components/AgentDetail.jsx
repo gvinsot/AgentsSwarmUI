@@ -560,7 +560,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           )
         )}
         {activeTab === 'todos' && (
-          <TodoTab agent={agent} socket={socket} onRefresh={onRefresh} />
+          <TodoTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'rag' && (
           <RagTab agent={agent} onRefresh={onRefresh} />
@@ -1016,10 +1016,21 @@ function DelegationResultItem({ result }) {
 }
 
 // ─── Todo Tab ──────────────────────────────────────────────────────────────
-function TodoItem({ todo, executing, agentStatus, onToggle, onExecute, onDelete }) {
+function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, onDelete, onTransfer }) {
   const [expanded, setExpanded] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const textRef = useRef(null);
+  const transferRef = useRef(null);
   const [isTruncated, setIsTruncated] = useState(false);
+
+  useEffect(() => {
+    if (!transferOpen) return;
+    const handler = (e) => {
+      if (transferRef.current && !transferRef.current.contains(e.target)) setTransferOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [transferOpen]);
   const firstLine = todo.text.split('\n')[0];
   const isMultiline = todo.text.includes('\n') && todo.text.trim() !== firstLine.trim();
 
@@ -1104,6 +1115,31 @@ function TodoItem({ todo, executing, agentStatus, onToggle, onExecute, onDelete 
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
+          {agents && agents.length > 0 && (
+            <div className="relative" ref={transferRef}>
+              <button
+                onClick={() => setTransferOpen(o => !o)}
+                className="p-1 text-dark-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all"
+                title="Transfer to another agent"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+              </button>
+              {transferOpen && (
+                <div className="absolute right-0 top-6 z-50 bg-dark-800 border border-dark-600 rounded-lg shadow-xl py-1 min-w-[140px]">
+                  {agents.map(a => (
+                    <button
+                      key={a.id}
+                      onClick={() => { setTransferOpen(false); onTransfer(todo.id, a.id); }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-dark-200 hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {(todo.source || todo.project || todo.createdAt) && (
@@ -1144,11 +1180,12 @@ function TodoItem({ todo, executing, agentStatus, onToggle, onExecute, onDelete 
   );
 }
 
-function TodoTab({ agent, socket, onRefresh }) {
+function TodoTab({ agent, agents, socket, onRefresh }) {
   const [newTodo, setNewTodo] = useState('');
   const [executing, setExecuting] = useState(null); // todoId or 'all'
   const [confirmClear, setConfirmClear] = useState(false);
   const confirmClearTimer = useRef(null);
+  const otherAgents = (agents || []).filter(a => a.id !== agent.id && a.enabled !== false);
 
   const handleAdd = async () => {
     if (!newTodo.trim()) return;
@@ -1164,6 +1201,11 @@ function TodoTab({ agent, socket, onRefresh }) {
 
   const handleDelete = async (todoId) => {
     await api.deleteTodo(agent.id, todoId);
+    onRefresh();
+  };
+
+  const handleTransfer = async (todoId, targetAgentId) => {
+    await api.transferTodo(agent.id, todoId, targetAgentId);
     onRefresh();
   };
 
@@ -1285,9 +1327,11 @@ function TodoTab({ agent, socket, onRefresh }) {
             todo={todo}
             executing={executing}
             agentStatus={agent.status}
+            agents={otherAgents}
             onToggle={handleToggle}
             onExecute={handleExecute}
             onDelete={handleDelete}
+            onTransfer={handleTransfer}
           />
         ))}
       </div>

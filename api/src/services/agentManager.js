@@ -2739,6 +2739,27 @@ export class AgentManager {
     return true;
   }
 
+  transferTodo(fromAgentId, todoId, toAgentId) {
+    const fromAgent = this.agents.get(fromAgentId);
+    const toAgent = this.agents.get(toAgentId);
+    if (!fromAgent || !toAgent) return null;
+    const todo = fromAgent.todoList.find(t => t.id === todoId);
+    if (!todo) return null;
+
+    // Remove from source agent
+    fromAgent.todoList = fromAgent.todoList.filter(t => t.id !== todoId);
+    saveAgent(fromAgent);
+    this._emit('agent:updated', this._sanitize(fromAgent));
+
+    // Add to target agent with updated source tracking
+    const newTodo = this.addTodo(toAgentId, todo.text, todo.project, {
+      type: 'agent',
+      name: fromAgent.name,
+      id: fromAgent.id,
+    });
+    return newTodo;
+  }
+
   // Execute a single todo — sends it as a chat message to the agent
   async executeTodo(agentId, todoId, streamCallback) {
     const agent = this.agents.get(agentId);

@@ -143,6 +143,13 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  transferTodo: (fromAgentId, todoId, targetAgentId) =>
+    fetch(`${API_BASE}/agents/${fromAgentId}/todos/${todoId}/transfer`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ targetAgentId })
+    }).then(handleResponse),
+
   // Action Logs
   clearActionLogs: (agentId) =>
     fetch(`${API_BASE}/agents/${agentId}/action-logs`, {
