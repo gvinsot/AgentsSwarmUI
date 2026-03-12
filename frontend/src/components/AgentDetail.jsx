@@ -2230,6 +2230,18 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
             <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
           </div>
         )}
+        {form.provider === 'mistral' && (
+          <div className="col-span-2">
+            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
+            <input
+              type="password" value={form.apiKey}
+              onChange={(e) => updateField('apiKey', e.target.value)}
+              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+              placeholder="sk-..."
+            />
+            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key (MISTRAL_API_KEY)</p>
+          </div>
+        )}
         {form.provider === 'claude-paid' && (
           <div className="col-span-2">
             <label className="block text-xs text-dark-400 mb-1.5">API Key</label>

@@ -16,8 +16,17 @@ RUN apk add --no-cache \
     less \
     patch diffutils \
     docker-cli docker-cli-compose \
+    # Go
+    go \
     # Headless Chromium for web scraping, testing, PDF generation
     chromium nss freetype harfbuzz ca-certificates ttf-freefont
+
+# Go tools (gopls, delve, golangci-lint)
+ENV GOPATH="/root/go"
+ENV PATH="/usr/lib/go/bin:$GOPATH/bin:$PATH"
+RUN go install golang.org/x/tools/gopls@latest && \
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # Chromium flags for running inside containers (no GPU, no sandbox needed)
 ENV CHROMIUM_BIN=/usr/bin/chromium-browser \
