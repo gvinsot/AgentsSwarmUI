@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
-  RefreshCw, Zap, Settings, MessageSquare, Key
+  RefreshCw, Zap, Settings, MessageSquare, Key, Users, KanbanSquare
 } from 'lucide-react';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
@@ -10,6 +10,7 @@ import BroadcastPanel from './BroadcastPanel';
 import SwarmOverview from './SwarmOverview';
 import ActiveVoiceIndicator from './ActiveVoiceIndicator';
 import ApiKeyModal from './ApiKeyModal';
+import TasksBoard from './TasksBoard';
 
 export default function Dashboard({
   user, agents, templates, projects, skills, mcpServers, thinkingMap, streamBuffers,
@@ -19,6 +20,7 @@ export default function Dashboard({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // grid | list
+  const [activeView, setActiveView] = useState('agents'); // agents | tasks
   const [detailActiveTab, setDetailActiveTab] = useState('chat');
   const [requestedTab, setRequestedTab] = useState(null);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -67,6 +69,28 @@ export default function Dashboard({
             <div>
               <h1 className="text-lg font-bold text-dark-100">Agent Swarm</h1>
               <p className="text-xs text-dark-400 -mt-0.5">{sortedAgents.length} agents active</p>
+            </div>
+            <div className="hidden sm:flex items-center border border-dark-700 rounded-lg overflow-hidden ml-2">
+              <button
+                onClick={() => setActiveView('agents')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                  activeView === 'agents' ? 'bg-dark-700 text-indigo-400' : 'text-dark-400 hover:text-dark-200'
+                }`}
+                title="Agents view"
+              >
+                <Users className="w-4 h-4" />
+                <span className="hidden md:inline">Agents</span>
+              </button>
+              <button
+                onClick={() => setActiveView('tasks')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                  activeView === 'tasks' ? 'bg-dark-700 text-indigo-400' : 'text-dark-400 hover:text-dark-200'
+                }`}
+                title="Tasks board"
+              >
+                <KanbanSquare className="w-4 h-4" />
+                <span className="hidden md:inline">Tasks</span>
+              </button>
             </div>
           </div>
 
@@ -142,61 +166,68 @@ export default function Dashboard({
         )}
 
         {/* Main content */}
-        <div className="flex-1 flex max-w-[1800px] mx-auto w-full">
-          {/* Agent list */}
-          <div className={`flex-1 p-4 sm:p-6 overflow-auto ${selectedAgentData ? 'hidden lg:block lg:w-1/2 xl:w-3/5' : ''}`}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-dark-200">
-                Agents
-                <span className="ml-2 text-sm font-normal text-dark-400">({sortedAgents.length})</span>
-              </h2>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-indigo-500/20"
-              >
-                <Plus className="w-4 h-4" />
-                Add Agent
-              </button>
+        <div className="flex-1 flex max-w-[1800px] mx-auto w-full min-h-0">
+          {activeView === 'tasks' && (
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} />
             </div>
-
-            {sortedAgents.length === 0 ? (
-              <div className="text-center py-20">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-dark-800 flex items-center justify-center">
-                  <MessageSquare className="w-8 h-8 text-dark-500" />
-                </div>
-                <h3 className="text-dark-300 font-medium mb-1">No agents yet</h3>
-                <p className="text-dark-500 text-sm mb-4">Create your first agent to get started</p>
+          )}
+          {/* Agent list */}
+          {activeView === 'agents' && (
+            <div className={`flex-1 p-4 sm:p-6 overflow-auto ${selectedAgentData ? 'hidden lg:block lg:w-1/2 xl:w-3/5' : ''}`}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-dark-200">
+                  Agents
+                  <span className="ml-2 text-sm font-normal text-dark-400">({sortedAgents.length})</span>
+                </h2>
                 <button
                   onClick={() => setShowAddModal(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-indigo-500/20"
                 >
                   <Plus className="w-4 h-4" />
                   Add Agent
                 </button>
               </div>
-            ) : (
-              <div className={
-                viewMode === 'grid'
-                  ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
-                  : 'space-y-3'
-              }>
-                {sortedAgents.map(agent => (
-                  <AgentCard
-                    key={agent.id}
-                    agent={agent}
-                    thinking={thinkingMap[agent.id]}
-                    isSelected={selectedAgent === agent.id}
-                    viewMode={viewMode}
-                    onClick={() => setSelectedAgent(agent.id === selectedAgent ? null : agent.id)}
-                    onStop={handleStopAgent}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+
+              {sortedAgents.length === 0 ? (
+                <div className="text-center py-20">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-dark-800 flex items-center justify-center">
+                    <MessageSquare className="w-8 h-8 text-dark-500" />
+                  </div>
+                  <h3 className="text-dark-300 font-medium mb-1">No agents yet</h3>
+                  <p className="text-dark-500 text-sm mb-4">Create your first agent to get started</p>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Agent
+                  </button>
+                </div>
+              ) : (
+                <div className={
+                  viewMode === 'grid'
+                    ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
+                    : 'space-y-3'
+                }>
+                  {sortedAgents.map(agent => (
+                    <AgentCard
+                      key={agent.id}
+                      agent={agent}
+                      thinking={thinkingMap[agent.id]}
+                      isSelected={selectedAgent === agent.id}
+                      viewMode={viewMode}
+                      onClick={() => setSelectedAgent(agent.id === selectedAgent ? null : agent.id)}
+                      onStop={handleStopAgent}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Agent detail panel */}
-          {selectedAgentData && (
+          {activeView === 'agents' && selectedAgentData && (
             <div className="lg:w-1/2 xl:w-2/5 border-l border-dark-700 bg-dark-900/50 overflow-auto">
               <AgentDetail
                 key={selectedAgentData.id}
