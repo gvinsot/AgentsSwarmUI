@@ -72,13 +72,41 @@ export class InMemoryVectorStore {
     const collection = this.collections.get(collectionName);
     if (!collection) return [];
 
-    return Array.from(collection.values())
-      .map((item) => ({
-        id: item.id,
-        score: cosineSimilarity(vector, item.vector),
-      }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, topK);
+    // Use a min-heap approach: maintain top-K without full sort
+    const results = [];
+    let minScore = -Infinity;
+    let minIdx = 0;
+
+    for (const item of collection.values()) {
+      const score = cosineSimilarity(vector, item.vector);
+      if (results.length < topK) {
+        results.push({ id: item.id, score });
+        if (results.length === topK) {
+          // Find the minimum
+          minScore = results[0].score;
+          minIdx = 0;
+          for (let i = 1; i < results.length; i++) {
+            if (results[i].score < minScore) {
+              minScore = results[i].score;
+              minIdx = i;
+            }
+          }
+        }
+      } else if (score > minScore) {
+        results[minIdx] = { id: item.id, score };
+        // Re-find minimum
+        minScore = results[0].score;
+        minIdx = 0;
+        for (let i = 1; i < results.length; i++) {
+          if (results[i].score < minScore) {
+            minScore = results[i].score;
+            minIdx = i;
+          }
+        }
+      }
+    }
+
+    return results.sort((left, right) => right.score - left.score);
   }
 }
 

@@ -8,6 +8,8 @@ import { createVectorStore } from './codeSearch/vectorStore.js';
 const DEFAULT_MAX_FILES = Number.parseInt(process.env.CODE_SEARCH_MAX_FILES || '5000', 10);
 const DEFAULT_MAX_FILE_SIZE = Number.parseInt(process.env.CODE_SEARCH_MAX_FILE_SIZE || String(512 * 1024), 10);
 const DEFAULT_STORAGE_ROOT = path.resolve(process.cwd(), '.data', 'code-index');
+const REPO_CACHE_TTL_MS = 60_000;
+const FILE_IO_CONCURRENCY = 32;
 const DEFAULT_ALLOWED_EXTENSIONS = new Set([
   '.js', '.jsx', '.mjs', '.cjs',
   '.ts', '.tsx',
@@ -150,6 +152,23 @@ export class CodeIndexService {
       dimension: this.embeddingDimension,
     }));
     this.vectorStorePromise = null;
+    this._repoCache = new Map();
+  }
+
+  _getCachedRepo(repoId) {
+    const entry = this._repoCache.get(repoId);
+    if (entry && Date.now() - entry.ts < REPO_CACHE_TTL_MS) return entry.data;
+    if (entry) this._repoCache.delete(repoId);
+    return null;
+  }
+
+  _setCachedRepo(repoId, data) {
+    this._repoCache.set(repoId, { data, ts: Date.now() });
+  }
+
+  _invalidateCache(repoId) {
+    if (repoId) this._repoCache.delete(repoId);
+    else this._repoCache.clear();
   }
 
   async getVectorStore() {
@@ -200,9 +219,13 @@ export class CodeIndexService {
   }
 
   async loadRepo(repoId) {
+    const cached = this._getCachedRepo(repoId);
+    if (cached) return cached;
     const filePath = this.repoIndexPath(repoId);
     const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw);
+    const repo = JSON.parse(raw);
+    this._setCachedRepo(repoId, repo);
+    return repo;
   }
 
   async saveRepo(repo) {
@@ -220,14 +243,15 @@ export class CodeIndexService {
       symlink: 0,
     };
     const queue = [rootPath];
+    let truncated = false;
 
-    while (queue.length > 0) {
+    while (queue.length > 0 && !truncated) {
       const current = queue.pop();
       const entries = await fs.readdir(current, { withFileTypes: true });
 
+      const fileCandidates = [];
       for (const entry of entries) {
         const absolutePath = path.join(current, entry.name);
-        const relativePath = toPosixPath(path.relative(rootPath, absolutePath));
 
         if (entry.isSymbolicLink()) {
           skipped.symlink += 1;
@@ -251,24 +275,34 @@ export class CodeIndexService {
           continue;
         }
 
-        const stat = await fs.stat(absolutePath);
-        if (stat.size > maxFileSize) {
-          skipped.tooLarge += 1;
-          continue;
-        }
-
-        results.push({
+        fileCandidates.push({
           absolutePath,
-          relativePath,
-          size: stat.size,
+          relativePath: toPosixPath(path.relative(rootPath, absolutePath)),
         });
+      }
 
-        if (results.length >= maxFiles) {
-          return {
-            files: results.sort((a, b) => a.relativePath.localeCompare(b.relativePath)),
-            skipped,
-            truncated: true,
-          };
+      // Batch stat calls in parallel
+      for (let i = 0; i < fileCandidates.length && !truncated; i += FILE_IO_CONCURRENCY) {
+        const batch = fileCandidates.slice(i, i + FILE_IO_CONCURRENCY);
+        const stats = await Promise.all(
+          batch.map((f) => fs.stat(f.absolutePath).catch(() => null))
+        );
+        for (let j = 0; j < batch.length; j++) {
+          const stat = stats[j];
+          if (!stat) continue;
+          if (stat.size > maxFileSize) {
+            skipped.tooLarge += 1;
+            continue;
+          }
+          results.push({
+            absolutePath: batch[j].absolutePath,
+            relativePath: batch[j].relativePath,
+            size: stat.size,
+          });
+          if (results.length >= maxFiles) {
+            truncated = true;
+            break;
+          }
         }
       }
     }
@@ -276,7 +310,7 @@ export class CodeIndexService {
     return {
       files: results.sort((a, b) => a.relativePath.localeCompare(b.relativePath)),
       skipped,
-      truncated: false,
+      truncated,
     };
   }
 
@@ -344,33 +378,43 @@ export class CodeIndexService {
     const files = [];
     const vectorDocs = [];
 
-    for (const file of discovery.files) {
-      const content = await fs.readFile(file.absolutePath, 'utf8');
-      const { language, symbols: extracted } = extractSymbolsFromContent(file.relativePath, content);
+    // Read and parse files in parallel batches
+    for (let i = 0; i < discovery.files.length; i += FILE_IO_CONCURRENCY) {
+      const batch = discovery.files.slice(i, i + FILE_IO_CONCURRENCY);
+      const contents = await Promise.all(
+        batch.map((f) => fs.readFile(f.absolutePath, 'utf8').catch(() => null))
+      );
 
-      const fileRecord = {
-        path: file.relativePath,
-        language,
-        size: file.size,
-        contentHash: hashContent(content),
-        symbolIds: [],
-      };
+      for (let j = 0; j < batch.length; j++) {
+        const content = contents[j];
+        if (content === null) continue;
+        const file = batch[j];
+        const { language, symbols: extracted } = extractSymbolsFromContent(file.relativePath, content);
 
-      for (const symbol of extracted) {
-        const symbolRecord = this.buildSymbolRecord(fileRecord, symbol);
-        fileRecord.symbolIds.push(symbolRecord.id);
-        symbols.push(symbolRecord);
-        vectorDocs.push({
-          id: symbolRecord.id,
-          vector: createHashedEmbedding(this.createEmbeddingText(symbolRecord), this.embeddingDimension),
-          fields: {
-            kind: symbolRecord.kind,
-            filePath: symbolRecord.filePath,
-          },
-        });
+        const fileRecord = {
+          path: file.relativePath,
+          language,
+          size: file.size,
+          contentHash: hashContent(content),
+          symbolIds: [],
+        };
+
+        for (const symbol of extracted) {
+          const symbolRecord = this.buildSymbolRecord(fileRecord, symbol);
+          fileRecord.symbolIds.push(symbolRecord.id);
+          symbols.push(symbolRecord);
+          vectorDocs.push({
+            id: symbolRecord.id,
+            vector: createHashedEmbedding(this.createEmbeddingText(symbolRecord), this.embeddingDimension),
+            fields: {
+              kind: symbolRecord.kind,
+              filePath: symbolRecord.filePath,
+            },
+          });
+        }
+
+        files.push(fileRecord);
       }
-
-      files.push(fileRecord);
     }
 
     const vectorStore = await this.getVectorStore();
@@ -399,6 +443,8 @@ export class CodeIndexService {
     };
 
     await this.saveRepo(repo);
+    this._invalidateCache(repoId);
+    this._setCachedRepo(repoId, repo);
     return repo.repo;
   }
 
@@ -536,23 +582,25 @@ export class CodeIndexService {
 
   async searchSymbols(repoId, { query, kind = null, topK = 10 } = {}) {
     const repo = await this.loadRepo(repoId);
-    return repo.symbols
-      .filter((symbol) => !kind || symbol.kind === kind)
-      .map((symbol) => ({
-        ...symbol,
-        score: scoreTextMatch(query, symbol),
-      }))
-      .filter((symbol) => symbol.score > 0)
-      .sort((left, right) => right.score - left.score || left.filePath.localeCompare(right.filePath))
+    const scored = [];
+    for (const symbol of repo.symbols) {
+      if (kind && symbol.kind !== kind) continue;
+      const score = scoreTextMatch(query, symbol);
+      if (score > 0) scored.push({ symbol, score });
+    }
+
+    scored.sort((left, right) => right.score - left.score || left.symbol.filePath.localeCompare(right.symbol.filePath));
+
+    return scored
       .slice(0, topK)
-      .map((symbol) => ({
+      .map(({ symbol, score }) => ({
         id: symbol.id,
         filePath: symbol.filePath,
         kind: symbol.kind,
         qualifiedName: symbol.qualifiedName,
         signature: symbol.signature,
         summary: symbol.summary,
-        score: symbol.score,
+        score,
         preview: createPreview(symbol.source, query),
       }));
   }
@@ -560,18 +608,20 @@ export class CodeIndexService {
   async searchText(repoId, { query, topK = 10 } = {}) {
     const repo = await this.loadRepo(repoId);
     const normalizedQuery = normalizeText(query);
+    if (!normalizedQuery) return [];
 
-    return repo.symbols
-      .map((symbol) => {
-        const haystack = normalizeText(`${symbol.signature}\n${symbol.summary}\n${symbol.source}`);
-        const occurrences = normalizedQuery ? haystack.split(normalizedQuery).length - 1 : 0;
-        return {
-          symbol,
-          score: occurrences,
-        };
-      })
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => right.score - left.score)
+    const scored = [];
+    for (const symbol of repo.symbols) {
+      const haystack = normalizeText(`${symbol.signature}\n${symbol.summary}\n${symbol.source}`);
+      const occurrences = haystack.split(normalizedQuery).length - 1;
+      if (occurrences > 0) {
+        scored.push({ symbol, score: occurrences });
+      }
+    }
+
+    scored.sort((left, right) => right.score - left.score);
+
+    return scored
       .slice(0, topK)
       .map(({ symbol, score }) => ({
         id: symbol.id,
@@ -584,37 +634,44 @@ export class CodeIndexService {
   }
 
   async searchSemantic(repoId, { query, topK = 10 } = {}) {
-    const repo = await this.loadRepo(repoId);
-    const vectorStore = await this.getVectorStore();
+    const [repo, vectorStore] = await Promise.all([
+      this.loadRepo(repoId),
+      this.getVectorStore(),
+    ]);
     const queryVector = createHashedEmbedding(query, this.embeddingDimension);
-    const vectorMatches = await vectorStore.query(repoId, queryVector, Math.max(topK * 3, topK));
-    const lexicalScores = new Map(repo.symbols.map((symbol) => [symbol.id, scoreTextMatch(query, symbol)]));
-    const symbolById = new Map(repo.symbols.map((symbol) => [symbol.id, symbol]));
+    const vectorMatches = await vectorStore.query(repoId, queryVector, topK * 3);
 
-    return vectorMatches
-      .map((match) => {
-        const symbol = symbolById.get(match.id);
-        if (!symbol) return null;
+    // Build symbol lookup only for matched IDs
+    const matchedIds = new Set(vectorMatches.map((m) => m.id));
+    const symbolById = new Map();
+    for (const symbol of repo.symbols) {
+      if (matchedIds.has(symbol.id)) symbolById.set(symbol.id, symbol);
+    }
 
-        const lexicalScore = lexicalScores.get(match.id) || 0;
-        return {
-          id: symbol.id,
-          filePath: symbol.filePath,
-          kind: symbol.kind,
-          qualifiedName: symbol.qualifiedName,
-          signature: symbol.signature,
-          summary: symbol.summary,
-          vectorScore: Number(match.score.toFixed(6)),
-          score: Number((match.score + lexicalScore * 0.05).toFixed(6)),
-          preview: createPreview(symbol.source, query),
-        };
-      })
-      .filter(Boolean)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, topK);
+    const results = [];
+    for (const match of vectorMatches) {
+      const symbol = symbolById.get(match.id);
+      if (!symbol) continue;
+      const lexicalScore = scoreTextMatch(query, symbol);
+      results.push({
+        id: symbol.id,
+        filePath: symbol.filePath,
+        kind: symbol.kind,
+        qualifiedName: symbol.qualifiedName,
+        signature: symbol.signature,
+        summary: symbol.summary,
+        vectorScore: Number(match.score.toFixed(6)),
+        score: Number((match.score + lexicalScore * 0.05).toFixed(6)),
+        preview: createPreview(symbol.source, query),
+      });
+    }
+
+    results.sort((left, right) => right.score - left.score);
+    return results.slice(0, topK);
   }
 
   async invalidate(repoId) {
+    this._invalidateCache(repoId);
     const vectorStore = await this.getVectorStore();
     await vectorStore.resetCollection(repoId);
     await fs.rm(this.repoDir(repoId), { recursive: true, force: true });

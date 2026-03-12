@@ -78,18 +78,15 @@ export function createHashedEmbedding(value = '', dimension = EMBEDDING_DIMENSIO
 }
 
 export function cosineSimilarity(left = [], right = []) {
-  if (!left.length || !right.length || left.length !== right.length) return 0;
+  const len = left.length;
+  if (!len || !right.length || len !== right.length) return 0;
 
+  // Fast path: vectors from createHashedEmbedding are already unit-normalized,
+  // so cosine similarity reduces to the dot product.
   let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-
-  for (let i = 0; i < left.length; i += 1) {
+  for (let i = 0; i < len; i += 1) {
     dot += left[i] * right[i];
-    leftNorm += left[i] * left[i];
-    rightNorm += right[i] * right[i];
   }
 
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / Math.sqrt(leftNorm * rightNorm);
+  return dot;
 }
