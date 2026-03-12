@@ -737,7 +737,7 @@ function ChatMessage({ message, index, isLast, onTruncate }) {
         }
         {!isLast && onTruncate && (
           <button
-            onClick={() => onTruncate(index)}
+            onClick={() => onTruncate(index - 1)}
             className="absolute -right-1 top-1 opacity-0 group-hover:opacity-100 p-1 bg-dark-700 hover:bg-red-500/20 text-dark-400 hover:text-red-400 rounded-md transition-all border border-dark-600 hover:border-red-500/30"
             title="Restart from here"
           >
@@ -774,7 +774,7 @@ function ChatMessage({ message, index, isLast, onTruncate }) {
         </div>
         {!isLast && onTruncate && (
           <button
-            onClick={() => onTruncate(index)}
+            onClick={() => onTruncate(index - 1)}
             className="absolute -right-1 top-1 opacity-0 group-hover:opacity-100 p-1 bg-dark-700 hover:bg-red-500/20 text-dark-400 hover:text-red-400 rounded-md transition-all border border-dark-600 hover:border-red-500/30"
             title="Restart from here"
           >
@@ -812,7 +812,7 @@ function ChatMessage({ message, index, isLast, onTruncate }) {
       </div>
       {!isLast && onTruncate && (
         <button
-          onClick={() => onTruncate(index)}
+          onClick={() => onTruncate(index - 1)}
           className="absolute -right-1 top-1 opacity-0 group-hover:opacity-100 p-1 bg-dark-700 hover:bg-red-500/20 text-dark-400 hover:text-red-400 rounded-md transition-all border border-dark-600 hover:border-red-500/30"
           title="Restart from here"
         >
