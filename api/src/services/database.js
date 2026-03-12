@@ -3,6 +3,9 @@ import pg from 'pg';
 const { Pool } = pg;
 
 let pool = null;
+let _dbConnected = false;
+
+export function isDatabaseConnected() { return _dbConnected; }
 
 export async function initDatabase(retries = 5, delayMs = 3000) {
   const connectionString = process.env.DATABASE_URL;
@@ -59,6 +62,7 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       `);
 
       console.log('✅ MCP servers table ready');
+      _dbConnected = true;
       return true;
     } catch (err) {
       console.error(`❌ Database connection failed (attempt ${attempt}/${retries}):`, err.message);

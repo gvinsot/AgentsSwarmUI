@@ -9,6 +9,7 @@ import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dbUnavailable, setDbUnavailable] = useState(false);
   const [agents, setAgents] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -194,6 +195,7 @@ export default function App() {
           setUser(data.user);
           initSocket(token);
           loadData();
+          checkDbHealth();
         })
         .catch(() => {
           localStorage.removeItem('token');
@@ -209,12 +211,21 @@ export default function App() {
     };
   }, [initSocket, loadData]);
 
+  const checkDbHealth = useCallback(async () => {
+    try {
+      const health = await api.getHealth();
+      setDbUnavailable(health.database !== 'connected');
+    } catch {
+      // Backend unreachable — don't show DB warning on top of connectivity issues
+    }
+  }, []);
+
   const handleLogin = async (username, password) => {
     const data = await api.login(username, password);
     localStorage.setItem('token', data.token);
     setUser({ username: data.username, role: data.role });
     initSocket(data.token);
-    await loadData();
+    await Promise.all([loadData(), checkDbHealth()]);
   };
 
   const handleLogout = () => {
@@ -255,6 +266,18 @@ export default function App() {
         socket={getSocket()}
         showToast={showToast}
       />
+
+      {dbUnavailable && (
+        <div className="fixed top-0 inset-x-0 z-[200] flex items-center gap-3 px-4 py-2.5 bg-amber-500/15 border-b border-amber-500/30 text-amber-300 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">
+            <strong>Database unavailable</strong> — agents and settings will not be persisted. Check your PostgreSQL connection.
+          </span>
+          <button onClick={() => setDbUnavailable(false)} className="opacity-60 hover:opacity-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-md">
         {toasts.map(toast => (

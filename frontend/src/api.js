@@ -15,6 +15,10 @@ async function handleResponse(res) {
 }
 
 export const api = {
+  // Health
+  getHealth: () =>
+    fetch(`${API_BASE}/health`).then(res => res.json()),
+
   // Auth
   login: (username, password) =>
     fetch(`${API_BASE}/auth/login`, {

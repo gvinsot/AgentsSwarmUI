@@ -21,7 +21,7 @@ import { realtimeRoutes } from './routes/realtime.js';
 import { leaderToolsRoutes } from './routes/leaderTools.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
 import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
-import { initDatabase } from './services/database.js';
+import { initDatabase, isDatabaseConnected } from './services/database.js';
 import { onedriveRoutes } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
 import { apiKeyRoutes } from './routes/apiKeys.js';
@@ -120,7 +120,11 @@ app.use('/api/swarm', authenticateApiKey, swarmApiRoutes(agentManager));
 
 // Public liveness probe — returns minimal info for health checks
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+  const dbConnected = isDatabaseConnected();
+  res.json({
+    status: 'ok',
+    database: dbConnected ? 'connected' : 'unavailable',
+  });
 });
 
 // Detailed status — requires authentication
