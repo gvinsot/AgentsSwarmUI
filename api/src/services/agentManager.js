@@ -62,7 +62,7 @@ export class AgentManager {
     this.agents = new Map();
     this.abortControllers = new Map(); // Track ongoing requests by agentId
     this._taskQueues = new Map();       // Per-agent sequential task queue
-    this._chatLocks = new Set();        // Per-agent lock to prevent duplicate top-level chat
+    this._chatLocks = new Map();        // Per-agent lock: agentId → current message being processed
     this.io = io;
     this.skillManager = skillManager;
     this.sandboxManager = sandboxManager;
@@ -558,16 +558,20 @@ export class AgentManager {
     if (isTopLevel) {
       if (this._chatLocks.has(id)) {
         const agent = this.agents.get(id);
+        const lockedMessage = this._chatLocks.get(id);
         // Stale lock: agent is no longer busy — clear it and proceed
         if (!agent || agent.status !== 'busy') {
-          console.warn(`⚠️ Stale chat lock detected for agent ${id} (status: ${agent?.status}) — auto-clearing`);
+          console.warn(`⚠️ Stale chat lock for agent ${id} (status: ${agent?.status}) — auto-clearing`);
           this._chatLocks.delete(id);
-        } else {
-          // Genuinely busy: skip silently, the ongoing execution will handle it
+        } else if (lockedMessage === userMessage) {
+          // Same message already being processed — silently ignore the duplicate
           return null;
+        } else {
+          // Different message while genuinely busy — reject
+          throw new Error('Agent is already processing a message');
         }
       }
-      this._chatLocks.add(id);
+      this._chatLocks.set(id, userMessage);
     }
 
     // Create abort controller for this request
