@@ -159,4 +159,11 @@ Services are routed via **Traefik** with automatic HTTPS (Let's Encrypt).
 
 ## License
 
-MIT
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+- You are free to use, modify, and distribute this software
+- If you modify PulsarTeam, you must release your changes under the same AGPL-3.0 license
+- **Network use counts as distribution**: if you run a modified version of PulsarTeam on a server and let users interact with it over a network (SaaS, hosted service, etc.), you must make the complete source code available to those users
+- This ensures that all improvements to PulsarTeam remain open, even when deployed as a service
+
+See [LICENSE](LICENSE) for the full license text.
