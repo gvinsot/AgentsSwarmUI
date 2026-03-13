@@ -179,24 +179,7 @@ services:
         failure_action: rollback
       labels:
         # Activer Traefik
-        - "traefik.enable=true"
-
-        # Définir le port du service Coder
-        - "traefik.http.services.coder-service.loadbalancer.server.port=8000"
-        # Flush immédiat pour le streaming SSE
-        - "traefik.http.services.coder-service.loadbalancer.responseforwarding.flushinterval=1ms"
-
-        # Router HTTPS (principal) - Accès public
-        - "traefik.http.routers.coder-service.rule=Host(`${CODER_DOMAIN:-coder.methodinfo.fr}`)"
-        - "traefik.http.routers.coder-service.entrypoints=websecure"
-        - "traefik.http.routers.coder-service.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.coder-service.service=coder-service"
-
-        # Router HTTP (redirige vers HTTPS)
-        - "traefik.http.routers.coder-service-http.rule=Host(`${CODER_DOMAIN:-coder.methodinfo.fr}`)"
-        - "traefik.http.routers.coder-service-http.entrypoints=web"
-        - "traefik.http.routers.coder-service-http.middlewares=redirect-to-https@file"
-        - "traefik.http.routers.coder-service-http.service=noop@internal"
+        - "traefik.enable=false"
 
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]

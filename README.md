@@ -6,7 +6,7 @@ A professional, real-time web interface for managing a swarm of AI agents. Built
 
 ### Agent Management
 
-![Vue des Agents](Screenshot2.png)
+![Vue des Agents](docs/Screenshot2.png)
 
 - **10 pre-built agent templates**: Swarm Leader, Developer, Architect, QA Engineer, Marketing, DevOps, Data Analyst, Product Manager, Voice Leader, Security Analyst
 - **Custom agent creation** with full LLM configuration (model, provider, temperature, system prompt)
@@ -15,7 +15,7 @@ A professional, real-time web interface for managing a swarm of AI agents. Built
 
 ### Scrum Board (Kanban)
 
-![Vue Scrum](Screenshot3.png)
+![Vue Scrum](docs/Screenshot3.png)
 
 - **4-column task board**: Backlog → To Do → In Progress → Done
 - **Drag-and-drop** between columns
@@ -26,7 +26,7 @@ A professional, real-time web interface for managing a swarm of AI agents. Built
 
 ### Projects & Context
 
-![Vue Projet](Screenshot1.png)
+![Vue Projet](docs/Screenshot1.png)
 
 - **Project-scoped workspaces**: objective, rules/constraints, assigned agents
 - Agents auto-switch context when assigned to a project
@@ -35,7 +35,7 @@ A professional, real-time web interface for managing a swarm of AI agents. Built
 
 ### Chat & Interaction
 
-![Vue Tâches & Détail Agent](Screenshot4.png)
+![Vue Tâches & Détail Agent](docs/Screenshot4.png)
 
 - **Per-agent chat** with full markdown rendering and syntax highlighting
 - **Live streaming** of responses via WebSocket with thinking indicators
@@ -153,14 +153,11 @@ See the full installation guide: **[docs/GETTING_STARTED.md](docs/GETTING_STARTE
 Quick deploy:
 
 ```bash
-cd devops
 cp .env.example .env       # Configure environment variables
-./docker-compose.pre.sh    # Build & push images
-docker stack deploy -c docker-compose.swarm.yml pulsarteam
-./docker-compose.post.sh   # Verify services
+docker compose up -d --build   # Build & start all services
 ```
 
-Services are routed via **Traefik** with automatic HTTPS (Let's Encrypt).
+Open **http://localhost** — login: `admin` / `swarm2026`
 
 ## License
 
