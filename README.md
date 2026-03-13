@@ -15,187 +15,146 @@ A professional, real-time web interface for managing a swarm of AI agents. Built
 ## Features
 
 ### Agent Management
-- **Add/Remove agents** in real time with visual feedback
-- **8 pre-built agent templates**: Developer, Architect, QA Engineer, Marketing, DevOps, Data Analyst, Product Manager, Security Analyst
-- **Custom agent creation** with full LLM configuration
-- **Color-coded** agent cards with status indicators (idle/busy/error)
+- **10 pre-built agent templates**: Swarm Leader, Developer, Architect, QA Engineer, Marketing, DevOps, Data Analyst, Product Manager, Voice Leader, Security Analyst
+- **Custom agent creation** with full LLM configuration (model, provider, temperature, system prompt)
+- **Color-coded** agent cards with real-time status indicators (idle / busy / error)
+- **Per-agent metrics**: messages, tokens in/out, errors, last active time
 
-### Real-Time Capabilities
-- **Live streaming** of agent responses via WebSocket
-- **Real-time thinking indicator** showing the agent's current output as it generates
-- **Status updates** propagated to all connected clients instantly
-- **Metrics tracking**: messages, tokens in/out, errors, last active time
+### Scrum Board (Kanban)
+- **4-column task board**: Backlog → To Do → In Progress → Done
+- **Drag-and-drop** between columns
+- Per-agent and per-project task lists
+- Real-time status updates via WebSocket
+- Task creation with agent assignment, project context, due date, and status tracking
+- Source tracking (user, agent, API, or MCP-created tasks)
+
+### Projects & Context
+- **Project-scoped workspaces**: objective, rules/constraints, assigned agents
+- Agents auto-switch context when assigned to a project
+- Task statistics and progress tracking per project
+- Project context injected into agent prompts
 
 ### Chat & Interaction
-- **Per-agent chat** with full markdown rendering
+- **Per-agent chat** with full markdown rendering and syntax highlighting
+- **Live streaming** of responses via WebSocket with thinking indicators
 - **Conversation history** with timestamps
-- **Streaming responses** with typing indicators
-
-### Global Broadcast (tmux-style)
-- **Broadcast a message to ALL agents simultaneously**
-- See all responses side-by-side
+- **Global broadcast** (tmux-style): send a message to ALL agents simultaneously, view responses side-by-side
 
 ### Agent Handoffs (Swarm Pattern)
-- **Transfer conversations** between agents with context
+- **Delegate tasks** between agents with `@delegate(AgentName, "task")`
+- Swarm Leader orchestrates multi-agent workflows: specs → delegation → result synthesis
+- File and context transfer between agent workspaces
 
-### Task Management (Todo Lists)
-- **Per-agent todo lists** with progress tracking
+### Plugins & MCP (Model Context Protocol)
+- **Plugin system** to extend agent capabilities with custom instructions and MCP tools
+- **Create custom plugins** with icon, description, instructions, user config, and MCP server bindings
+- **Plugin categories**: coding, devops, writing, security, analysis, general
+- Assign multiple plugins per agent — tools are automatically injected into prompts
+- **Built-in plugins**:
+  - **Basic Tools** — file/command execution
+  - **Delegation & Management** — agent coordination
+  - **Agents Direct Access** — quick Q&A with other agents
+  - **Swarm DevOps** — deploy projects to Docker Swarm
+  - **OneDrive** — cloud file management (Microsoft Graph)
+  - **Code Index** — codebase exploration and semantic search
+
+### MCP Servers
+- Agents interact with external tools via the **Model Context Protocol**
+- Each plugin can bind one or more MCP servers (URL + optional bearer token auth)
+- **Built-in MCP servers**:
+  - **Swarm Manager** — Docker Swarm build/deploy pipelines, container management, log search
+  - **OneDrive** — browse, search, read, upload files via Microsoft Graph
+  - **Code Index** — index source folders, symbol extraction, semantic search (ZVEC-backed)
+- **Custom MCP servers**: register any HTTP MCP endpoint with optional authentication
+
+### Code Indexing (ZVEC)
+- Index local source folders and extract symbols (classes, functions, methods)
+- **Semantic search** via vector embeddings (ZVEC engine with in-memory fallback)
+- Supports JavaScript/TypeScript and Python
+- REST API: index, search symbols, semantic search, file tree, file outline
 
 ### RAG (Retrieval-Augmented Generation)
-- **Attach reference documents** to any agent
-- Upload text files (.txt, .md, .json, .csv, .yaml)
+- Attach reference documents to any agent (.txt, .md, .json, .csv, .yaml)
+- Documents injected into agent context for grounded responses
+
+### Voice Chat
+- **Speech-to-speech** via OpenAI Realtime API (Voice Leader agent)
+- Live transcription, mute toggle, connection status
+- Voice-controlled task delegation to other agents
+
+### Sandbox Execution
+- Isolated Docker container for agent code execution
+- One Linux user per agent with project-scoped workspaces
+- Git operations (clone, pull, push), file management, command execution
+- Pre-installed dev tools: Node.js, Python, Go, C/C++, Docker CLI, kubectl, Chromium
+
+### Coder Service (Claude Code)
+- **FastAPI proxy** to Claude Code CLI running in headless mode
+- Autonomous code execution agent with access to project files
+- Full dev environment: Python 3.12, Node.js 22, Go, Docker CLI, PostgreSQL, Chromium
+- OAuth PKCE authentication with token persistence
+- Configurable model, max turns, and timeout
+
+### Swarm API (External Integration)
+- REST API for external systems to interact with the swarm (API key auth)
+- `GET /api/swarm/agents` — list agents with filters (project, status)
+- `GET /api/swarm/agents/:id` — detailed agent info
+- `POST /api/swarm/agents/:id/tasks` — submit tasks to agents
 
 ### Security
 - **JWT-based authentication** with login page
+- API key authentication for external Swarm API
+- OAuth PKCE for Claude Code CLI
+- Bearer token support for MCP servers
 - Default credentials: `admin` / `swarm2026`
 
-## Quick Start
+## Architecture
 
-```bash
-# Install server
-cd server && npm install
-
-# Install client
-cd ../client && npm install
-
-# Start server (terminal 1)
-cd server && npm start
-
-# Start client (terminal 2)
-cd client && npm run dev
 ```
-
-Open **http://localhost:5173** — login: `admin` / `swarm2026`
+┌──────────────────────────────────────────────────┐
+│          Frontend (React 19 + Vite 6)            │
+│  Dashboard · Agent Detail · Scrum Board          │
+│  Broadcast · Voice Chat · Projects               │
+└──────────────────┬───────────────────────────────┘
+                   │ WebSocket + REST
+┌──────────────────▼───────────────────────────────┐
+│          API Server (Node.js + Express)           │
+│  AgentManager · SkillManager · MCPManager         │
+│  SandboxManager · CodeIndexService                │
+└───┬──────────────┬──────────────┬────────────────┘
+    │              │              │
+    ▼              ▼              ▼
+┌────────┐  ┌───────────┐  ┌───────────────┐
+│Sandbox │  │  Coder    │  │  MCP Servers   │
+│(Docker)│  │  Service  │  │  (HTTP)        │
+│        │  │ (FastAPI) │  │                │
+└────────┘  └───────────┘  └───────────────┘
+                                    │
+                   ┌────────────────┼────────────┐
+                   ▼                ▼             ▼
+             Swarm Manager    OneDrive      Code Index
+```
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express, Socket.IO, JWT
+- **Backend**: Node.js, Express, Socket.IO, JWT, PostgreSQL
 - **Frontend**: React 19, Vite 6, Tailwind CSS, Lucide Icons
-- **LLM**: Anthropic SDK, Ollama API
-## Swarm Leader Tool: Read Agent Last Messages
+- **Coder Service**: Python, FastAPI, Claude Code CLI
+- **LLM Providers**: Anthropic (Claude), OpenAI (GPT), Ollama, Mistral, vLLM
+- **Infrastructure**: Docker Swarm, Traefik (reverse proxy + TLS), Nginx
+- **Tooling**: MCP (Model Context Protocol), ZVEC (vector search)
 
-A new management API is available for the Swarm Leader to inspect the latest messages from any agent.
-
-### Endpoint
-
-`GET /api/leader-tools/last-messages`
-
-Query parameters:
-- `agentId` (optional if `agentName` provided): target agent id
-- `agentName` (optional if `agentId` provided): target agent name (case-insensitive)
-- `limit` (optional): number of last messages to return (default `1`, max `50`)
-
-### Example
+## Deployment (Docker Swarm)
 
 ```bash
-curl -H "Authorization: Bearer <JWT>" \\
-  "http://localhost:3001/api/leader-tools/last-messages?agentName=Developer&limit=3"
+cd devops
+./docker-compose.pre.sh    # Build & push images
+docker stack deploy -c docker-compose.swarm.yml pulsar
+./docker-compose.post.sh   # Verify services
 ```
 
-Response shape:
+Services are routed via **Traefik** with automatic HTTPS (Let's Encrypt).
 
-```json
-{
-  "agentId": "uuid",
-  "agentName": "Developer",
-  "totalMessages": 42,
-  "returned": 3,
-  "limit": 3,
-  "messages": [
-    {
-      "index": 39,
-      "role": "assistant",
-      "content": "…",
-      "timestamp": "2026-03-02T10:00:00.000Z",
-      "type": null
-    }
-  ]
-}
-```## Task List Status (Real-time)
+## License
 
-The agent task list now shows each task status directly, without requiring users to click "Execute this task".
-
-Supported statuses:
-- `pending`
-- `in_progress`
-- `error`
-- `done` (displayed as **Completed**)
-
-### Real-time updates
-
-Task status updates are pushed through existing agent update events over Socket.IO and reflected immediately in the UI.## ZVEC-Powered Code Indexing API
-
-The backend now ships with a code exploration service inspired by jCodeMunch and backed by **ZVEC** (with an automatic in-memory fallback if ZVEC is unavailable on the host).
-
-### What it does
-
-- Indexes a **local source folder**
-- Extracts **symbols** (classes, functions, methods) for JS/TS and Python
-- Stores metadata plus vector embeddings for **semantic search**
-- Exposes authenticated HTTP endpoints for:
-  - repo listing
-  - file tree
-  - file outline
-  - exact symbol retrieval
-  - lexical symbol search
-  - semantic search
-  - text search
-  - repo invalidation
-
-### Endpoints
-
-All endpoints require the usual JWT auth and are mounted under:
-
-- `POST /api/code-index/index-folder`
-- `GET /api/code-index/repos`
-- `GET /api/code-index/repos/:repoId`
-- `GET /api/code-index/repos/:repoId/file-tree`
-- `GET /api/code-index/repos/:repoId/file-outline?filePath=src/file.js`
-- `GET /api/code-index/repos/:repoId/symbol?symbolId=...&verify=true&contextLines=2`
-- `GET /api/code-index/repos/:repoId/search-symbols?query=token`
-- `GET /api/code-index/repos/:repoId/search-semantic?query=jwt+validation`
-- `GET /api/code-index/repos/:repoId/search-text?query=startsWith`
-- `DELETE /api/code-index/repos/:repoId`
-
-### Example
-
-```bash
-curl -X POST http://localhost:3001/api/code-index/index-folder \\
-  -H "Authorization: Bearer <JWT>" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "path": "./server/src",
-    "repoName": "server-src"
-  }'
-```
-
-### Environment variables
-
-- `CODE_SEARCH_ALLOWED_ROOTS` — comma-separated list of roots that can be indexed
-- `CODE_SEARCH_INDEX_ROOT` — override on-disk index storage location
-- `CODE_SEARCH_VECTOR_BACKEND` — `auto` (default), `zvec`, or `memory`
-- `CODE_SEARCH_MAX_FILES` — max files per indexed folder
-- `CODE_SEARCH_MAX_FILE_SIZE` — max file size in bytes
-
-### Notes
-
-- Current extraction is an MVP optimized for **JavaScript/TypeScript** and **Python**
-- The semantic layer uses local hashed embeddings, while **ZVEC** provides the vector index/query engine
-- Indexed metadata is stored under `server/.data/` by default### Built-in plugin: Code Index
-
-The code indexing MVP is also exposed as a **built-in plugin** backed by an internal MCP server named **Code Index**.
-
-To use it:
-1. Open an agent
-2. Go to the **Plugins** tab
-3. Assign the **Code Index** plugin
-4. The agent will then receive Code Index MCP tools in its prompt automatically
-
-Typical flow for an agent:
-- `@mcp_call(Code Index, index_workspace, {"subpath": "server/src", "repoName": "server-src"})`
-- `@mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})`
-- `@mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})`
-- `@mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true})`
-- `@mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT authentication middleware"})`
-
-The plugin uses the internal MCP server URL `__internal__code_index`, which is resolved by the backend to `/api/code-index/mcp`.
+MIT
