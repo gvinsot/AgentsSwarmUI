@@ -67,6 +67,9 @@ export class AgentManager {
     this.skillManager = skillManager;
     this.sandboxManager = sandboxManager;
     this.mcpManager = mcpManager;
+    // Throttle state for agent:updated emissions (per agentId)
+    this._updateTimers = new Map();   // agentId → setTimeout handle
+    this._updatePending = new Map();  // agentId → latest data to emit
   }
 
   async loadFromDatabase() {
@@ -491,6 +494,12 @@ export class AgentManager {
       currentTask: agent.currentTask || null,
       isLeader: agent.isLeader || false
     });
+
+    // Flush any pending throttled agent:updated when reaching a terminal state
+    // so the client gets the final state immediately
+    if (status === 'idle' || status === 'error') {
+      this._flushAgentUpdate(id);
+    }
 
     // Log meaningful status transitions
     if (status === 'busy' && prev !== 'busy') {
@@ -3260,7 +3269,46 @@ export class AgentManager {
   }
 
   _emit(event, data) {
-    if (this.io) this.io.emit(event, data);
+    if (!this.io) return;
+
+    // Throttle agent:updated to avoid flooding clients with rapid-fire updates
+    // for the same agent (e.g. during delegation: todo created → in_progress → done)
+    if (event === 'agent:updated' && data?.id) {
+      const agentId = data.id;
+      // Always store the latest data
+      this._updatePending.set(agentId, data);
+
+      // If a timer is already running, let it fire with the latest data
+      if (this._updateTimers.has(agentId)) return;
+
+      // Set a short debounce window (300ms) — batches rapid emissions
+      const timer = setTimeout(() => {
+        this._updateTimers.delete(agentId);
+        const pendingData = this._updatePending.get(agentId);
+        this._updatePending.delete(agentId);
+        if (pendingData) {
+          this.io.emit('agent:updated', pendingData);
+        }
+      }, 300);
+      this._updateTimers.set(agentId, timer);
+      return;
+    }
+
+    this.io.emit(event, data);
+  }
+
+  /** Force-flush any pending throttled agent:updated for a specific agent */
+  _flushAgentUpdate(agentId) {
+    const timer = this._updateTimers.get(agentId);
+    if (timer) {
+      clearTimeout(timer);
+      this._updateTimers.delete(agentId);
+    }
+    const pendingData = this._updatePending.get(agentId);
+    this._updatePending.delete(agentId);
+    if (pendingData && this.io) {
+      this.io.emit('agent:updated', pendingData);
+    }
   }
 
   _randomColor() {
