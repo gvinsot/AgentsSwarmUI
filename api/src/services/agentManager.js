@@ -781,11 +781,10 @@ export class AgentManager {
     }
 
     // ── Proactive compaction: summarize older messages when history exceeds threshold ──
-    // Compact on top-level user messages AND new delegation tasks (not tool-result continuations
-    // which need their recent context intact mid-task).
-    const MAX_RECENT = 10;
-    const COMPACT_TRIGGER = MAX_RECENT + 5; // 15
-    const COMPACT_RESET = MAX_RECENT + 2;   // 12
+    // Thresholds scale with the agent's context window size.
+    const contextLimit = agent.contextLength || 8192;
+    const { maxRecent, compactTrigger, compactReset } = this._compactionThresholds(contextLimit);
+
     const isTopLevelUserMessage = delegationDepth === 0 && !messageMeta;
     const isNewDelegationTask = messageMeta?.type === 'delegation-task';
     const shouldCompact = isTopLevelUserMessage || isNewDelegationTask;
@@ -795,14 +794,14 @@ export class AgentManager {
       if (agent._compactionArmed === undefined) {
         agent._compactionArmed = true;
       }
-      if (!agent._compactionArmed && nonSummaryMessages.length <= COMPACT_RESET) {
+      if (!agent._compactionArmed && nonSummaryMessages.length <= compactReset) {
         agent._compactionArmed = true;
       }
 
-      if (agent._compactionArmed && nonSummaryMessages.length > COMPACT_TRIGGER) {
-        console.log(`🗜️  [Proactive Compact] "${agent.name}": ${nonSummaryMessages.length} messages — compacting to keep ${MAX_RECENT} recent`);
+      if (agent._compactionArmed && nonSummaryMessages.length > compactTrigger) {
+        console.log(`🗜️  [Proactive Compact] "${agent.name}": ${nonSummaryMessages.length} messages — compacting to keep ${maxRecent} recent (context: ${contextLimit})`);
         if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (${nonSummaryMessages.length} messages)...*\n`);
-        await this._compactHistory(agent, MAX_RECENT);
+        await this._compactHistory(agent, maxRecent);
         agent._compactionArmed = false;
       }
     }
@@ -811,7 +810,7 @@ export class AgentManager {
     const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
     const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
     if (summary) messages.push(summary);
-    messages.push(...realMessages.slice(-MAX_RECENT));
+    messages.push(...realMessages.slice(-maxRecent));
 
     // Add user message
     messages.push({ role: 'user', content: userMessage });
@@ -819,12 +818,15 @@ export class AgentManager {
     // ── Safety net: also compact if token budget is exceeded ──
     // Skip during tool-result continuations to avoid breaking mid-task context
     if (shouldCompact) {
-      const contextLimit = agent.contextLength || 8192;
       const estimatedTokens = this._estimateTokens(messages);
-      if (estimatedTokens > contextLimit * 0.75 && realMessages.length > MAX_RECENT) {
-        console.log(`🗜️  [Token Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting`);
+      // For large contexts, allow up to 80% usage before triggering; smaller contexts stay at 75%
+      const safetyRatio = contextLimit >= 128000 ? 0.80 : 0.75;
+      if (estimatedTokens > contextLimit * safetyRatio && realMessages.length > maxRecent) {
+        // Emergency compact: keep fewer messages (scaled down)
+        const emergencyKeep = Math.max(6, Math.floor(maxRecent * 0.6));
+        console.log(`🗜️  [Token Compact] "${agent.name}": estimated ${estimatedTokens} tokens vs ${contextLimit} limit — compacting to keep ${emergencyKeep}`);
         if (streamCallback) streamCallback(`\n⏳ *Compacting conversation history (token limit)...*\n`);
-        await this._compactHistory(agent, 6);
+        await this._compactHistory(agent, emergencyKeep);
         agent._compactionArmed = false;
         // Rebuild messages with compacted history
         messages.length = 0;
@@ -834,7 +836,7 @@ export class AgentManager {
         const newSummary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
         const newReal = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
         if (newSummary) messages.push(newSummary);
-        messages.push(...newReal.slice(-MAX_RECENT));
+        messages.push(...newReal.slice(-maxRecent));
         messages.push({ role: 'user', content: userMessage });
       }
     }
@@ -1730,7 +1732,9 @@ export class AgentManager {
         if (isTopLevel) this._chatLocks.delete(id);
         try {
           if (streamCallback) streamCallback(`\n⚠️ *Context limit exceeded — compacting conversation and retrying...*\n`);
-          await this._compactHistory(agent, 6);
+          const reactiveCtxLimit = agent.contextLength || 8192;
+          const reactiveKeep = Math.max(6, Math.floor(this._compactionThresholds(reactiveCtxLimit).maxRecent * 0.5));
+          await this._compactHistory(agent, reactiveKeep);
           agent._compactionArmed = false;
           // Retry the same message (it's already in conversationHistory, so remove the last entry to avoid duplication)
           agent.conversationHistory.pop();
@@ -3068,6 +3072,26 @@ export class AgentManager {
   // ─── Helpers ────────────────────────────────────────────────────────
 
   /**
+   * Compute dynamic compaction thresholds based on context window size.
+   * Larger contexts can afford to keep more messages before compacting.
+   */
+  _compactionThresholds(contextLimit) {
+    if (contextLimit >= 200000) {
+      // 200k+ contexts (e.g. 256k): keep a lot more history
+      return { maxRecent: 40, compactTrigger: 55, compactReset: 45 };
+    } else if (contextLimit >= 128000) {
+      // 128k contexts: generous history
+      return { maxRecent: 30, compactTrigger: 42, compactReset: 35 };
+    } else if (contextLimit >= 32000) {
+      // 32k contexts: moderate history
+      return { maxRecent: 16, compactTrigger: 24, compactReset: 20 };
+    } else {
+      // Small contexts (8k-16k): conservative
+      return { maxRecent: 10, compactTrigger: 15, compactReset: 12 };
+    }
+  }
+
+  /**
    * Rough token estimation (~4 chars per token for English, ~3 for code).
    * This is a fast heuristic — not exact, but good enough for compaction triggers.
    */
@@ -3095,39 +3119,69 @@ export class AgentManager {
   /**
    * Compact (summarize) the conversation history to free up context space.
    *
-   * Strategy:
-   *  1. Keep the system prompt (always first)
-   *  2. Keep the last `keepRecent` messages untouched (most relevant)
-   *  3. Summarize everything in between into a single assistant message
-   *  4. Replace the agent's conversationHistory with: [summary, ...recentMessages]
-   *
-   * The summarization is done via a short non-streaming LLM call with a
-   * very compact system prompt.  If summarization itself fails, we fall back
-   * to a hard truncation (drop oldest messages).
+   * Optimized for large context windows (up to 256k tokens / 128k output):
+   *  - Dynamic per-message truncation scaled to context size
+   *  - Incremental compaction: merges existing summary with new messages
+   *  - Summary input and output sizes scale with context window
+   *  - Falls back to hard truncation if summarization fails
    */
   async _compactHistory(agent, keepRecent = 10) {
     const history = agent.conversationHistory;
     if (history.length <= keepRecent + 2) {
-      // Not enough to compact — fall back to hard truncation: keep last keepRecent
       agent.conversationHistory = history.slice(-keepRecent);
       saveAgent(agent);
       console.log(`🗜️  [Compact] "${agent.name}": hard truncation to ${agent.conversationHistory.length} msgs (history too short for summary)`);
       return;
     }
 
+    const contextLimit = agent.contextLength || 8192;
+
+    // Scale limits based on context size
+    // Per-message truncation: from 2k chars (small ctx) to 8k chars (256k ctx)
+    const perMsgTruncate = contextLimit >= 200000 ? 8000
+                         : contextLimit >= 128000 ? 6000
+                         : contextLimit >= 32000  ? 4000
+                         : 2000;
+    // Summary input cap: from 12k chars (small ctx) to 100k chars (256k ctx)
+    const summaryInputCap = contextLimit >= 200000 ? 100000
+                          : contextLimit >= 128000 ? 60000
+                          : contextLimit >= 32000  ? 30000
+                          : 12000;
+    // Summary output tokens: from 1k (small ctx) to 4k (256k ctx)
+    const summaryMaxTokens = contextLimit >= 200000 ? 4096
+                           : contextLimit >= 128000 ? 3072
+                           : contextLimit >= 32000  ? 2048
+                           : 1024;
+    // Max words in summary prompt instruction
+    const summaryMaxWords = contextLimit >= 128000 ? 2000 : 500;
+
     // Split: messages to summarize vs messages to keep
-    const toSummarize = history.slice(0, history.length - keepRecent);
-    const toKeep = history.slice(-keepRecent);
+    // Separate any existing compaction summary from real messages
+    const existingSummary = history.find(m => m.type === 'compaction-summary');
+    const realHistory = history.filter(m => m.type !== 'compaction-summary');
+
+    const toSummarize = realHistory.slice(0, realHistory.length - keepRecent);
+    const toKeep = realHistory.slice(-keepRecent);
 
     // Build a compact representation of messages to summarize
-    const summaryInput = toSummarize.map(m => {
+    const summaryParts = [];
+
+    // Include existing summary for incremental compaction
+    if (existingSummary) {
+      summaryParts.push(`[PREVIOUS SUMMARY]:\n${existingSummary.content}`);
+    }
+
+    // Add messages to summarize with scaled truncation
+    for (const m of toSummarize) {
       const role = m.role === 'user' ? 'User' : 'Assistant';
-      // Truncate very long messages in the summary input
-      const content = (m.content || '').length > 2000
-        ? (m.content || '').slice(0, 2000) + '... [truncated]'
-        : (m.content || '');
-      return `[${role}]: ${content}`;
-    }).join('\n\n');
+      const rawContent = m.content || '';
+      const content = rawContent.length > perMsgTruncate
+        ? rawContent.slice(0, perMsgTruncate) + `... [truncated, ${rawContent.length} chars total]`
+        : rawContent;
+      summaryParts.push(`[${role}]: ${content}`);
+    }
+
+    const summaryInput = summaryParts.join('\n\n');
 
     try {
       const provider = createProvider({
@@ -3137,21 +3191,22 @@ export class AgentManager {
         apiKey: agent.apiKey
       });
 
-      console.log(`🗜️  [Compact] "${agent.name}": summarizing ${toSummarize.length} messages, keeping ${toKeep.length} recent`);
+      const msgCount = toSummarize.length + (existingSummary ? 1 : 0);
+      console.log(`🗜️  [Compact] "${agent.name}": summarizing ${msgCount} messages (${summaryInput.length} chars input, cap ${summaryInputCap}), keeping ${toKeep.length} recent, context ${contextLimit}`);
 
       const summaryResponse = await provider.chat([
         {
           role: 'system',
-          content: 'You are a conversation summarizer. Produce a concise but complete summary of the conversation below. Preserve: key decisions made, files modified, errors encountered, current task status, and any important context the assistant needs to continue working. Be factual and structured. Use bullet points. Maximum 500 words.'
+          content: `You are a conversation summarizer. Produce a concise but thorough summary of the conversation below.${existingSummary ? ' A previous summary is included — integrate it with the new messages into one unified summary.' : ''} Preserve: key decisions made, files modified and their changes, errors encountered and how they were resolved, current task status, tools/commands used, and any important context the assistant needs to continue working effectively. Be factual and structured. Use bullet points grouped by topic. Maximum ${summaryMaxWords} words.`
         },
         {
           role: 'user',
-          content: `Summarize this conversation:\n\n${summaryInput.slice(0, 12000)}`
+          content: `Summarize this conversation:\n\n${summaryInput.slice(0, summaryInputCap)}`
         }
       ], {
         temperature: 0.2,
-        maxTokens: 1024,
-        contextLength: agent.contextLength || 0
+        maxTokens: summaryMaxTokens,
+        contextLength: contextLimit
       });
 
       const summaryText = summaryResponse.content || '';
@@ -3169,12 +3224,17 @@ export class AgentManager {
       ];
 
       saveAgent(agent);
-      console.log(`🗜️  [Compact] "${agent.name}": compacted ${history.length} → ${agent.conversationHistory.length} messages`);
+      console.log(`🗜️  [Compact] "${agent.name}": compacted ${history.length} → ${agent.conversationHistory.length} messages (summary: ${summaryText.length} chars)`);
 
     } catch (summaryErr) {
       // Summarization failed — hard truncation fallback
       console.warn(`🗜️  [Compact] "${agent.name}": summarization failed (${summaryErr.message}), falling back to hard truncation`);
-      agent.conversationHistory = toKeep;
+      // On hard truncation, still keep existing summary if available
+      if (existingSummary) {
+        agent.conversationHistory = [existingSummary, ...toKeep];
+      } else {
+        agent.conversationHistory = toKeep;
+      }
       saveAgent(agent);
     }
 
