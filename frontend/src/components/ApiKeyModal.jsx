@@ -214,7 +214,7 @@ export default function ApiKeyModal({ onClose, showToast }) {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-400 font-mono mt-0.5">POST</span>
-                <span><code className="text-dark-300">/api/swarm/agents/:id/tasks</code> — Add task {"{"}"task": "...", "project": "..."{"}"}</span>
+                <span><code className="text-dark-300">/api/swarm/agents/:id/tasks</code> — Add task {"{"}"task": "...", "project": "...", "status": "backlog|pending"{"}"}</span>
               </li>
             </ul>
           </div>

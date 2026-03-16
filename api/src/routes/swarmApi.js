@@ -4,6 +4,7 @@ import { z } from 'zod';
 const createTaskSchema = z.object({
   task: z.string().min(1).max(5000),
   project: z.string().min(1).max(200),
+  status: z.enum(['backlog', 'pending']).optional(),
 });
 
 /**
@@ -83,9 +84,9 @@ export function swarmApiRoutes(agentManager) {
   // ── Add task ───────────────────────────────────────────────────────────
   router.post('/agents/:id/tasks', (req, res) => {
     console.log(`📥 [SwarmAPI] POST /agents/${req.params.id}/tasks — body:`, JSON.stringify(req.body));
-    let task, project;
+    let task, project, status;
     try {
-      ({ task, project } = createTaskSchema.parse(req.body));
+      ({ task, project, status } = createTaskSchema.parse(req.body));
     } catch (err) {
       console.warn(`⚠️ [SwarmAPI] Task validation failed for agent "${req.params.id}":`, err instanceof z.ZodError ? err.issues : err.message);
       if (err instanceof z.ZodError) {
@@ -109,7 +110,7 @@ export function swarmApiRoutes(agentManager) {
       agentManager.update(agent.id, { project });
     }
 
-    const todo = agentManager.addTodo(agent.id, task, project, { type: 'api' });
+    const todo = agentManager.addTodo(agent.id, task, project, { type: 'api' }, status);
     console.log(`✅ [SwarmAPI] Task created for agent "${agent.name}" (${agent.id}) — todo: ${todo?.id}, project: ${project}, task: ${task.slice(0, 100)}`);
 
     res.status(201).json({
