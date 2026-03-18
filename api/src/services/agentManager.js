@@ -3294,6 +3294,10 @@ export class AgentManager {
             console.error(`🔄 Task loop error for ${agent.name}:`, err.message);
             this._emit('agent:stream:error', { agentId, error: err.message });
           }
+          // Recover agent to idle so the task loop can pick up remaining tasks
+          if (agent.status === 'error') {
+            this.setStatus(agentId, 'idle', 'Auto-recovered after task error');
+          }
         })
         .finally(() => {
           this._loopProcessing.delete(agentId);

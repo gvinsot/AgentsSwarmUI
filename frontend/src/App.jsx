@@ -205,10 +205,10 @@ export default function App() {
     const token = localStorage.getItem('token');
     if (token) {
       api.verify()
-        .then((data) => {
+        .then(async (data) => {
           setUser(data.user);
+          await loadData();
           initSocket(token);
-          loadData();
           checkDbHealth();
         })
         .catch(() => {
@@ -238,8 +238,9 @@ export default function App() {
     const data = await api.login(username, password);
     localStorage.setItem('token', data.token);
     setUser({ username: data.username, role: data.role });
+    await loadData();
     initSocket(data.token);
-    await Promise.all([loadData(), checkDbHealth()]);
+    await checkDbHealth();
   };
 
   const handleLogout = () => {
