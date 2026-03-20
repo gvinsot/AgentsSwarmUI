@@ -242,37 +242,31 @@ async def _token_http_request(payload: dict, description: str) -> Optional[dict]
 
         opener = urllib.request.build_opener(NoRedirectHandler)
 
-        max_retries = 2
-        for attempt in range(max_retries):
-            logger.info(f"{description} (attempt {attempt + 1}/{max_retries})...")
-            req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=headers, method="POST")
-            try:
-                with opener.open(req, timeout=15) as resp:
+        # Single attempt — each 429 extends the rate limit window on Claude's side,
+        # so retrying quickly is counterproductive. On failure, set a long cooldown
+        # and let the next caller (exchange or next refresh cycle) try later.
+        logger.info(f"{description}...")
+        req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=headers, method="POST")
+        try:
+            with opener.open(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308):
+                redirect_url = e.headers.get("Location", "")
+                logger.info(f"Token endpoint redirected ({e.code}) to: {redirect_url}")
+                req2 = urllib.request.Request(redirect_url, data=data, headers=headers, method="POST")
+                with opener.open(req2, timeout=15) as resp:
                     return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as e:
-                if e.code in (301, 302, 303, 307, 308):
-                    redirect_url = e.headers.get("Location", "")
-                    logger.info(f"Token endpoint redirected ({e.code}) to: {redirect_url}")
-                    req2 = urllib.request.Request(redirect_url, data=data, headers=headers, method="POST")
-                    with opener.open(req2, timeout=15) as resp:
-                        return json.loads(resp.read().decode("utf-8"))
-                elif e.code == 429:
-                    server_retry = int(e.headers.get("Retry-After", 0))
-                    retry_after = max(server_retry, 60 * (2 ** attempt))  # 60s, 120s
-                    _token_cooldown_until = time.time() + retry_after
-                    logger.warning(f"{description}: rate-limited (429), cooldown {retry_after}s (attempt {attempt + 1}/{max_retries})")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_after)
-                        continue
-                    else:
-                        logger.error(f"{description}: rate-limited after all retries")
-                        return None
-                else:
-                    body = e.read().decode("utf-8", errors="replace")
-                    logger.error(f"{description}: HTTP {e.code}: {body}")
-                    return None
-
-    return None
+            elif e.code == 429:
+                server_retry = int(e.headers.get("Retry-After", 0))
+                retry_after = max(server_retry, 300)  # 5 minutes minimum cooldown
+                _token_cooldown_until = time.time() + retry_after
+                logger.warning(f"{description}: rate-limited (429), cooldown {retry_after}s")
+                return None
+            else:
+                body = e.read().decode("utf-8", errors="replace")
+                logger.error(f"{description}: HTTP {e.code}: {body}")
+                return None
 
 
 async def _refresh_oauth_token() -> bool:
@@ -551,8 +545,8 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None) -> d
                 "login_url": _auth_url,
             }
 
-    # Proactively refresh token if expired
-    if _is_token_expired():
+    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
+    if _is_token_expired() and time.time() >= _token_cooldown_until:
         await _refresh_oauth_token()
 
     cmd = _build_claude_cmd(prompt, output_format="json", system_prompt=system_prompt)
@@ -672,8 +666,8 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None)
             }
             return
 
-    # Proactively refresh token if expired (within 5 min margin)
-    if _is_token_expired():
+    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
+    if _is_token_expired() and time.time() >= _token_cooldown_until:
         refreshed = await _refresh_oauth_token()
         if not refreshed:
             login_url = await _get_login_url()
