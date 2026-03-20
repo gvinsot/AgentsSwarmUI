@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""
+\"\"\"
 Coder Service - Claude Code Mapper
 FastAPI proxy that invokes Claude Code CLI in headless mode.
 Provides an autonomous AI agent with full access to dev tools via mounted volumes.
-"""
+\"\"\"
 
 import os
 import re
@@ -40,7 +40,7 @@ if not VERBOSE:
 app = FastAPI(
     title="Coder Service",
     description="AI agent powered by Claude Code CLI (headless mode)",
-    version="4.0.0",
+    version="4.0.1",
 )
 
 # Configuration
@@ -83,13 +83,18 @@ _auth_url: Optional[str] = None
 _oauth_code_verifier: Optional[str] = None
 _oauth_state: Optional[str] = None
 
+# Rate limiting: prevent concurrent token requests
+_token_request_lock = asyncio.Lock()
+_last_token_request_time: float = 0
+_MIN_TOKEN_REQUEST_INTERVAL = 60  # seconds between token requests
+
 
 def _load_saved_token() -> Optional[str]:
-    """Load persisted OAuth token (check env, persistent JSON, token file, then credentials file).
+    \"\"\"Load persisted OAuth token (check env, persistent JSON, token file, then credentials file).
 
     When loading from the persistent JSON in /app/data, also restores
     ~/.claude/.credentials.json so the CLI subprocess can use it.
-    """
+    \"\"\"
     token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
     if token:
         return token
@@ -125,7 +130,7 @@ def _load_saved_token() -> Optional[str]:
 
 
 def _restore_credentials_file(oauth_data: dict):
-    """Restore ~/.claude/.credentials.json from persistent OAuth data."""
+    \"\"\"Restore ~/.claude/.credentials.json from persistent OAuth data.\"\"\"
     try:
         creds_dir = os.path.dirname(CREDENTIALS_FILE)
         os.makedirs(creds_dir, exist_ok=True)
@@ -144,7 +149,7 @@ def _restore_credentials_file(oauth_data: dict):
 
 
 def _save_token(token: str, refresh_token: Optional[str] = None, expires_in: int = 28800):
-    """Persist OAuth token to multiple locations for CLI compatibility."""
+    \"\"\"Persist OAuth token to multiple locations for CLI compatibility.\"\"\"
     os.makedirs(DATA_DIR, exist_ok=True)
     # Plain text token file (backward compat)
     with open(TOKEN_FILE, "w") as f:
@@ -176,7 +181,7 @@ def _save_token(token: str, refresh_token: Optional[str] = None, expires_in: int
 
 
 def _is_token_expired(margin_seconds: int = 300) -> bool:
-    """Return True if the saved OAuth token is expired (or expires within margin_seconds)."""
+    \"\"\"Return True if the saved OAuth token is expired (or expires within margin_seconds).\"\"\"
     try:
         with open(TOKEN_JSON_FILE) as f:
             oauth_data = json.load(f)
@@ -189,7 +194,7 @@ def _is_token_expired(margin_seconds: int = 300) -> bool:
 
 
 def _get_saved_refresh_token() -> Optional[str]:
-    """Return the saved refresh token from persistent JSON, if any."""
+    \"\"\"Return the saved refresh token from persistent JSON, if any.\"\"\"
     try:
         with open(TOKEN_JSON_FILE) as f:
             return json.load(f).get("refreshToken") or None
@@ -198,14 +203,24 @@ def _get_saved_refresh_token() -> Optional[str]:
 
 
 async def _refresh_oauth_token() -> bool:
-    """Use the refresh token to obtain a new access token.
+    \"\"\"Use the refresh token to obtain a new access token.
 
     Returns True on success, False on failure.
-    """
+    \"\"\"
+    global _last_token_request_time
+
     refresh_token = _get_saved_refresh_token()
     if not refresh_token:
         logger.warning("No refresh token available — cannot refresh, need full re-auth")
         return False
+
+    # Rate limit: wait if we made a request too recently
+    async with _token_request_lock:
+        elapsed = time.time() - _last_token_request_time
+        if elapsed < _MIN_TOKEN_REQUEST_INTERVAL:
+            wait_time = _MIN_TOKEN_REQUEST_INTERVAL - elapsed
+            logger.info(f"Rate limiting token refresh, waiting {wait_time:.1f}s...")
+            await asyncio.sleep(wait_time)
 
     logger.info("Access token expired, refreshing via refresh_token grant...")
     try:
@@ -250,7 +265,8 @@ async def _refresh_oauth_token() -> bool:
                         result = json.loads(resp.read().decode("utf-8"))
                     break
                 elif e.code == 429:
-                    retry_after = int(e.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    # Claude AI rate limit - use longer backoff (30s, 60s, 120s)
+                    retry_after = int(e.headers.get("Retry-After", 30 * (2 ** attempt)))
                     logger.warning(f"Refresh token rate-limited (429), retrying in {retry_after}s (attempt {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_after)
@@ -275,6 +291,10 @@ async def _refresh_oauth_token() -> bool:
         expires_in = result.get("expires_in", 28800)
         _save_token(access_token, refresh_token=new_refresh, expires_in=expires_in)
         logger.info("OAuth token refreshed successfully")
+        
+        # Update last request time
+        async with _token_request_lock:
+            _last_token_request_time = time.time()
         return True
 
     except Exception as e:
@@ -283,7 +303,7 @@ async def _refresh_oauth_token() -> bool:
 
 
 def _get_claude_env() -> dict:
-    """Build environment dict for Claude CLI subprocess, including saved token."""
+    \"\"\"Build environment dict for Claude CLI subprocess, including saved token.\"\"\"
     env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
     if not env.get("CLAUDE_CODE_OAUTH_TOKEN"):
         saved = _load_saved_token()
@@ -293,7 +313,7 @@ def _get_claude_env() -> dict:
 
 
 def _auth_method() -> str:
-    """Return current auth method: oauth, api_key, or none."""
+    \"\"\"Return current auth method: oauth, api_key, or none.\"\"\"
     if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or _load_saved_token():
         return "oauth"
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -302,7 +322,7 @@ def _auth_method() -> str:
 
 
 def _claude_auth_status() -> dict:
-    """Get auth status from `claude auth status` (returns JSON)."""
+    \"\"\"Get auth status from `claude auth status` (returns JSON).\"\"\"
     try:
         result = subprocess.run(
             ["claude", "auth", "status"],
@@ -321,16 +341,16 @@ _CODE_RE = re.compile(r'^[A-Za-z0-9_#-]{20,}$')
 
 
 def _extract_code_from_prompt(prompt: str) -> Optional[str]:
-    """Extract a verification code from a prompt (may be wrapped in conversation format).
+    \"\"\"Extract a verification code from a prompt (may be wrapped in conversation format).
 
     Handles:
     - Raw code: "oAb7X8p0ADm...#state..."
     - Single message: "User: oAb7X8p0ADm..."
     - Full conversation: "User: hello\\nAssistant: ...\\nUser: oAb7X8p0ADm..."
     Returns None if the last user message doesn't look like a code.
-    """
+    \"\"\"
     last_user_msg = prompt.strip()
-    for line in reversed(prompt.strip().split('\n')):
+    for line in reversed(prompt.strip().split('\\n')):
         line = line.strip()
         if line.startswith("User: "):
             last_user_msg = line[6:].strip()
@@ -342,7 +362,7 @@ def _extract_code_from_prompt(prompt: str) -> Optional[str]:
 
 
 def _generate_pkce() -> tuple[str, str]:
-    """Generate PKCE code_verifier and code_challenge (S256)."""
+    \"\"\"Generate PKCE code_verifier and code_challenge (S256).\"\"\"
     code_verifier = secrets.token_urlsafe(64)[:128]
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
@@ -350,7 +370,7 @@ def _generate_pkce() -> tuple[str, str]:
 
 
 def _build_auth_url() -> str:
-    """Build OAuth authorization URL with PKCE and store state for later exchange."""
+    \"\"\"Build OAuth authorization URL with PKCE and store state for later exchange.\"\"\"
     global _oauth_code_verifier, _oauth_state
 
     _oauth_code_verifier, code_challenge = _generate_pkce()
@@ -371,20 +391,28 @@ def _build_auth_url() -> str:
 
 
 def requests_encode(value: str) -> str:
-    """URL-encode a value (percent-encoding)."""
+    \"\"\"URL-encode a value (percent-encoding).\"\"\"
     import urllib.parse
     return urllib.parse.quote(value, safe="")
 
 
 async def _exchange_auth_code(full_code: str) -> dict:
-    """Exchange the authorization code for OAuth tokens.
+    \"\"\"Exchange the authorization code for OAuth tokens.
 
     The code from the browser callback is formatted as: {auth_code}#{state}
-    """
-    global _oauth_code_verifier, _oauth_state, _auth_url
+    \"\"\"
+    global _oauth_code_verifier, _oauth_state, _auth_url, _last_token_request_time
 
     if not _oauth_code_verifier:
         return {"status": "error", "message": "No login flow in progress. Start one first."}
+
+    # Rate limit: wait if we made a request too recently
+    async with _token_request_lock:
+        elapsed = time.time() - _last_token_request_time
+        if elapsed < _MIN_TOKEN_REQUEST_INTERVAL:
+            wait_time = _MIN_TOKEN_REQUEST_INTERVAL - elapsed
+            logger.info(f"Rate limiting token exchange, waiting {wait_time:.1f}s...")
+            await asyncio.sleep(wait_time)
 
     # Split code on # — format is auth_code#state
     if "#" in full_code:
@@ -443,7 +471,8 @@ async def _exchange_auth_code(full_code: str) -> dict:
                         result = json.loads(resp.read().decode("utf-8"))
                     break
                 elif e.code == 429:
-                    retry_after = int(e.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    # Claude AI rate limit - use longer backoff (30s, 60s, 120s)
+                    retry_after = int(e.headers.get("Retry-After", 30 * (2 ** attempt)))
                     logger.warning(f"Token exchange rate-limited (429), retrying in {retry_after}s (attempt {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_after)
@@ -480,6 +509,10 @@ async def _exchange_auth_code(full_code: str) -> dict:
         _oauth_code_verifier = None
         _oauth_state = None
         _auth_url = None
+        
+        # Update last request time
+        async with _token_request_lock:
+            _last_token_request_time = time.time()
 
         return {
             "status": "authenticated",
@@ -498,14 +531,14 @@ async def _exchange_auth_code(full_code: str) -> dict:
 
 
 async def _get_login_url() -> str:
-    """Generate an OAuth authorization URL with PKCE."""
+    \"\"\"Generate an OAuth authorization URL with PKCE.\"\"\"
     url = _build_auth_url()
     logger.info(f"Generated OAuth URL: {url[:80]}...")
     return url
 
 
 def _build_claude_cmd(prompt: str, output_format: str = "json", system_prompt: Optional[str] = None) -> list[str]:
-    """Build the claude CLI command with appropriate flags."""
+    \"\"\"Build the claude CLI command with appropriate flags.\"\"\"
     cmd = [
         "claude",
         "-p", prompt,
@@ -543,12 +576,12 @@ def _build_claude_cmd(prompt: str, output_format: str = "json", system_prompt: O
 # ─── Claude Code Execution ────────────────────────────────────────────────────
 
 async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None) -> dict:
-    """Execute a prompt via Claude Code CLI and return parsed result.
+    \"\"\"Execute a prompt via Claude Code CLI and return parsed result.
 
     Uses asyncio.create_subprocess_exec instead of asyncio.to_thread to avoid
     dependency on the thread pool executor (which causes 'Executor shutdown has
     been called' errors during server restart/shutdown).
-    """
+    \"\"\"
     # If an OAuth flow is pending, check if the prompt contains a verification code
     if _oauth_code_verifier:
         code = _extract_code_from_prompt(prompt)
@@ -665,10 +698,10 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None) -> d
 
 
 async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None):
-    """Async generator - streams Claude Code events in real-time.
+    \"\"\"Async generator - streams Claude Code events in real-time.
 
     Yields status updates as the agent works, then the final result.
-    """
+    \"\"\"
     # If an OAuth flow is pending, check if the prompt contains a verification code
     if _oauth_code_verifier:
         code = _extract_code_from_prompt(prompt)
@@ -841,7 +874,7 @@ MAX_OUTPUT = 2000
 
 
 def execute_python(code: str) -> str:
-    """Execute Python code and capture output."""
+    \"\"\"Execute Python code and capture output.\"\"\"
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
     try:
@@ -851,14 +884,14 @@ def execute_python(code: str) -> str:
         err = stderr_buf.getvalue()
         result = out
         if err:
-            result += f"\n[stderr] {err}"
+            result += f"\\n[stderr] {err}"
         return result[:MAX_OUTPUT] if result else "(no output)"
     except Exception:
         return traceback.format_exc()[:MAX_OUTPUT]
 
 
 def execute_shell(code: str) -> str:
-    """Execute shell commands and capture output."""
+    \"\"\"Execute shell commands and capture output.\"\"\"
     try:
         result = subprocess.run(
             code,
@@ -870,9 +903,9 @@ def execute_shell(code: str) -> str:
         )
         out = result.stdout
         if result.stderr:
-            out += f"\n[stderr] {result.stderr}"
+            out += f"\\n[stderr] {result.stderr}"
         if result.returncode != 0:
-            out += f"\n[exit code: {result.returncode}]"
+            out += f"\\n[exit code: {result.returncode}]"
         return out[:MAX_OUTPUT] if out else "(no output)"
     except subprocess.TimeoutExpired:
         return "[error] Command timed out after 60s"
@@ -945,10 +978,10 @@ def chunk_text(text: str, size: int = 700):
 
 
 def _messages_to_prompt(messages: list[OpenAIChatMessage]) -> tuple[str, Optional[str]]:
-    """Convert OpenAI chat messages to a single prompt + optional system prompt.
+    \"\"\"Convert OpenAI chat messages to a single prompt + optional system prompt.
 
     Returns (prompt, system_prompt).
-    """
+    \"\"\"
     system_parts = []
     conversation_parts = []
 
@@ -960,14 +993,14 @@ def _messages_to_prompt(messages: list[OpenAIChatMessage]) -> tuple[str, Optiona
         elif msg.role == "assistant":
             conversation_parts.append(f"Assistant: {msg.content}")
 
-    system_prompt = "\n\n".join(system_parts) if system_parts else None
+    system_prompt = "\\n\\n".join(system_parts) if system_parts else None
 
     # If only one user message with no assistant context, pass it directly
     user_messages = [m for m in messages if m.role == "user"]
     if len(conversation_parts) == 1 and len(user_messages) == 1:
         prompt = user_messages[0].content
     else:
-        prompt = "\n".join(conversation_parts)
+        prompt = "\\n".join(conversation_parts)
 
     return prompt, system_prompt
 
@@ -979,7 +1012,7 @@ async def auth_status(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Check current authentication status (uses `claude auth status`)."""
+    \"\"\"Check current authentication status (uses `claude auth status`).\"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
     # Prefer CLI auth status for accurate info
@@ -1002,11 +1035,11 @@ async def set_auth_token(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Set OAuth token for subscription-based authentication.
+    \"\"\"Set OAuth token for subscription-based authentication.
 
     Generate a token on a machine with a browser: claude setup-token
     Then POST it here.
-    """
+    \"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
 
@@ -1026,7 +1059,7 @@ async def auth_login(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Initiate OAuth PKCE login flow and return the authorization URL."""
+    \"\"\"Initiate OAuth PKCE login flow and return the authorization URL.\"\"\"
     global _auth_url
 
     api_key = extract_api_key(x_api_key, authorization)
@@ -1093,7 +1126,7 @@ async def execute_message(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Execute a natural language request via Claude Code CLI."""
+    \"\"\"Execute a natural language request via Claude Code CLI.\"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
 
@@ -1107,7 +1140,7 @@ async def execute_code(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Direct code execution endpoint (bypass Claude Code)."""
+    \"\"\"Direct code execution endpoint (bypass Claude Code).\"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
 
@@ -1136,34 +1169,34 @@ async def stream_execution(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Stream execution results in real-time via SSE."""
+    \"\"\"Stream execution results in real-time via SSE.\"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
 
     async def event_generator():
         try:
-            yield f"data: {json.dumps({'status': 'starting', 'message': 'Claude Code execution started'})}\n\n"
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Claude Code execution started'})}\\n\\n"
 
             has_streamed_text = False
             async for event in stream_claude_events(request.content, request.system_prompt):
                 event_type = event.get("type", "")
 
                 if event_type == "status":
-                    yield f"data: {json.dumps({'status': 'working', 'output': event['content']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'working', 'output': event['content']}, ensure_ascii=False)}\\n\\n"
                 elif event_type == "text":
-                    yield f"data: {json.dumps({'status': 'streaming', 'output': event['content']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'streaming', 'output': event['content']}, ensure_ascii=False)}\\n\\n"
                     has_streamed_text = True
                 elif event_type == "result":
                     # Send completion signal with metadata; only include output
                     # if nothing was streamed yet (avoids duplicating content).
                     output = "" if has_streamed_text else event["content"]
-                    yield f"data: {json.dumps({'status': 'success', 'output': output, 'cost_usd': event.get('cost_usd'), 'duration_ms': event.get('duration_ms')}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'success', 'output': output, 'cost_usd': event.get('cost_usd'), 'duration_ms': event.get('duration_ms')}, ensure_ascii=False)}\\n\\n"
                 elif event_type == "error":
-                    yield f"data: {json.dumps({'status': 'error', 'error': event['content']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'error', 'error': event['content']}, ensure_ascii=False)}\\n\\n"
 
-            yield "data: [DONE]\n\n"
+            yield "data: [DONE]\\n\\n"
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)}, ensure_ascii=False)}\\n\\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -1173,7 +1206,7 @@ async def reset_agent(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Reset agent state (no-op, Claude Code is stateless per invocation)."""
+    \"\"\"Reset agent state (no-op, Claude Code is stateless per invocation).\"\"\"
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
     return {"status": "success", "message": "Agent is stateless, no state to reset"}
@@ -1223,7 +1256,7 @@ async def openai_chat_completions(
         created = int(time.time())
 
         # Send initial role delta
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\\n\\n"
 
         has_streamed_text = False
         async for event in stream_claude_events(prompt, system_prompt):
@@ -1231,7 +1264,7 @@ async def openai_chat_completions(
 
             if event_type == "text":
                 content = event["content"]
-                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
+                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\\n\\n"
                 has_streamed_text = True
             elif event_type == "result":
                 # Only send the final result if we haven't already streamed
@@ -1239,14 +1272,14 @@ async def openai_chat_completions(
                 if not has_streamed_text:
                     content = event["content"]
                     for piece in chunk_text(content):
-                        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': piece}, 'finish_reason': None}]})}\n\n"
+                        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': piece}, 'finish_reason': None}]})}\\n\\n"
             elif event_type == "error":
                 content = event["content"]
-                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
+                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\\n\\n"
 
         # Send finish
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\\n\\n"
+        yield "data: [DONE]\\n\\n"
 
     if request.stream:
         return StreamingResponse(stream_openai_response(), media_type="text/event-stream")
@@ -1291,18 +1324,18 @@ async def openai_completions(
             if event_type == "text":
                 content = event["content"]
                 for piece in chunk_text(content):
-                    yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': piece, 'finish_reason': None}]})}\n\n"
+                    yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': piece, 'finish_reason': None}]})}\\n\\n"
                 has_streamed_text = True
             elif event_type == "result":
                 if not has_streamed_text:
                     content = event["content"]
                     for piece in chunk_text(content):
-                        yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': piece, 'finish_reason': None}]})}\n\n"
+                        yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': piece, 'finish_reason': None}]})}\\n\\n"
             elif event_type == "error":
-                yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': event['content'], 'finish_reason': None}]})}\n\n"
+                yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': event['content'], 'finish_reason': None}]})}\\n\\n"
 
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': '', 'finish_reason': 'stop'}]})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'text_completion', 'created': created, 'model': model, 'choices': [{'index': 0, 'text': '', 'finish_reason': 'stop'}]})}\\n\\n"
+        yield "data: [DONE]\\n\\n"
 
     if request.stream:
         return StreamingResponse(stream_openai_completion_response(), media_type="text/event-stream")
@@ -1328,7 +1361,7 @@ async def openai_completions(
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Startup/shutdown lifecycle for FastAPI."""
+    \"\"\"Startup/shutdown lifecycle for FastAPI.\"\"\"
     logger.info("Coder Service starting (Claude Code backend)...")
     logger.info(f"  Model: {CLAUDE_MODEL}")
     logger.info(f"  Max turns: {CLAUDE_MAX_TURNS}")
