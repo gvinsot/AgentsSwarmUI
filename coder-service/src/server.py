@@ -204,69 +204,71 @@ def _get_saved_refresh_token() -> Optional[str]:
 async def _token_http_request(payload: dict, description: str) -> Optional[dict]:
     """Make a rate-limited HTTP request to the OAuth token endpoint.
 
-    Holds _token_request_lock for the entire duration (wait + request)
-    so only one token request is in flight at a time.
+    Uses Node.js fetch (via subprocess) instead of Python urllib because
+    Cloudflare blocks Python's TLS fingerprint with a fake 429 response.
+    Node.js uses the same TLS stack as Claude Code CLI and passes Cloudflare.
+
+    Holds _token_request_lock so only one token request is in flight at a time.
     Returns parsed JSON on success, None on failure.
     """
-    global _token_cooldown_until
-
-    import urllib.request
-    import urllib.error
     import urllib.parse as urlparse
 
     async with _token_request_lock:
-        # Respect cooldown from previous 429
-        now = time.time()
-        if now < _token_cooldown_until:
-            wait_time = _token_cooldown_until - now
-            logger.info(f"Token endpoint in cooldown, waiting {wait_time:.0f}s before {description}...")
-            await asyncio.sleep(wait_time)
-
         # Check if token was refreshed by another coroutine while we waited
         if not _is_token_expired():
             logger.info("Token already valid (refreshed by another request)")
             return {"_already_valid": True}
 
-        data = urlparse.urlencode(payload).encode("utf-8")
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "Origin": "https://claude.ai",
-            "Referer": "https://claude.ai/",
-        }
+        body_str = urlparse.urlencode(payload)
+        # Use Node.js fetch to avoid Cloudflare blocking Python's TLS fingerprint
+        node_script = f"""
+        const params = new URLSearchParams({json.dumps(payload)});
+        try {{
+            const resp = await fetch("{OAUTH_TOKEN_URL}", {{
+                method: "POST",
+                headers: {{ "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }},
+                body: params.toString(),
+            }});
+            const text = await resp.text();
+            console.log(JSON.stringify({{ status: resp.status, body: text }}));
+        }} catch (e) {{
+            console.log(JSON.stringify({{ status: 0, body: e.message }}));
+        }}
+        """
 
-        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        logger.info(f"{description}...")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "node", "-e", node_script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+
+            if not stdout:
+                logger.error(f"{description}: node subprocess produced no output. stderr={stderr_bytes.decode()[:200]}")
                 return None
 
-        opener = urllib.request.build_opener(NoRedirectHandler)
+            result = json.loads(stdout)
+            status = result.get("status", 0)
+            body = result.get("body", "")
 
-        # Single attempt — each 429 extends the rate limit window on Claude's side,
-        # so retrying quickly is counterproductive. On failure, set a long cooldown
-        # and let the next caller (exchange or next refresh cycle) try later.
-        logger.info(f"{description}...")
-        req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=headers, method="POST")
-        try:
-            with opener.open(req, timeout=15) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308):
-                redirect_url = e.headers.get("Location", "")
-                logger.info(f"Token endpoint redirected ({e.code}) to: {redirect_url}")
-                req2 = urllib.request.Request(redirect_url, data=data, headers=headers, method="POST")
-                with opener.open(req2, timeout=15) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            elif e.code == 429:
-                server_retry = int(e.headers.get("Retry-After", 0))
-                retry_after = max(server_retry, 300)  # 5 minutes minimum cooldown
-                _token_cooldown_until = time.time() + retry_after
-                logger.warning(f"{description}: rate-limited (429), cooldown {retry_after}s")
+            if status == 200:
+                return json.loads(body)
+            elif status == 429:
+                logger.warning(f"{description}: rate-limited (429), body={body[:300]}")
                 return None
             else:
-                body = e.read().decode("utf-8", errors="replace")
-                logger.error(f"{description}: HTTP {e.code}: {body}")
+                logger.error(f"{description}: HTTP {status}, body={body[:500]}")
                 return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"{description}: node subprocess timed out")
+            return None
+        except Exception as e:
+            logger.error(f"{description}: {e}", exc_info=True)
+            return None
 
 
 async def _refresh_oauth_token() -> bool:
