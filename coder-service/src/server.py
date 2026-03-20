@@ -232,21 +232,39 @@ async def _refresh_oauth_token() -> bool:
                 return None
 
         opener = urllib.request.build_opener(NoRedirectHandler)
-        req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=headers, method="POST")
-        try:
-            with opener.open(req, timeout=15) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308):
-                redirect_url = e.headers.get("Location", "")
-                logger.info(f"Refresh endpoint redirected ({e.code}) to: {redirect_url}")
-                req2 = urllib.request.Request(redirect_url, data=data, headers=headers, method="POST")
-                with opener.open(req2, timeout=15) as resp:
+
+        result = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=headers, method="POST")
+            try:
+                with opener.open(req, timeout=15) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
-            else:
-                body = e.read().decode("utf-8", errors="replace")
-                logger.error(f"Refresh token HTTP {e.code}: {body}")
-                return False
+                break
+            except urllib.error.HTTPError as e:
+                if e.code in (301, 302, 303, 307, 308):
+                    redirect_url = e.headers.get("Location", "")
+                    logger.info(f"Refresh endpoint redirected ({e.code}) to: {redirect_url}")
+                    req2 = urllib.request.Request(redirect_url, data=data, headers=headers, method="POST")
+                    with opener.open(req2, timeout=15) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                    break
+                elif e.code == 429:
+                    retry_after = int(e.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    logger.warning(f"Refresh token rate-limited (429), retrying in {retry_after}s (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_after)
+                        continue
+                    else:
+                        logger.error("Refresh token failed: rate-limited after all retries")
+                        return False
+                else:
+                    body = e.read().decode("utf-8", errors="replace")
+                    logger.error(f"Refresh token HTTP {e.code}: {body}")
+                    return False
+
+        if result is None:
+            return False
 
         access_token = result.get("access_token")
         if not access_token:
@@ -407,21 +425,43 @@ async def _exchange_auth_code(full_code: str) -> dict:
                 return None
 
         opener = urllib.request.build_opener(NoRedirectHandler)
-        req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=_headers, method="POST")
 
-        try:
-            with opener.open(req, timeout=15) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308):
-                redirect_url = e.headers.get("Location", "")
-                logger.info(f"Token endpoint redirected ({e.code}) to: {redirect_url}")
-                # Re-POST to the redirect target with same data and headers
-                req2 = urllib.request.Request(redirect_url, data=data, headers=_headers, method="POST")
-                with opener.open(req2, timeout=15) as resp:
+        result = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            req = urllib.request.Request(OAUTH_TOKEN_URL, data=data, headers=_headers, method="POST")
+            try:
+                with opener.open(req, timeout=15) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
-            else:
-                raise
+                break
+            except urllib.error.HTTPError as e:
+                if e.code in (301, 302, 303, 307, 308):
+                    redirect_url = e.headers.get("Location", "")
+                    logger.info(f"Token endpoint redirected ({e.code}) to: {redirect_url}")
+                    req2 = urllib.request.Request(redirect_url, data=data, headers=_headers, method="POST")
+                    with opener.open(req2, timeout=15) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                    break
+                elif e.code == 429:
+                    retry_after = int(e.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    logger.warning(f"Token exchange rate-limited (429), retrying in {retry_after}s (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_after)
+                        continue
+                    else:
+                        # Clean up OAuth state so user can start fresh
+                        _oauth_code_verifier = None
+                        _oauth_state = None
+                        _auth_url = None
+                        return {"status": "error", "message": f"Token exchange failed: rate-limited after {max_retries} retries. Please wait a moment and try again."}
+                else:
+                    raise
+
+        if result is None:
+            _oauth_code_verifier = None
+            _oauth_state = None
+            _auth_url = None
+            return {"status": "error", "message": "Token exchange failed: no response received"}
 
         access_token = result.get("access_token")
         refresh_token = result.get("refresh_token")
@@ -450,6 +490,10 @@ async def _exchange_auth_code(full_code: str) -> dict:
 
     except Exception as e:
         logger.error(f"Token exchange error: {e}", exc_info=True)
+        # Clean up OAuth state on failure so a fresh flow can be started
+        _oauth_code_verifier = None
+        _oauth_state = None
+        _auth_url = None
         return {"status": "error", "message": f"Token exchange failed: {e}"}
 
 
