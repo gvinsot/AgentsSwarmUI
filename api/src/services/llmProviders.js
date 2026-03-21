@@ -961,3 +961,91 @@ export function createProvider(config) {
       throw new Error(`Unknown provider: ${config.provider}`);
   }
 }
+// ── Logging Wrapper ──────────────────────────────────────────────────────────
+// Wraps any provider to log calls, responses, tokens, and duration.
+
+class LoggingProvider {
+  constructor(provider, config) {
+    this._provider = provider;
+    this._providerName = config.provider || 'unknown';
+    this._model = config.model || 'unknown';
+    this._agentName = config.name || config.agentName || null;
+  }
+
+  _prefix() {
+    const agent = this._agentName ? ` agent="${this._agentName}"` : '';
+    return `📊 [LLM]${agent} ${this._providerName}/${this._model}`;
+  }
+
+  async chat(messages, options = {}) {
+    const start = Date.now();
+    const msgCount = messages.length;
+    const inputChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+    console.log(`${this._prefix()} chat start | messages=${msgCount} inputChars=${inputChars}`);
+
+    try {
+      const result = await this._provider.chat(messages, options);
+      const duration = Date.now() - start;
+      const outputChars = result.content?.length || 0;
+      const usage = result.usage || {};
+      console.log(
+        `${this._prefix()} chat done | ${duration}ms` +
+        ` | tokens: in=${usage.prompt_tokens || '?'} out=${usage.completion_tokens || '?'} total=${usage.total_tokens || '?'}` +
+        ` | chars: in=${inputChars} out=${outputChars}`
+      );
+      return result;
+    } catch (err) {
+      const duration = Date.now() - start;
+      console.error(`${this._prefix()} chat ERROR | ${duration}ms | ${err.message}`);
+      throw err;
+    }
+  }
+
+  async *stream(messages, options = {}) {
+    const start = Date.now();
+    const msgCount = messages.length;
+    const inputChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+    console.log(`${this._prefix()} stream start | messages=${msgCount} inputChars=${inputChars}`);
+
+    let outputChars = 0;
+    let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    let chunkCount = 0;
+
+    try {
+      for await (const chunk of this._provider.stream(messages, options)) {
+        chunkCount++;
+
+        // Accumulate usage from chunks
+        if (chunk?.usage) {
+          totalUsage.prompt_tokens += chunk.usage.prompt_tokens || 0;
+          totalUsage.completion_tokens += chunk.usage.completion_tokens || 0;
+          totalUsage.total_tokens += chunk.usage.total_tokens || 0;
+        }
+
+        // Count output chars
+        if (chunk?.content) outputChars += chunk.content.length;
+        if (chunk?.thinking) outputChars += chunk.thinking.length;
+
+        yield chunk;
+      }
+
+      const duration = Date.now() - start;
+      console.log(
+        `${this._prefix()} stream done | ${duration}ms | chunks=${chunkCount}` +
+        ` | tokens: in=${totalUsage.prompt_tokens || '?'} out=${totalUsage.completion_tokens || '?'} total=${totalUsage.total_tokens || '?'}` +
+        ` | chars: in=${inputChars} out=${outputChars}`
+      );
+    } catch (err) {
+      const duration = Date.now() - start;
+      if (!err.message?.includes('abort')) {
+        console.error(`${this._prefix()} stream ERROR | ${duration}ms | chunks=${chunkCount} | ${err.message}`);
+      }
+      throw err;
+    }
+  }
+}
+
+export function createLoggingProvider(config) {
+  const provider = createProvider(config);
+  return new LoggingProvider(provider, config);
+}

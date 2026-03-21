@@ -47,8 +47,8 @@ Please provide an improved, detailed description that includes:
 
 IMPORTANT: Reply ONLY with the improved description text. Do not include the title, headers, or any preamble.`;
 
-    const { createProvider } = await import('./llmProviders.js');
-    const provider = createProvider(agentConfig);
+    const { createLoggingProvider } = await import('./llmProviders.js');
+    const provider = createLoggingProvider({ ...agentConfig, agentName: ideasAgentName });
 
     const response = await provider.chat([
       { role: 'system', content: 'You are a concise task refinement assistant. Improve task descriptions to be clear and actionable.' },

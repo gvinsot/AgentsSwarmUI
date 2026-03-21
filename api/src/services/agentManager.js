@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { createProvider } from './llmProviders.js';
+import { createProvider, createLoggingProvider } from './llmProviders.js';
 import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
 import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
