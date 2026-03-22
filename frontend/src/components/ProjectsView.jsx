@@ -1,418 +1,283 @@
-import { useState, useMemo, useCallback } from 'react';
-import {
-  Tag, Users, CheckSquare, Clock, AlertTriangle, Check, ChevronDown,
-  Edit3, Save, X, BookOpen, ListChecks, Cpu, Zap, RefreshCw
-} from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { FolderGit2, Users, ListTodo, Clock, ArrowRight, Search, ChevronDown, Activity, BarChart3, Bug, Sparkles } from 'lucide-react';
 import { api } from '../api';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const STATUS_COLORS = {
-  backlog:     { dot: 'bg-purple-400',  text: 'text-purple-300',  bg: 'bg-purple-500/10' },
-  pending:     { dot: 'bg-slate-400',   text: 'text-slate-300',   bg: 'bg-slate-500/10' },
-  in_progress: { dot: 'bg-amber-400',   text: 'text-amber-300',   bg: 'bg-amber-500/10' },
-  done:        { dot: 'bg-emerald-400', text: 'text-emerald-300', bg: 'bg-emerald-500/10' },
-  error:       { dot: 'bg-red-400',     text: 'text-red-300',     bg: 'bg-red-500/10' },
-};
-
-const STATUS_LABELS = {
-  backlog: 'Backlog', pending: 'To Do', in_progress: 'In Progress', done: 'Done', error: 'Error'
-};
-
-function formatNumber(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return '—';
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainMin = minutes % 60;
+  if (hours < 24) return `${hours}h ${remainMin}m`;
+  const days = Math.floor(hours / 24);
+  const remainHours = hours % 24;
+  return `${days}d ${remainHours}h`;
 }
 
-// ── ProjectContextEditor ─────────────────────────────────────────────────────
+export default function ProjectsView({ agents = [], onSelectProject }) {
+  const [todos, setTodos] = useState([]);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('name');
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [projectStats, setProjectStats] = useState(null);
 
-function ProjectContextEditor({ projectName, context, onSaved }) {
-  const [editing, setEditing] = useState(false);
-  const [description, setDescription] = useState(context?.description || '');
-  const [rules, setRules] = useState(context?.rules || '');
-  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get('/agents/todos').then(res => setTodos(res.data)).catch(() => {});
+  }, []);
 
-  const handleEdit = () => {
-    setDescription(context?.description || '');
-    setRules(context?.rules || '');
-    setEditing(true);
-  };
-
-  const handleCancel = () => {
-    setEditing(false);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await api.saveProjectContext(projectName, description, rules);
-      await onSaved();
-      setEditing(false);
-    } finally {
-      setSaving(false);
+  useEffect(() => {
+    if (selectedProject) {
+      api.get(`/agents/todos/stats?project=${encodeURIComponent(selectedProject)}`).then(res => setProjectStats(res.data)).catch(() => setProjectStats(null));
+    } else {
+      setProjectStats(null);
     }
-  };
+  }, [selectedProject]);
 
-  const hasContent = context?.description || context?.rules;
+  // Derive projects from agents + todos
+  const projects = useMemo(() => {
+    const projectMap = new Map();
 
-  if (!editing) {
-    return (
-      <div className="mt-4 border-t border-dark-700/50 pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold text-dark-400 uppercase tracking-wide flex items-center gap-1.5">
-            <BookOpen className="w-3 h-3" />
-            Project Context
-          </span>
-          <button
-            onClick={handleEdit}
-            className="flex items-center gap-1 text-xs text-dark-500 hover:text-indigo-400 transition-colors"
-          >
-            <Edit3 className="w-3 h-3" />
-            {hasContent ? 'Edit' : 'Add context'}
-          </button>
-        </div>
-        {hasContent ? (
-          <div className="space-y-3">
-            {context.description && (
-              <div>
-                <p className="text-xs text-dark-500 mb-1">Objective</p>
-                <p className="text-xs text-dark-300 leading-relaxed whitespace-pre-wrap">{context.description}</p>
-              </div>
-            )}
-            {context.rules && (
-              <div>
-                <p className="text-xs text-dark-500 mb-1 flex items-center gap-1">
-                  <ListChecks className="w-3 h-3" />Rules
-                </p>
-                <p className="text-xs text-dark-300 leading-relaxed whitespace-pre-wrap">{context.rules}</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-dark-600 italic">No context defined yet. Add an objective and rules for this project.</p>
-        )}
-      </div>
-    );
-  }
+    for (const a of agents) {
+      if (!a.project) continue;
+      if (!projectMap.has(a.project)) {
+        projectMap.set(a.project, { name: a.project, agents: [], todos: [], stats: {} });
+      }
+      projectMap.get(a.project).agents.push(a);
+    }
+
+    for (const t of todos) {
+      if (!t.project) continue;
+      if (!projectMap.has(t.project)) {
+        projectMap.set(t.project, { name: t.project, agents: [], todos: [], stats: {} });
+      }
+      projectMap.get(t.project).todos.push(t);
+    }
+
+    for (const [, p] of projectMap) {
+      const total = p.todos.length;
+      const done = p.todos.filter(t => t.status === 'done').length;
+      const inProgress = p.todos.filter(t => t.status === 'in_progress').length;
+      const pending = p.todos.filter(t => t.status === 'pending').length;
+      const backlog = p.todos.filter(t => t.status === 'backlog').length;
+      const bugs = p.todos.filter(t => (t.type || 'bug') === 'bug').length;
+      const features = p.todos.filter(t => t.type === 'feature').length;
+      p.stats = { total, done, inProgress, pending, backlog, bugs, features, completion: total ? Math.round((done / total) * 100) : 0 };
+    }
+
+    let result = Array.from(projectMap.values());
+    if (search) {
+      result = result.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    }
+    if (sortBy === 'name') result.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sortBy === 'tasks') result.sort((a, b) => b.stats.total - a.stats.total);
+    else if (sortBy === 'completion') result.sort((a, b) => b.stats.completion - a.stats.completion);
+    return result;
+  }, [agents, todos, search, sortBy]);
 
   return (
-    <div className="mt-4 border-t border-dark-700/50 pt-4 space-y-3">
-      <span className="text-xs font-semibold text-dark-400 uppercase tracking-wide flex items-center gap-1.5">
-        <BookOpen className="w-3 h-3" />
-        Project Context
-      </span>
-      <div>
-        <label className="block text-xs text-dark-500 mb-1">Objective / Description</label>
-        <textarea
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          rows={3}
-          placeholder="What is this project trying to achieve?"
-          className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-xs text-dark-200
-            placeholder-dark-600 focus:outline-none focus:border-indigo-500 resize-none transition-colors"
-        />
-      </div>
-      <div>
-        <label className="block text-xs text-dark-500 mb-1 flex items-center gap-1">
-          <ListChecks className="w-3 h-3" />Rules &amp; guidelines
-        </label>
-        <textarea
-          value={rules}
-          onChange={e => setRules(e.target.value)}
-          rows={4}
-          placeholder="Rules agents should follow when working on this project..."
-          className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-xs text-dark-200
-            placeholder-dark-600 focus:outline-none focus:border-indigo-500 resize-none transition-colors"
-        />
-      </div>
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={handleCancel}
-          className="px-3 py-1.5 text-xs text-dark-400 hover:text-dark-200 bg-dark-800
-            border border-dark-700 hover:border-dark-500 rounded-lg transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white
-            bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-lg transition-colors"
-        >
-          <Save className="w-3 h-3" />
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── ProjectCard ──────────────────────────────────────────────────────────────
-
-function ProjectCard({ projectName, agents, tasks, context, onRefresh }) {
-  const [expanded, setExpanded] = useState(false);
-  const [indexing, setIndexing] = useState(false);
-  const [indexStatus, setIndexStatus] = useState(null); // null | 'ok' | 'error'
-
-  const handleReindex = async () => {
-    setIndexing(true);
-    setIndexStatus(null);
-    try {
-      await api.indexProject(projectName);
-      setIndexStatus('ok');
-    } catch {
-      setIndexStatus('error');
-    } finally {
-      setIndexing(false);
-      setTimeout(() => setIndexStatus(null), 3000);
-    }
-  };
-
-  const projectAgents = useMemo(
-    () => agents.filter(a => a.project === projectName),
-    [agents, projectName]
-  );
-
-  const taskCounts = useMemo(() => {
-    const counts = { backlog: 0, pending: 0, in_progress: 0, done: 0, error: 0, total: 0 };
-    tasks.forEach(t => {
-      const s = t.status || 'pending';
-      if (s in counts) counts[s]++;
-      counts.total++;
-    });
-    return counts;
-  }, [tasks]);
-
-  const tokens = useMemo(() => {
-    const tokensIn = projectAgents.reduce((s, a) => s + (a.metrics?.totalTokensIn || 0), 0);
-    const tokensOut = projectAgents.reduce((s, a) => s + (a.metrics?.totalTokensOut || 0), 0);
-    return { in: tokensIn, out: tokensOut, total: tokensIn + tokensOut };
-  }, [projectAgents]);
-
-  const completionPct = taskCounts.total > 0
-    ? Math.round((taskCounts.done / taskCounts.total) * 100)
-    : 0;
-
-  return (
-    <div className="bg-dark-800/60 border border-dark-700/50 rounded-xl overflow-hidden hover:border-dark-600 transition-colors">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="px-5 py-4">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
-              <Tag className="w-4 h-4 text-violet-400" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-dark-100">{projectName}</h3>
-              {context?.description && (
-                <p className="text-xs text-dark-400 mt-0.5 line-clamp-1">{context.description}</p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-            <button
-              onClick={handleReindex}
-              disabled={indexing}
-              title="Re-index project locally"
-              className={`p-1 rounded transition-colors ${
-                indexStatus === 'ok' ? 'text-emerald-400' :
-                indexStatus === 'error' ? 'text-red-400' :
-                'text-dark-500 hover:text-indigo-400'
-              }`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${indexing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={() => setExpanded(e => !e)}
-              className="p-1 text-dark-500 hover:text-dark-300 transition-colors"
-            >
-              <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <FolderGit2 size={20} className="text-purple-400" />
+          <h2 className="text-lg font-semibold text-white">Projects</h2>
+          <span className="text-xs text-dark-400 bg-dark-700 px-2 py-0.5 rounded-full">{projects.length}</span>
         </div>
-
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="bg-dark-800 rounded-lg px-3 py-2 border border-dark-700/50">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <Users className="w-3 h-3 text-indigo-400" />
-              <span className="text-xs text-dark-400">Agents</span>
-            </div>
-            <span className="text-lg font-bold text-dark-100">{projectAgents.length}</span>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-dark-400" />
+            <input
+              type="text"
+              placeholder="Search projects..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="bg-dark-700 border border-dark-600 rounded pl-7 pr-3 py-1.5 text-sm text-white w-48"
+            />
           </div>
-          <div className="bg-dark-800 rounded-lg px-3 py-2 border border-dark-700/50">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <CheckSquare className="w-3 h-3 text-emerald-400" />
-              <span className="text-xs text-dark-400">Tasks</span>
-            </div>
-            <span className="text-lg font-bold text-dark-100">{taskCounts.total}</span>
-          </div>
-          <div className="bg-dark-800 rounded-lg px-3 py-2 border border-dark-700/50">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <Zap className="w-3 h-3 text-amber-400" />
-              <span className="text-xs text-dark-400">Tokens</span>
-            </div>
-            <span className="text-lg font-bold text-dark-100">{formatNumber(tokens.total)}</span>
-          </div>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm text-white"
+          >
+            <option value="name">Sort: Name</option>
+            <option value="tasks">Sort: Tasks</option>
+            <option value="completion">Sort: Completion</option>
+          </select>
         </div>
-
-        {/* Task status breakdown */}
-        {taskCounts.total > 0 && (
-          <div>
-            {/* Progress bar */}
-            <div className="flex items-center gap-2 mb-2">
-              <div className="flex-1 h-1.5 bg-dark-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                  style={{ width: `${completionPct}%` }}
-                />
-              </div>
-              <span className="text-xs text-dark-400 flex-shrink-0">{completionPct}%</span>
-            </div>
-            {/* Status pills */}
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(STATUS_LABELS).map(([status, label]) => {
-                const count = taskCounts[status];
-                if (!count) return null;
-                const c = STATUS_COLORS[status];
-                return (
-                  <span key={status}
-                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${c.text} ${c.bg}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-                    {count} {label}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Expanded section */}
-      {expanded && (
-        <div className="border-t border-dark-700/50 px-5 pb-5">
-          {/* Agents list */}
-          {projectAgents.length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-dark-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <Users className="w-3 h-3" />Agents
-              </p>
-              <div className="space-y-1.5">
-                {projectAgents.map(a => (
-                  <div key={a.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                        style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }}
-                      />
-                      <span className="text-xs text-dark-300">{a.name}</span>
-                      <span className="text-xs text-dark-500 capitalize">{a.status}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-dark-500">
-                      <span className="flex items-center gap-1">
-                        <Cpu className="w-3 h-3" />
-                        {formatNumber((a.metrics?.totalTokensIn || 0) + (a.metrics?.totalTokensOut || 0))}
-                      </span>
-                    </div>
+      {/* Stats Panel */}
+      {selectedProject && projectStats && (
+        <div className="bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <BarChart3 size={16} className="text-purple-400" />
+              Statistics: {selectedProject}
+            </h3>
+            <button onClick={() => setSelectedProject(null)} className="text-xs text-dark-400 hover:text-white">Close</button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Type breakdown */}
+            <div className="bg-dark-700/50 rounded-lg p-3">
+              <div className="text-xs text-dark-400 mb-1">Type Breakdown</div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <span className="text-orange-400">🐛</span>
+                  <span className="text-sm text-white font-medium">{projectStats.byType?.bug || 0}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-emerald-400">✨</span>
+                  <span className="text-sm text-white font-medium">{projectStats.byType?.feature || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Resolution time */}
+            <div className="bg-dark-700/50 rounded-lg p-3">
+              <div className="text-xs text-dark-400 mb-1">Avg Resolution</div>
+              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolution?.avg)}</div>
+              <div className="text-xs text-dark-500">median: {formatDuration(projectStats.resolution?.median)}</div>
+            </div>
+
+            {/* Bug resolution */}
+            <div className="bg-dark-700/50 rounded-lg p-3">
+              <div className="text-xs text-dark-400 mb-1">🐛 Bug Resolution</div>
+              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolutionByType?.bug?.avg)}</div>
+              <div className="text-xs text-dark-500">{projectStats.resolutionByType?.bug?.count || 0} resolved</div>
+            </div>
+
+            {/* Feature resolution */}
+            <div className="bg-dark-700/50 rounded-lg p-3">
+              <div className="text-xs text-dark-400 mb-1">✨ Feature Resolution</div>
+              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolutionByType?.feature?.avg)}</div>
+              <div className="text-xs text-dark-500">{projectStats.resolutionByType?.feature?.count || 0} resolved</div>
+            </div>
+          </div>
+
+          {/* State durations */}
+          {projectStats.avgStateDurations && Object.keys(projectStats.avgStateDurations).length > 0 && (
+            <div>
+              <div className="text-xs text-dark-400 mb-2">Average Time in State</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(projectStats.avgStateDurations).map(([state, data]) => (
+                  <div key={state} className="bg-dark-700/50 rounded px-3 py-1.5 text-xs">
+                    <span className="text-dark-400">{state}:</span>{' '}
+                    <span className="text-white font-medium">{formatDuration(data.avg)}</span>
+                    <span className="text-dark-500 ml-1">({data.count}x)</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Context editor */}
-          <ProjectContextEditor
-            projectName={projectName}
-            context={context}
-            onSaved={onRefresh}
-          />
+          {/* Status distribution bar */}
+          {projectStats.byStatus && (
+            <div>
+              <div className="text-xs text-dark-400 mb-2">Status Distribution</div>
+              <div className="flex h-4 rounded-full overflow-hidden bg-dark-700">
+                {projectStats.byStatus.done > 0 && <div className="bg-green-500" style={{ width: `${(projectStats.byStatus.done / projectStats.total) * 100}%` }} title={`Done: ${projectStats.byStatus.done}`} />}
+                {projectStats.byStatus.in_progress > 0 && <div className="bg-yellow-500" style={{ width: `${(projectStats.byStatus.in_progress / projectStats.total) * 100}%` }} title={`In Progress: ${projectStats.byStatus.in_progress}`} />}
+                {projectStats.byStatus.pending > 0 && <div className="bg-blue-500" style={{ width: `${(projectStats.byStatus.pending / projectStats.total) * 100}%` }} title={`Pending: ${projectStats.byStatus.pending}`} />}
+                {projectStats.byStatus.backlog > 0 && <div className="bg-gray-500" style={{ width: `${(projectStats.byStatus.backlog / projectStats.total) * 100}%` }} title={`Backlog: ${projectStats.byStatus.backlog}`} />}
+              </div>
+              <div className="flex gap-3 mt-1 text-xs text-dark-400">
+                {projectStats.byStatus.done > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Done: {projectStats.byStatus.done}</span>}
+                {projectStats.byStatus.in_progress > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Active: {projectStats.byStatus.in_progress}</span>}
+                {projectStats.byStatus.pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Todo: {projectStats.byStatus.pending}</span>}
+                {projectStats.byStatus.backlog > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />Backlog: {projectStats.byStatus.backlog}</span>}
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
 
-// ── ProjectsView ─────────────────────────────────────────────────────────────
+      {/* Project Cards */}
+      {projects.length === 0 && (
+        <div className="text-center py-12 text-dark-400">
+          <FolderGit2 size={48} className="mx-auto mb-3 opacity-30" />
+          <p>No projects found</p>
+          <p className="text-xs mt-1">Projects are derived from agent assignments and task projects</p>
+        </div>
+      )}
 
-export default function ProjectsView({ agents, projectContexts, onRefresh }) {
-  // Derive all project names from agents and their tasks
-  const allProjectNames = useMemo(() => {
-    const names = new Set();
-    agents.forEach(a => {
-      if (a.project) names.add(a.project);
-      (a.todoList || []).forEach(t => { if (t.project) names.add(t.project); });
-    });
-    return Array.from(names).sort();
-  }, [agents]);
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {projects.map(p => (
+          <div
+            key={p.name}
+            className="bg-dark-800 border border-dark-700 rounded-xl p-4 hover:border-purple-500/50 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white truncate" onClick={() => onSelectProject?.(p.name)}>{p.name}</h3>
+              <button
+                onClick={(e) => { e.stopPropagation(); setSelectedProject(selectedProject === p.name ? null : p.name); }}
+                className={`p-1 rounded hover:bg-dark-600 ${selectedProject === p.name ? 'text-purple-400' : 'text-dark-400'}`}
+                title="View statistics"
+              >
+                <BarChart3 size={14} />
+              </button>
+            </div>
 
-  // All tasks across all agents
-  const allTasks = useMemo(() =>
-    agents.flatMap(a => (a.todoList || []).map(t => ({ ...t, agentId: a.id }))),
-    [agents]
-  );
+            {/* Progress bar */}
+            <div className="w-full bg-dark-700 rounded-full h-1.5 mb-3">
+              <div
+                className="bg-green-500 h-1.5 rounded-full transition-all"
+                style={{ width: `${p.stats.completion}%` }}
+              />
+            </div>
 
-  const contextByName = useMemo(() => {
-    const map = {};
-    projectContexts.forEach(c => { map[c.name] = c; });
-    return map;
-  }, [projectContexts]);
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                <Users size={12} className="text-blue-400" />
+                <span className="text-dark-300">{p.agents.length} agents</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <ListTodo size={12} className="text-purple-400" />
+                <span className="text-dark-300">{p.stats.total} tasks</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-orange-400 text-xs">🐛</span>
+                <span className="text-dark-300">{p.stats.bugs} bugs</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-400 text-xs">✨</span>
+                <span className="text-dark-300">{p.stats.features} features</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Activity size={12} className="text-yellow-400" />
+                <span className="text-dark-300">{p.stats.inProgress} active</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Clock size={12} className="text-green-400" />
+                <span className="text-dark-300">{p.stats.completion}% done</span>
+              </div>
+            </div>
 
-  const totalTokens = useMemo(() =>
-    agents.reduce((s, a) => s + (a.metrics?.totalTokensIn || 0) + (a.metrics?.totalTokensOut || 0), 0),
-    [agents]
-  );
-
-  const totalTasks = allTasks.length;
-  const doneTasks = allTasks.filter(t => t.status === 'done').length;
-
-  if (allProjectNames.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-12">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-dark-800 flex items-center justify-center">
-            <Tag className="w-8 h-8 text-dark-500" />
+            {/* Agent avatars */}
+            {p.agents.length > 0 && (
+              <div className="flex items-center gap-1 mt-3 pt-3 border-t border-dark-700">
+                {p.agents.slice(0, 5).map(a => (
+                  <div
+                    key={a.id || a.name}
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      a.status === 'busy' ? 'bg-yellow-500/20 text-yellow-400' :
+                      a.status === 'idle' ? 'bg-green-500/20 text-green-400' :
+                      'bg-dark-600 text-dark-400'
+                    }`}
+                    title={`${a.name} (${a.status})`}
+                  >
+                    {(a.name || '?')[0]}
+                  </div>
+                ))}
+                {p.agents.length > 5 && (
+                  <span className="text-xs text-dark-400">+{p.agents.length - 5}</span>
+                )}
+              </div>
+            )}
           </div>
-          <h3 className="text-dark-300 font-medium mb-1">No projects yet</h3>
-          <p className="text-dark-500 text-sm">Assign agents or tasks to a project to see them here.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Toolbar */}
-      <div className="flex items-center gap-4 px-6 py-3 border-b border-dark-700 bg-dark-900/30">
-        <div className="text-sm font-semibold text-dark-200">
-          {allProjectNames.length} project{allProjectNames.length !== 1 ? 's' : ''}
-        </div>
-        <div className="flex items-center gap-4 ml-auto text-xs text-dark-500">
-          <span className="flex items-center gap-1.5">
-            <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
-            {doneTasks}/{totalTasks} tasks done
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            {formatNumber(totalTokens)} total tokens
-          </span>
-        </div>
-      </div>
-
-      {/* Grid */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-w-[1800px]">
-          {allProjectNames.map(name => (
-            <ProjectCard
-              key={name}
-              projectName={name}
-              agents={agents}
-              tasks={allTasks.filter(t => t.project === name)}
-              context={contextByName[name] || null}
-              onRefresh={onRefresh}
-            />
-          ))}
-        </div>
+        ))}
       </div>
     </div>
   );

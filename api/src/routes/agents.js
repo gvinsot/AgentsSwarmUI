@@ -303,6 +303,20 @@ export function agentRoutes(agentManager) {
   router.delete('/:id/plugins/:pluginId', pluginRemoveHandler);
   // Backward compatibility
   router.post('/:id/skills', pluginAssignHandler);
+
+// ── Todo History & Stats ──────────────────────────────────────────────────────
+
+router.get("/todos/stats", (req, res) => {
+  const { project } = req.query;
+  const stats = globalTodoStore.getStats(project || null);
+  res.json(stats);
+});
+
+router.get("/todos/:id/history", (req, res) => {
+  const history = globalTodoStore.getHistory(req.params.id);
+  if (!history) return res.status(404).json({ error: "Not found" });
+  res.json(history);
+});
   router.delete('/:id/skills/:skillId', pluginRemoveHandler);
 
   // ── MCP server assignment endpoints (backward compat) ───────────
