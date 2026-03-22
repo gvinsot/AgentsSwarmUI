@@ -499,6 +499,7 @@ def _build_claude_cmd(output_format: str = "json", system_prompt: Optional[str] 
         "--model", CLAUDE_MODEL,
         # Headless mode: skip all permission prompts so the agent can run autonomously
         "--dangerously-skip-permissions",
+        "--reasoning-effort", "high",
     ]
 
     # Append to the default system prompt instead of replacing it, so Claude Code
