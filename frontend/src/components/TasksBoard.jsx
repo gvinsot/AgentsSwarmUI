@@ -8,6 +8,7 @@ import { api } from '../api';
 // ── Column definitions ──────────────────────────────────────────────────────
 
 const COLUMNS = [
+  { id: 'idea', label: '💡', color: 'bg-purple-500' },
   {
     id: 'backlog',
     label: 'Backlog',
