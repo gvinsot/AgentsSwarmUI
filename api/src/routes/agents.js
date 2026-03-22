@@ -226,7 +226,7 @@ export function agentRoutes(agentManager) {
       agentManager.update(agent.id, { project });
     }
     const resolvedSource = source || { type: 'user' };
-    const validStatuses = ['backlog', 'pending', 'in_progress', 'done', 'error'];
+    const validStatuses = ['idea', 'backlog', 'pending', 'in_progress', 'done', 'error'];
     const resolvedStatus = status && validStatuses.includes(status) ? status : undefined;
     const todo = agentManager.addTodo(req.params.id, text, project, resolvedSource, resolvedStatus);
     if (!todo) return res.status(404).json({ error: 'Agent not found' });

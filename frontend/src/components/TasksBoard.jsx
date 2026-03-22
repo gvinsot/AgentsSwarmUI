@@ -66,6 +66,7 @@ const COLUMNS = [
 ];
 
 const STATUS_OPTIONS = [
+  { value: 'idea',        label: 'Idea',         dot: 'bg-purple-400',  text: 'text-purple-300' },
   { value: 'backlog',     label: 'Backlog',      dot: 'bg-purple-400',  text: 'text-purple-300' },
   { value: 'pending',     label: 'To Do',        dot: 'bg-slate-400',   text: 'text-slate-300' },
   { value: 'in_progress', label: 'In Progress',  dot: 'bg-amber-400',   text: 'text-amber-300' },

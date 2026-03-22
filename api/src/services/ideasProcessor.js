@@ -1,9 +1,13 @@
-import { globalTodoStore } from './globalTodoStore.js';
 import { getSettings } from './configManager.js';
 
 /**
- * Process a todo in "idea" status by using an agent's LLM provider
- * to improve its description, then move it to backlog.
+ * Process a todo in "idea" status: send it as a message to the configured
+ * ideas-agent so the refinement is visible in the agent's chat, then move
+ * the todo to backlog with the improved description.
+ *
+ * @param {object}       todo         The todo object (must have .id, .text, .agentId)
+ * @param {AgentManager} agentManager The running AgentManager instance
+ * @param {SocketIO}     io           Socket.IO server (for streaming to all clients)
  */
 export async function processIdeaTodo(todo, agentManager, io) {
   try {
@@ -11,73 +15,82 @@ export async function processIdeaTodo(todo, agentManager, io) {
     const ideasAgentName = settings.ideasAgent;
 
     if (!ideasAgentName) {
-      console.log(`💡 [Ideas] No ideas agent configured, skipping for "${todo.title}"`);
+      // No agent configured — silently move to backlog
+      agentManager.setTodoStatus(todo.agentId, todo.id, 'backlog');
       return;
     }
 
-    // Find agent by name
-    const agent = Array.from(agentManager.agents.values()).find(
+    // Find the ideas-refinement agent by name
+    const ideasAgent = Array.from(agentManager.agents.values()).find(
       a => (a.name || '').toLowerCase() === ideasAgentName.toLowerCase()
     );
 
-    if (!agent) {
-      console.log(`💡 [Ideas] Agent "${ideasAgentName}" not found, skipping for "${todo.title}"`);
+    if (!ideasAgent) {
+      console.log(`[Ideas] Agent "${ideasAgentName}" not found, moving to backlog as-is`);
+      agentManager.setTodoStatus(todo.agentId, todo.id, 'backlog');
       return;
     }
 
-    const agentConfig = {
-      provider: agent.provider,
-      model: agent.model,
-      apiKey: agent.apiKey,
-      endpoint: agent.endpoint,
-    };
+    const prompt = `Refine the following task idea into a clear, actionable task description for a development team.
 
-    console.log(`💡 [Ideas] Processing idea "${todo.title}" with agent "${ideasAgentName}" (${agentConfig.provider}/${agentConfig.model})`);
-
-    const prompt = `You are a task refinement assistant. Analyze the following task idea and improve its description to make it clear, actionable, and well-structured for a development team.
-
-Task Title: ${todo.title}
-${todo.description ? `Current Description: ${todo.description}` : 'No description provided.'}
+Task: ${todo.text}
 ${todo.project ? `Project: ${todo.project}` : ''}
 
-Please provide an improved, detailed description that includes:
+Provide an improved description that includes:
 1. A clear summary of what needs to be done
 2. Acceptance criteria or expected outcomes
-3. Any technical considerations or approach suggestions
+3. Any technical considerations
 
-IMPORTANT: Reply ONLY with the improved description text. Do not include the title, headers, or any preamble.`;
+Reply ONLY with the improved description. No title, no headers, no preamble.`;
 
-    const { createLoggingProvider } = await import('./llmProviders.js');
-    const provider = createLoggingProvider({ ...agentConfig, agentName: ideasAgentName });
+    console.log(`[Ideas] Refining "${todo.text}" via agent "${ideasAgent.name}"`);
 
-    const response = await provider.chat([
-      { role: 'system', content: 'You are a concise task refinement assistant. Improve task descriptions to be clear and actionable.' },
-      { role: 'user', content: prompt },
-    ], { maxTokens: 1024, temperature: 0.7 });
+    // Stream the refinement through the ideas agent's chat so it's visible in the UI
+    let fullResponse = '';
 
-    const improvedDescription = response.content?.trim();
+    io.emit('agent:stream:start', {
+      agentId: ideasAgent.id,
+      agentName: ideasAgent.name,
+      project: ideasAgent.project || null,
+    });
 
-    if (improvedDescription) {
-      globalTodoStore.update(todo.id, {
-        description: improvedDescription,
-        status: 'backlog',
+    try {
+      const result = await agentManager.sendMessage(
+        ideasAgent.id,
+        `[Idea Refinement] ${prompt}`,
+        (chunk) => {
+          fullResponse += chunk;
+          io.emit('agent:stream:chunk', {
+            agentId: ideasAgent.id,
+            agentName: ideasAgent.name,
+            project: ideasAgent.project || null,
+            chunk,
+          });
+        }
+      );
+
+      const improved = (result?.content || fullResponse).trim();
+
+      if (improved) {
+        // Update todo text with the refined description and move to backlog
+        agentManager.updateTodoText(todo.agentId, todo.id, `${todo.text}\n\n---\n${improved}`);
+      }
+      agentManager.setTodoStatus(todo.agentId, todo.id, 'backlog');
+      console.log(`[Ideas] Refined and moved to backlog: "${todo.text}"`);
+    } finally {
+      io.emit('agent:stream:end', {
+        agentId: ideasAgent.id,
+        agentName: ideasAgent.name,
+        project: ideasAgent.project || null,
       });
-      console.log(`💡 [Ideas] Improved and moved to backlog: "${todo.title}" (${todo.id})`);
-    } else {
-      globalTodoStore.update(todo.id, { status: 'backlog' });
-      console.log(`💡 [Ideas] No improvement returned, moved to backlog as-is: "${todo.title}"`);
     }
-
-    // Broadcast update
-    if (io) io.emit('todos:updated', globalTodoStore.getAll());
   } catch (err) {
-    console.error(`💡 [Ideas] Error processing "${todo.title}":`, err.message);
+    console.error(`[Ideas] Error processing "${todo.text}":`, err.message);
     // Move to backlog so it doesn't get stuck
     try {
-      globalTodoStore.update(todo.id, { status: 'backlog' });
-      if (io) io.emit('todos:updated', globalTodoStore.getAll());
+      agentManager.setTodoStatus(todo.agentId, todo.id, 'backlog');
     } catch (e) {
-      console.error(`💡 [Ideas] Failed to save after error:`, e.message);
+      console.error(`[Ideas] Failed to move to backlog after error:`, e.message);
     }
   }
 }
