@@ -36,10 +36,8 @@ export async function processIdeaTodo(todo, agentManager, io) {
 Task: ${todo.text}
 ${todo.project ? `Project: ${todo.project}` : ''}
 
-Provide an improved description that includes:
-1. A clear summary of what needs to be done
-2. Acceptance criteria or expected outcomes
-3. Any technical considerations
+Improve the task description with more details or adding relevant context and additionnal related ideas that can improve the product without too much effort. 
+Keep it concise but informative.
 
 Reply ONLY with the improved description. No title, no headers, no preamble.`;
 
