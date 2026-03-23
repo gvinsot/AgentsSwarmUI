@@ -968,7 +968,7 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
   const updateTransition = (idx, patch) => setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
   const removeTransition = (idx) => setTransitions(prev => prev.filter((_, i) => i !== idx));
   const addTransition = () => {
-    setTransitions(prev => [...prev, { from: cols[0]?.id || '', to: cols[1]?.id || '', agent: null, autoRefine: false, instructions: '' }]);
+    setTransitions(prev => [...prev, { from: cols[0]?.id || '', to: cols[1]?.id || '', agent: null, autoRefine: false, mode: 'refine', instructions: '' }]);
   };
 
   return (
@@ -1075,21 +1075,31 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                       Automatic transition
                     </label>
                     {t.autoRefine && (
-                      <select
-                        value={t.agent || ''}
-                        onChange={e => updateTransition(idx, { agent: e.target.value || null })}
-                        className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
-                      >
-                        <option value="">Select role...</option>
-                        {availableRoles.map(r => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={t.agent || ''}
+                          onChange={e => updateTransition(idx, { agent: e.target.value || null })}
+                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
+                        >
+                          <option value="">Select role...</option>
+                          {availableRoles.map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={t.mode || 'refine'}
+                          onChange={e => updateTransition(idx, { mode: e.target.value })}
+                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
+                        >
+                          <option value="refine">Refine task</option>
+                          <option value="execute">Execute task</option>
+                        </select>
+                      </>
                     )}
                   </div>
 
-                  {/* Instructions */}
-                  {t.autoRefine && (
+                  {/* Instructions (only in refine mode) */}
+                  {t.autoRefine && (t.mode || 'refine') === 'refine' && (
                     <textarea
                       value={t.instructions || ''}
                       onChange={e => updateTransition(idx, { instructions: e.target.value })}

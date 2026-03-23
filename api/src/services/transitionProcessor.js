@@ -51,7 +51,9 @@ export async function processTransition(todo, agentManager, io) {
     }
 
     const instructions = todo._transition?.instructions || '';
-    const isExecution = !instructions || instructions.includes('[EXECUTE]');
+    const mode = todo._transition?.mode;
+    // Explicit mode takes precedence; fall back to legacy heuristic
+    const isExecution = mode === 'execute' || (!mode && (!instructions || instructions.includes('[EXECUTE]')));
 
     // Auto-switch agent to the todo's project if needed
     if (todo.project && todo.project !== agent.project) {
@@ -127,7 +129,8 @@ export async function processTransition(todo, agentManager, io) {
     console.error(`[Workflow] Error processing "${todo.text}":`, err.message);
     try {
       const instructions = todo._transition?.instructions || '';
-      const isExec = !instructions || instructions.includes('[EXECUTE]');
+      const errMode = todo._transition?.mode;
+      const isExec = errMode === 'execute' || (!errMode && (!instructions || instructions.includes('[EXECUTE]')));
       if (isExec) {
         agentManager.setTodoStatus(todo.agentId, todo.id, 'error', { skipAutoRefine: true, by: 'workflow' });
       } else if (targetStatus) {
