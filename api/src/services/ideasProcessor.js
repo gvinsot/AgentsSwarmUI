@@ -1,52 +1,40 @@
 import { getSettings } from './configManager.js';
 
 /**
- * Process a todo in "idea" status: send it as a message to the configured
- * ideas-agent so the refinement is visible in the agent's chat, then move
- * the todo to backlog with the improved description.
- *
- * @param {object}       todo         The todo object (must have .id, .text, .agentId)
- * @param {AgentManager} agentManager The running AgentManager instance
- * @param {SocketIO}     io           Socket.IO server (for streaming to all clients)
+ * Process a todo via workflow auto-refine: send it as a message to the
+ * configured agent so the refinement is visible in the agent's chat,
+ * then move the todo to the target status with the improved description.
  */
 export async function processIdeaTodo(todo, agentManager, io) {
+  const targetStatus = todo._transition?.to || 'backlog';
+
   try {
     const settings = await getSettings();
     const ideasAgentName = settings.ideasAgent;
 
-    // Use transition config if available, default to 'backlog'
-    const targetStatus = todo._transition?.to || 'backlog';
+    // Find agent: prefer transition-level agent name, fall back to global setting
+    const transitionAgentName = todo._transition?.agent;
+    let refinementAgent = null;
 
-    if (!ideasAgentName) {
-      // No agent configured — silently move to target status
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus);
-      return;
-    }
-
-    // Find agent: prefer transition config agent role, fall back to settings agent name
-    const transitionAgentRole = todo._transition?.agent;
-    let ideasAgent = null;
-    if (transitionAgentRole) {
-      ideasAgent = Array.from(agentManager.agents.values()).find(
-        a => a.enabled !== false && (a.role || '').toLowerCase() === transitionAgentRole.toLowerCase()
+    if (transitionAgentName) {
+      refinementAgent = Array.from(agentManager.agents.values()).find(
+        a => a.enabled !== false && (a.name || '').toLowerCase() === transitionAgentName.toLowerCase()
       );
     }
-    if (!ideasAgent) {
-      ideasAgent = Array.from(agentManager.agents.values()).find(
+    if (!refinementAgent && ideasAgentName) {
+      refinementAgent = Array.from(agentManager.agents.values()).find(
         a => a.enabled !== false && (a.name || '').toLowerCase() === ideasAgentName.toLowerCase()
       );
     }
 
-    if (!ideasAgent) {
-      console.log(`[Workflow] Agent "${transitionAgentRole || ideasAgentName}" not found, moving to ${targetStatus} as-is`);
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus);
+    if (!refinementAgent) {
+      console.log(`[Workflow] No agent found for auto-refine, moving to ${targetStatus} as-is`);
+      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
       return;
     }
 
-    // Use custom instructions from transition config, or default refinement prompt
-    const customInstructions = todo._transition?.instructions;
-    const defaultInstructions = 'Improve the task description with more details or adding relevant context and additionnal related ideas that can improve the product without too much effort. Keep it concise but informative.';
-    const instructions = customInstructions || defaultInstructions;
+    const instructions = todo._transition?.instructions
+      || 'Improve the task description with more details or adding relevant context. Keep it concise but informative.';
 
     const prompt = `Refine the following task idea into a clear, actionable task description for a development team.
 
@@ -57,54 +45,50 @@ ${instructions}
 
 Reply ONLY with the improved description. No title, no headers, no preamble.`;
 
-    console.log(`[Workflow] Refining "${todo.text}" via agent "${ideasAgent.name}" (${todo.status} → ${targetStatus})`);
+    console.log(`[Workflow] Refining "${todo.text}" via agent "${refinementAgent.name}" (${todo.status} -> ${targetStatus})`);
 
-    // Stream the refinement through the ideas agent's chat so it's visible in the UI
     let fullResponse = '';
 
     io.emit('agent:stream:start', {
-      agentId: ideasAgent.id,
-      agentName: ideasAgent.name,
-      project: ideasAgent.project || null,
+      agentId: refinementAgent.id,
+      agentName: refinementAgent.name,
+      project: refinementAgent.project || null,
     });
 
     try {
       const result = await agentManager.sendMessage(
-        ideasAgent.id,
-        `[Idea Refinement] ${prompt}`,
+        refinementAgent.id,
+        `[Auto-Refine] ${prompt}`,
         (chunk) => {
           fullResponse += chunk;
           io.emit('agent:stream:chunk', {
-            agentId: ideasAgent.id,
-            agentName: ideasAgent.name,
-            project: ideasAgent.project || null,
+            agentId: refinementAgent.id,
+            agentName: refinementAgent.name,
+            project: refinementAgent.project || null,
             chunk,
           });
         }
       );
 
       const improved = (result?.content || fullResponse).trim();
-
       if (improved) {
-        // Update todo text with the refined description and move to backlog
         agentManager.updateTodoText(todo.agentId, todo.id, `${todo.text}\n\n---\n${improved}`);
       }
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus);
+      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
       console.log(`[Workflow] Refined and moved to ${targetStatus}: "${todo.text}"`);
     } finally {
       io.emit('agent:stream:end', {
-        agentId: ideasAgent.id,
-        agentName: ideasAgent.name,
-        project: ideasAgent.project || null,
+        agentId: refinementAgent.id,
+        agentName: refinementAgent.name,
+        project: refinementAgent.project || null,
       });
     }
   } catch (err) {
-    console.error(`[Ideas] Error processing "${todo.text}":`, err.message);
-    // Move to backlog so it doesn't get stuck
+    console.error(`[Workflow] Error processing "${todo.text}":`, err.message);
     try {
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus);
+      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
     } catch (e) {
-      console.error(`[Ideas] Failed to move to backlog after error:`, e.message);
+      console.error(`[Workflow] Failed to move to ${targetStatus} after error:`, e.message);
     }
   }
 }

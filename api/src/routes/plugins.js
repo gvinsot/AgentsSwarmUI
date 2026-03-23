@@ -4,16 +4,17 @@ import { z } from 'zod';
 const mcpConfigSchema = z.object({
   id: z.string().max(200).optional(),
   name: z.string().min(1).max(200),
-  url: z.string().url().max(2000),
+  url: z.string().max(2000),
   description: z.string().max(2000).optional(),
   icon: z.string().max(50).optional(),
   enabled: z.boolean().optional(),
   authMode: z.enum(['none', 'bearer']).optional(),
   apiKey: z.string().max(500).optional(),
+  hasApiKey: z.boolean().optional(),
   userConfig: z.record(z.any()).optional(),
-});
+}).catchall(z.any());
 
-const createPluginSchema = z.object({
+const pluginSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   category: z.string().max(100).optional(),
@@ -21,9 +22,10 @@ const createPluginSchema = z.object({
   instructions: z.string().min(1).max(50000),
   userConfig: z.record(z.any()).optional(),
   mcps: z.array(mcpConfigSchema).optional(),
-});
+}).catchall(z.any());
 
-const updatePluginSchema = createPluginSchema.partial();
+const createPluginSchema = pluginSchema;
+const updatePluginSchema = pluginSchema.partial();
 
 function sanitizeMcp(mcp) {
   if (!mcp) return mcp;

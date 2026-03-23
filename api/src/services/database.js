@@ -85,6 +85,20 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       `);
 
       console.log('✅ Settings table ready');
+
+      // Create workflows table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS workflows (
+          project TEXT PRIMARY KEY,
+          columns JSONB NOT NULL DEFAULT '[]',
+          transitions JSONB NOT NULL DEFAULT '[]',
+          version INTEGER NOT NULL DEFAULT 1,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      console.log('✅ Workflows table ready');
       _dbConnected = true;
       return true;
     } catch (err) {

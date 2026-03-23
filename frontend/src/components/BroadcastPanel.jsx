@@ -286,9 +286,13 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
       <div
-        className="w-full h-full sm:w-[700px] sm:h-[80vh] sm:max-h-[800px] sm:rounded-2xl bg-dark-900 border-0 sm:border border-dark-700 shadow-2xl flex flex-col overflow-hidden"
+        className={`w-full h-full sm:h-[80vh] sm:max-h-[800px] sm:rounded-2xl bg-dark-900 border-0 sm:border border-dark-700 shadow-2xl flex flex-row overflow-hidden transition-all duration-300 ${
+          editingPlugin ? 'sm:w-[1100px]' : 'sm:w-[700px]'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* ── Left panel (main) ── */}
+        <div className={`flex flex-col overflow-hidden ${editingPlugin ? 'sm:w-[700px] flex-shrink-0' : 'flex-1'}`}>
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-dark-700 flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -488,47 +492,39 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                   {/* Plugins list (scrollable) */}
                   <div className="flex-1 overflow-auto min-h-0 space-y-1.5">
                     {skills.map(plugin => (
-                      <div key={plugin.id}>
-                        {editingPlugin === plugin.id ? (
-                          <PluginEditor
-                            value={editForm}
-                            onChange={setEditForm}
-                            onSubmit={saveEdit}
-                            onCancel={cancelEdit}
-                            saving={false}
-                            submitLabel="Sauvegarder"
-                          />
-                        ) : (
-                          <div className="flex items-center gap-3 p-2.5 bg-dark-800/30 rounded-lg border border-dark-700/30 hover:border-dark-600 transition-colors group">
-                            <span className="text-base flex-shrink-0">{plugin.icon}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-dark-200">{plugin.name}</span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getCategoryClass(plugin.category)}`}>
-                                  {plugin.category}
-                                </span>
-                                {plugin.builtin && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-400 border border-dark-600">builtin</span>
-                                )}
-                                {(plugin.mcps || []).length > 0 && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-0.5">
-                                    <Plug className="w-2.5 h-2.5" />
-                                    {(plugin.mcps || []).length} MCP
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs text-dark-500 truncate">{plugin.description}</p>
-                            </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                              <button onClick={() => startEdit(plugin)} className="p-1.5 text-dark-400 hover:text-indigo-400 rounded-md hover:bg-dark-700 transition-colors" title="Edit plugin">
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => handleDelete(plugin.id)} className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors" title="Delete plugin">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                      <div
+                        key={plugin.id}
+                        className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors group cursor-pointer ${
+                          editingPlugin === plugin.id
+                            ? 'bg-indigo-500/10 border-indigo-500/30'
+                            : 'bg-dark-800/30 border-dark-700/30 hover:border-dark-600'
+                        }`}
+                        onClick={() => startEdit(plugin)}
+                      >
+                        <span className="text-base flex-shrink-0">{plugin.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-dark-200">{plugin.name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getCategoryClass(plugin.category)}`}>
+                              {plugin.category}
+                            </span>
+                            {plugin.builtin && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-400 border border-dark-600">builtin</span>
+                            )}
+                            {(plugin.mcps || []).length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-0.5">
+                                <Plug className="w-2.5 h-2.5" />
+                                {(plugin.mcps || []).length} MCP
+                              </span>
+                            )}
                           </div>
-                        )}
+                          <p className="text-xs text-dark-500 truncate">{plugin.description}</p>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <button onClick={(e) => { e.stopPropagation(); handleDelete(plugin.id); }} className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors" title="Delete plugin">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {skills.length === 0 && (
@@ -782,6 +778,31 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
           )}
 
         </div>
+        </div>
+        {/* ── Right panel: Plugin editor ── */}
+        {editingPlugin && (
+          <div className="hidden sm:flex flex-col w-[400px] border-l border-dark-700 bg-dark-850 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-sm font-semibold text-dark-100">Edit Plugin</span>
+              </div>
+              <button onClick={cancelEdit} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <PluginEditor
+                value={editForm}
+                onChange={setEditForm}
+                onSubmit={saveEdit}
+                onCancel={cancelEdit}
+                saving={false}
+                submitLabel="Sauvegarder"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { getAllAgents, saveAgent, deleteAgentFromDb } from './database.js';
 import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
 import { processIdeaTodo } from './ideasProcessor.js';
+import { getWorkflow } from './configManager.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -2722,11 +2723,21 @@ export class AgentManager {
     return true;
   }
 
-  // ─── Idea Processing ───────────────────────────────────────────────
-  _processIdea(todo) {
-    // Fire-and-forget: process the idea asynchronously
-    processIdeaTodo(todo, this, this.io).catch(err => {
-      console.error(`[Ideas] Unhandled error for "${todo.text}":`, err.message);
+  // ─── Workflow Auto-Refine ───────────────────────────────────────────
+  _checkAutoRefine(todo) {
+    // Fire-and-forget: check if there's an autoRefine transition for this status
+    getWorkflow('_default').then(workflow => {
+      const transition = workflow.transitions.find(
+        t => t.from === todo.status && t.autoRefine && t.agent
+      );
+      if (!transition) return;
+      // Attach transition config so the processor knows the target status and instructions
+      const enrichedTodo = { ...todo, _transition: transition };
+      processIdeaTodo(enrichedTodo, this, this.io).catch(err => {
+        console.error(`[Workflow] Unhandled error for "${todo.text}":`, err.message);
+      });
+    }).catch(err => {
+      console.error(`[Workflow] Failed to load workflow:`, err.message);
     });
   }
 
@@ -2746,9 +2757,7 @@ export class AgentManager {
     agent.todoList.push(todo);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
-    if (todo.status === 'idea') {
-      this._processIdea({ ...todo, agentId });
-    }
+    this._checkAutoRefine({ ...todo, agentId });
     return todo;
   }
 
@@ -2764,7 +2773,7 @@ export class AgentManager {
     return todo;
   }
 
-  setTodoStatus(agentId, todoId, status) {
+  setTodoStatus(agentId, todoId, status, { skipAutoRefine = false } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const todo = agent.todoList.find(t => t.id === todoId);
@@ -2774,9 +2783,7 @@ export class AgentManager {
     if (status === 'in_progress') todo.startedAt = new Date().toISOString();
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
-    if (status === 'idea') {
-      this._processIdea({ ...todo, agentId });
-    }
+    if (!skipAutoRefine) this._checkAutoRefine({ ...todo, agentId });
     return todo;
   }
 

@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { FolderGit2, Users, ListTodo, Clock, ArrowRight, Search, ChevronDown, Activity, BarChart3, Bug, Sparkles } from 'lucide-react';
-import { api } from '../api';
 
 function formatDuration(ms) {
   if (!ms || ms <= 0) return '—';
@@ -17,23 +16,17 @@ function formatDuration(ms) {
 }
 
 export default function ProjectsView({ agents = [], onSelectProject }) {
-  const [todos, setTodos] = useState([]);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [selectedProject, setSelectedProject] = useState(null);
-  const [projectStats, setProjectStats] = useState(null);
 
-  useEffect(() => {
-    api.get('/agents/todos').then(res => setTodos(res.data)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (selectedProject) {
-      api.get(`/agents/todos/stats?project=${encodeURIComponent(selectedProject)}`).then(res => setProjectStats(res.data)).catch(() => setProjectStats(null));
-    } else {
-      setProjectStats(null);
-    }
-  }, [selectedProject]);
+  // Derive todos from agents (same approach as TasksBoard)
+  const todos = useMemo(() =>
+    agents.flatMap(a =>
+      (a.todoList || []).map(t => ({ ...t, agentId: a.id, agentName: a.name, project: t.project || a.project }))
+    ),
+    [agents]
+  );
 
   // Derive projects from agents + todos
   const projects = useMemo(() => {
@@ -109,90 +102,59 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
       </div>
 
       {/* Stats Panel */}
-      {selectedProject && projectStats && (
-        <div className="bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <BarChart3 size={16} className="text-purple-400" />
-              Statistics: {selectedProject}
-            </h3>
-            <button onClick={() => setSelectedProject(null)} className="text-xs text-dark-400 hover:text-white">Close</button>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {/* Type breakdown */}
-            <div className="bg-dark-700/50 rounded-lg p-3">
-              <div className="text-xs text-dark-400 mb-1">Type Breakdown</div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1">
-                  <span className="text-orange-400">🐛</span>
-                  <span className="text-sm text-white font-medium">{projectStats.byType?.bug || 0}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-emerald-400">✨</span>
-                  <span className="text-sm text-white font-medium">{projectStats.byType?.feature || 0}</span>
-                </div>
+      {selectedProject && (() => {
+        const pt = todos.filter(t => t.project === selectedProject);
+        const total = pt.length;
+        if (!total) return null;
+        const done = pt.filter(t => t.status === 'done').length;
+        const inProgress = pt.filter(t => t.status === 'in_progress').length;
+        const pending = pt.filter(t => t.status === 'pending').length;
+        const backlog = pt.filter(t => t.status === 'backlog').length;
+        return (
+          <div className="bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <BarChart3 size={16} className="text-purple-400" />
+                Statistics: {selectedProject}
+              </h3>
+              <button onClick={() => setSelectedProject(null)} className="text-xs text-dark-400 hover:text-white">Close</button>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <div className="bg-dark-700/50 rounded-lg p-3">
+                <div className="text-xs text-dark-400 mb-1">Total</div>
+                <div className="text-sm text-white font-medium">{total}</div>
+              </div>
+              <div className="bg-dark-700/50 rounded-lg p-3">
+                <div className="text-xs text-dark-400 mb-1">Done</div>
+                <div className="text-sm text-emerald-400 font-medium">{done}</div>
+              </div>
+              <div className="bg-dark-700/50 rounded-lg p-3">
+                <div className="text-xs text-dark-400 mb-1">In Progress</div>
+                <div className="text-sm text-amber-400 font-medium">{inProgress}</div>
+              </div>
+              <div className="bg-dark-700/50 rounded-lg p-3">
+                <div className="text-xs text-dark-400 mb-1">Pending</div>
+                <div className="text-sm text-blue-400 font-medium">{pending + backlog}</div>
               </div>
             </div>
-
-            {/* Resolution time */}
-            <div className="bg-dark-700/50 rounded-lg p-3">
-              <div className="text-xs text-dark-400 mb-1">Avg Resolution</div>
-              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolution?.avg)}</div>
-              <div className="text-xs text-dark-500">median: {formatDuration(projectStats.resolution?.median)}</div>
-            </div>
-
-            {/* Bug resolution */}
-            <div className="bg-dark-700/50 rounded-lg p-3">
-              <div className="text-xs text-dark-400 mb-1">🐛 Bug Resolution</div>
-              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolutionByType?.bug?.avg)}</div>
-              <div className="text-xs text-dark-500">{projectStats.resolutionByType?.bug?.count || 0} resolved</div>
-            </div>
-
-            {/* Feature resolution */}
-            <div className="bg-dark-700/50 rounded-lg p-3">
-              <div className="text-xs text-dark-400 mb-1">✨ Feature Resolution</div>
-              <div className="text-sm text-white font-medium">{formatDuration(projectStats.resolutionByType?.feature?.avg)}</div>
-              <div className="text-xs text-dark-500">{projectStats.resolutionByType?.feature?.count || 0} resolved</div>
-            </div>
-          </div>
-
-          {/* State durations */}
-          {projectStats.avgStateDurations && Object.keys(projectStats.avgStateDurations).length > 0 && (
-            <div>
-              <div className="text-xs text-dark-400 mb-2">Average Time in State</div>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(projectStats.avgStateDurations).map(([state, data]) => (
-                  <div key={state} className="bg-dark-700/50 rounded px-3 py-1.5 text-xs">
-                    <span className="text-dark-400">{state}:</span>{' '}
-                    <span className="text-white font-medium">{formatDuration(data.avg)}</span>
-                    <span className="text-dark-500 ml-1">({data.count}x)</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Status distribution bar */}
-          {projectStats.byStatus && (
             <div>
               <div className="text-xs text-dark-400 mb-2">Status Distribution</div>
               <div className="flex h-4 rounded-full overflow-hidden bg-dark-700">
-                {projectStats.byStatus.done > 0 && <div className="bg-green-500" style={{ width: `${(projectStats.byStatus.done / projectStats.total) * 100}%` }} title={`Done: ${projectStats.byStatus.done}`} />}
-                {projectStats.byStatus.in_progress > 0 && <div className="bg-yellow-500" style={{ width: `${(projectStats.byStatus.in_progress / projectStats.total) * 100}%` }} title={`In Progress: ${projectStats.byStatus.in_progress}`} />}
-                {projectStats.byStatus.pending > 0 && <div className="bg-blue-500" style={{ width: `${(projectStats.byStatus.pending / projectStats.total) * 100}%` }} title={`Pending: ${projectStats.byStatus.pending}`} />}
-                {projectStats.byStatus.backlog > 0 && <div className="bg-gray-500" style={{ width: `${(projectStats.byStatus.backlog / projectStats.total) * 100}%` }} title={`Backlog: ${projectStats.byStatus.backlog}`} />}
+                {done > 0 && <div className="bg-green-500" style={{ width: `${(done / total) * 100}%` }} title={`Done: ${done}`} />}
+                {inProgress > 0 && <div className="bg-yellow-500" style={{ width: `${(inProgress / total) * 100}%` }} title={`In Progress: ${inProgress}`} />}
+                {pending > 0 && <div className="bg-blue-500" style={{ width: `${(pending / total) * 100}%` }} title={`Pending: ${pending}`} />}
+                {backlog > 0 && <div className="bg-gray-500" style={{ width: `${(backlog / total) * 100}%` }} title={`Backlog: ${backlog}`} />}
               </div>
               <div className="flex gap-3 mt-1 text-xs text-dark-400">
-                {projectStats.byStatus.done > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Done: {projectStats.byStatus.done}</span>}
-                {projectStats.byStatus.in_progress > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Active: {projectStats.byStatus.in_progress}</span>}
-                {projectStats.byStatus.pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Todo: {projectStats.byStatus.pending}</span>}
-                {projectStats.byStatus.backlog > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />Backlog: {projectStats.byStatus.backlog}</span>}
+                {done > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Done: {done}</span>}
+                {inProgress > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Active: {inProgress}</span>}
+                {pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Todo: {pending}</span>}
+                {backlog > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />Backlog: {backlog}</span>}
               </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* Project Cards */}
       {projects.length === 0 && (

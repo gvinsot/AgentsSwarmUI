@@ -375,6 +375,17 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(patch)
     }).then(handleResponse),
+
+  // Workflow
+  getWorkflow: () =>
+    fetch(`${API_BASE}/settings/general/workflow`, { headers: getHeaders() }).then(handleResponse),
+
+  updateWorkflow: (workflow) =>
+    fetch(`${API_BASE}/settings/general/workflow`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(workflow)
+    }).then(handleResponse),
 };
 
 export default api;
