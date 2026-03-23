@@ -1,9 +1,15 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { CodeIndexService } from '../codeIndexService.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+
+// Set data dir to temp BEFORE importing the service (module-level const)
+const TEST_DATA_DIR = path.join(os.tmpdir(), 'code-index-data-' + Date.now());
+process.env.CODE_INDEX_DATA_DIR = TEST_DATA_DIR;
+
+// Dynamic import after env var is set
+const { CodeIndexService } = await import('../codeIndexService.js');
 
 const FIXTURE_DIR = path.join(os.tmpdir(), 'code-index-test-' + Date.now());
 
@@ -78,6 +84,7 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, delay: number
 };
 
 before(() => {
+  fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
   for (const [relPath, content] of Object.entries(FIXTURES)) {
     const absPath = path.join(FIXTURE_DIR, relPath);
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
@@ -87,6 +94,7 @@ before(() => {
 
 after(() => {
   fs.rmSync(FIXTURE_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
 describe('CodeIndexService', () => {
