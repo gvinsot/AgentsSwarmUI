@@ -251,7 +251,7 @@ export async function createVectorStore({
   } catch (error) {
     const store = new InMemoryVectorStore({ dimension });
     store.backend = backend === 'auto' ? 'memory' : `memory-fallback-from-${backend}`;
-    console.warn(`⚠️  ZVEC unavailable, using in-memory vector store: ${error.message}`);
+    console.info(`Code index: using in-memory vector store (zvec native binary unavailable on this platform: ${error.message})`);
     return store;
   }
 }
