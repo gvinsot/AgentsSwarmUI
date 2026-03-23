@@ -82,6 +82,13 @@ RUN echo "=== Python ===" && python --version && \
     echo "=== Chromium ===" && chromium --version && \
     echo "=== Go ===" && go version
 
+# RTK (Rust Token Killer) — reduces LLM token consumption by 60-90%
+RUN RTK_ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/aarch64/aarch64/') && \
+    RTK_VERSION=$(curl -fsSL https://api.github.com/repos/rtk-ai/rtk/releases/latest | grep '"tag_name"' | head -1 | cut -d'"' -f4) && \
+    curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/rtk-${RTK_ARCH}-unknown-linux-musl.tar.gz" | tar -xz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/rtk && \
+    rtk --version
+
 # Install gosu for runtime user switching
 RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
 

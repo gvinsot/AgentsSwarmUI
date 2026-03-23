@@ -200,24 +200,106 @@ async function toolSearchFiles(sandboxMgr, agentId, pattern, query) {
   };
 }
 
+// ─── RTK (Rust Token Killer) — automatic command rewriting ──────────────────
+// RTK wraps common CLI commands to produce compressed output that saves 60-90%
+// tokens when sent back to the LLM.  Only safe, read-only commands are rewritten.
+
+const RTK_REWRITE_RULES = [
+  // git commands (read-only)
+  { pattern: /^git\s+status\b/, rewrite: (cmd) => cmd.replace(/^git\s+status/, 'rtk git status') },
+  { pattern: /^git\s+diff\b/, rewrite: (cmd) => cmd.replace(/^git\s+diff/, 'rtk git diff') },
+  { pattern: /^git\s+log\b/, rewrite: (cmd) => cmd.replace(/^git\s+log/, 'rtk git log') },
+  // file listing
+  { pattern: /^ls\b/, rewrite: (cmd) => cmd.replace(/^ls/, 'rtk ls') },
+  { pattern: /^tree\b/, rewrite: (cmd) => cmd.replace(/^tree/, 'rtk ls') },
+  // search
+  { pattern: /^grep\s/, rewrite: (cmd) => cmd.replace(/^grep/, 'rtk grep') },
+  { pattern: /^rg\s/, rewrite: (cmd) => cmd.replace(/^rg/, 'rtk grep') },
+  // find
+  { pattern: /^find\s/, rewrite: (cmd) => cmd.replace(/^find/, 'rtk find') },
+  // test runners — failures-only output
+  { pattern: /^(npm\s+test|npx\s+jest|npx\s+vitest|npx\s+mocha|pytest|cargo\s+test|go\s+test)\b/, rewrite: (cmd) => `rtk test ${cmd}` },
+  // build commands
+  { pattern: /^(npm\s+run\s+build|cargo\s+build|go\s+build|make)\b/, rewrite: (cmd) => `rtk ${cmd}` },
+  // linting
+  { pattern: /^(npx\s+eslint|eslint|golangci-lint)\b/, rewrite: (cmd) => `rtk lint ${cmd}` },
+];
+
+// Commands that should NEVER be rewritten (write operations, interactive, piped)
+const RTK_SKIP_PATTERNS = [
+  /\|/,              // piped commands — RTK can't wrap pipelines
+  /&&/,              // chained commands
+  /;/,               // sequential commands
+  /^git\s+(add|commit|push|pull|merge|rebase|checkout|reset|stash|clone)\b/,
+  /^(npm\s+install|npm\s+ci|yarn|pnpm|pip|apt|apk)\b/,
+  /^(docker|kubectl|curl|wget)\b/,
+  /^(cat|head|tail|echo|printf|mkdir|rm|cp|mv|touch|chmod|chown)\b/,
+  /^rtk\b/,          // already rewritten
+];
+
+/**
+ * Attempt to rewrite a command with RTK prefix for token-optimized output.
+ * Returns the original command if RTK is not applicable.
+ */
+function rtkRewrite(command) {
+  const trimmed = command.trim();
+  // Skip if any exclusion pattern matches
+  if (RTK_SKIP_PATTERNS.some(p => p.test(trimmed))) return trimmed;
+  // Try rewrite rules in order
+  for (const rule of RTK_REWRITE_RULES) {
+    if (rule.pattern.test(trimmed)) {
+      return rule.rewrite(trimmed);
+    }
+  }
+  return trimmed;
+}
+
 async function toolRunCommand(sandboxMgr, agentId, command) {
   // 5 minutes — long-running commands like npm install, builds, test suites
   const COMMAND_TIMEOUT = 5 * 60 * 1000;
+
+  // Try RTK-rewritten command first, fall back to original on failure
+  const rewritten = rtkRewrite(command);
+  const useRtk = rewritten !== command.trim();
+  const effectiveCommand = useRtk ? rewritten : command;
+
+  if (useRtk) {
+    console.log(`⚡ [RTK] Rewriting: "${command.slice(0, 80)}" → "${rewritten.slice(0, 80)}"`);
+  }
+
   try {
-    const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: COMMAND_TIMEOUT });
+    const { stdout, stderr } = await sandboxMgr.exec(agentId, effectiveCommand, { timeout: COMMAND_TIMEOUT });
     const output = (stdout || stderr || '(no output)').slice(0, 10000);
     return {
       success: true,
       result: output,
-      meta: { command, truncated: (stdout || '').length > 10000 }
+      meta: { command, rtk: useRtk, truncated: (stdout || '').length > 10000 }
     };
   } catch (err) {
-    // When the command ran but exited non-zero (e.g. git commit with nothing
-    // to commit, grep with no matches, diff with differences), execAsync
-    // rejects even though the command executed fine.  If we have stdout/stderr,
-    // the command DID run — return the output as success and let the agent
-    // interpret the result.  Only report failure for infrastructure errors
-    // (Docker unavailable, timeout, etc.) where there's no useful output.
+    // If RTK command failed, retry with original command
+    if (useRtk) {
+      console.log(`⚡ [RTK] Rewritten command failed, falling back to original: "${command.slice(0, 80)}"`);
+      try {
+        const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: COMMAND_TIMEOUT });
+        const output = (stdout || stderr || '(no output)').slice(0, 10000);
+        return {
+          success: true,
+          result: output,
+          meta: { command, rtk: false, rtkFallback: true, truncated: (stdout || '').length > 10000 }
+        };
+      } catch (fallbackErr) {
+        const output = (fallbackErr.stdout || '') + (fallbackErr.stderr || '');
+        if (output.trim()) {
+          return {
+            success: true,
+            result: output.slice(0, 10000),
+            meta: { command, exitCode: fallbackErr.code || 1 }
+          };
+        }
+        return { success: false, error: fallbackErr.message, result: '' };
+      }
+    }
+    // Original command error handling (non-RTK path)
     const output = (err.stdout || '') + (err.stderr || '');
     if (output.trim()) {
       return {
