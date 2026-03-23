@@ -881,9 +881,10 @@ export class AgentManager {
       const isLeaderStreaming = agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH;
 
       // Stream response (check for abort on each chunk)
+      const safeMaxTokens = this._safeMaxTokens(messages, agent);
       for await (const chunk of provider.chatStream(messages, {
         temperature: agent.temperature,
-        maxTokens: agent.maxTokens,
+        maxTokens: safeMaxTokens,
         contextLength: agent.contextLength || 0,
         isReasoning: agent.isReasoning || false,
         signal: abortController.signal
@@ -892,7 +893,7 @@ export class AgentManager {
         if (abortController.signal.aborted) {
           throw new Error('Agent stopped by user');
         }
-        
+
         if (chunk.type === 'thinking') {
           // Reasoning model thinking tokens — accumulate and show in UI but don't add to response
           thinkingBuffer += chunk.text;
@@ -1046,9 +1047,10 @@ export class AgentManager {
         messages.push({ role: 'user', content: 'Your previous response was cut off because it exceeded the maximum output length. Continue EXACTLY from where you stopped. Do not repeat anything you already wrote — just output the remaining content.' });
 
         finishReason = null;
+        const contMaxTokens = this._safeMaxTokens(messages, agent);
         for await (const chunk of provider.chatStream(messages, {
           temperature: agent.temperature,
-          maxTokens: agent.maxTokens,
+          maxTokens: contMaxTokens,
           contextLength: agent.contextLength || 0,
           isReasoning: agent.isReasoning || false,
           signal: abortController.signal
@@ -3115,6 +3117,28 @@ export class AgentManager {
       chars += (m.content || '').length;
     }
     return Math.ceil(chars / 3.5);
+  }
+
+  /**
+   * Compute a safe maxTokens value that won't exceed the model's context window.
+   *
+   * When input_tokens + max_tokens > context_length, APIs like Claude return 400.
+   * This method estimates input size and caps max_tokens so the total stays within
+   * the context window, with a 5% safety margin for estimation errors.
+   */
+  _safeMaxTokens(messages, agent) {
+    const contextLength = agent.contextLength || 131072;
+    const desiredMaxTokens = agent.maxTokens || 4096;
+    const estimatedInput = this._estimateTokens(messages);
+    // Leave 5% headroom for token estimation inaccuracy
+    const safetyMargin = Math.ceil(contextLength * 0.05);
+    const available = contextLength - estimatedInput - safetyMargin;
+    if (available < desiredMaxTokens) {
+      const capped = Math.max(1024, available); // minimum 1024 output tokens
+      console.log(`⚠️  [TokenCap] "${agent.name}": capping maxTokens from ${desiredMaxTokens} to ${capped} (input ~${estimatedInput}, context ${contextLength})`);
+      return capped;
+    }
+    return desiredMaxTokens;
   }
 
   /**

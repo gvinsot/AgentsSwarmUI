@@ -699,9 +699,6 @@ function TaskCard({ task, agents, onDelete, onOpen }) {
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1 mb-2.5">
-        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
-          {task.agentName}
-        </span>
         {task.project && (
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-violet-500/10 text-violet-400 ring-1 ring-violet-500/20">
             {task.project}

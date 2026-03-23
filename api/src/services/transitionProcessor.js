@@ -2,16 +2,16 @@ import { getSettings } from './configManager.js';
 
 /**
  * Find the first available agent matching a role.
- * "Available" = enabled AND not busy.
- * Falls back to any enabled agent with the role if all are busy.
+ * "Available" = enabled AND idle (not busy/error).
+ * Returns null if no idle agent with the role exists — the task stays pending.
  */
 function findAgentByRole(agentManager, role) {
   const agents = Array.from(agentManager.agents.values());
   const matching = agents.filter(
     a => a.enabled !== false && (a.role || '').toLowerCase() === role.toLowerCase()
   );
-  // Prefer idle agents
-  return matching.find(a => a.status !== 'busy') || matching[0] || null;
+  // Only return idle agents — do NOT fall back to busy ones
+  return matching.find(a => a.status === 'idle') || null;
 }
 
 /**
@@ -43,42 +43,30 @@ export async function processTransition(todo, agentManager, io) {
     }
 
     // Fallback: try global ideasAgent setting (by name, for backward compat)
+    // Only assign if the agent is idle — never force-assign a busy agent
     if (!agent) {
       const settings = await getSettings();
       if (settings.ideasAgent) {
         agent = Array.from(agentManager.agents.values()).find(
-          a => a.enabled !== false && (a.name || '').toLowerCase() === settings.ideasAgent.toLowerCase()
+          a => a.enabled !== false && a.status === 'idle' && (a.name || '').toLowerCase() === settings.ideasAgent.toLowerCase()
         );
-        if (agent) console.log(`[Workflow] Found agent via ideasAgent setting: ${agent.name}`);
+        if (agent) console.log(`[Workflow] Found idle agent via ideasAgent setting: ${agent.name}`);
       }
     }
 
     // In execute mode, fall back to the task's own agent when no role-matched agent is found
+    // Only if the task owner is idle
     if (!agent && isExecution && todo.agentId) {
-      agent = agentManager.agents.get(todo.agentId);
-      if (agent) {
-        console.log(`[Workflow] Execute mode: using task owner "${agent.name}" (${agent.id})`);
+      const owner = agentManager.agents.get(todo.agentId);
+      if (owner && owner.enabled !== false && owner.status === 'idle') {
+        agent = owner;
+        console.log(`[Workflow] Execute mode: using idle task owner "${agent.name}" (${agent.id})`);
       }
     }
 
     if (!agent) {
-      console.log(`[Workflow] No agent found for transition${targetStatus ? `, moving to ${targetStatus}` : ''}`);
-      if (targetStatus) agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true, by: 'workflow' });
+      console.log(`[Workflow] No idle agent found for role "${transitionRole || 'any'}" — task stays pending (will be picked up when an agent becomes available)`);
       return;
-    }
-
-    // Check if agent is busy — if so, wait briefly then check again
-    if (agent.status === 'busy') {
-      console.log(`[Workflow] Agent "${agent.name}" is busy, waiting up to 30s for it to become idle...`);
-      const waitStart = Date.now();
-      while (agent.status === 'busy' && Date.now() - waitStart < 30000) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-      if (agent.status === 'busy') {
-        console.log(`[Workflow] Agent "${agent.name}" still busy after 30s — aborting transition`);
-        return;
-      }
-      console.log(`[Workflow] Agent "${agent.name}" is now idle, proceeding`);
     }
 
     // Auto-switch agent to the todo's project if needed
