@@ -43,13 +43,17 @@ export async function processIdeaTodo(todo, agentManager, io) {
       return;
     }
 
+    // Use custom instructions from transition config, or default refinement prompt
+    const customInstructions = todo._transition?.instructions;
+    const defaultInstructions = 'Improve the task description with more details or adding relevant context and additionnal related ideas that can improve the product without too much effort. Keep it concise but informative.';
+    const instructions = customInstructions || defaultInstructions;
+
     const prompt = `Refine the following task idea into a clear, actionable task description for a development team.
 
 Task: ${todo.text}
 ${todo.project ? `Project: ${todo.project}` : ''}
 
-Improve the task description with more details or adding relevant context and additionnal related ideas that can improve the product without too much effort. 
-Keep it concise but informative.
+${instructions}
 
 Reply ONLY with the improved description. No title, no headers, no preamble.`;
 

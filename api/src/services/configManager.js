@@ -47,8 +47,7 @@ export async function updateSettings(patch) {
   return getSettings();
 }
 
-// ── Workflow configuration ──────────────────────────────────────────────────
-const WORKFLOWS_FILE = path.join(DATA_DIR, 'workflows.json');
+// ── Workflow configuration (database-backed) ──────────────────────────────────
 
 const DEFAULT_COLUMNS = [
   { id: 'idea', label: 'Ideas', color: '#a855f7' },
@@ -59,12 +58,12 @@ const DEFAULT_COLUMNS = [
 ];
 
 const DEFAULT_TRANSITIONS = [
-  { from: 'idea', to: 'backlog', agent: 'product-manager', autoRefine: true },
-  { from: 'backlog', to: 'pending', agent: null, autoRefine: false },
-  { from: 'pending', to: 'in_progress', agent: null, autoRefine: false },
-  { from: 'in_progress', to: 'done', agent: null, autoRefine: false },
-  { from: 'in_progress', to: 'backlog', agent: null, autoRefine: false },
-  { from: 'done', to: 'backlog', agent: null, autoRefine: false },
+  { from: 'idea', to: 'backlog', agent: 'product-manager', autoRefine: true, instructions: 'Refine this idea into a clear, actionable task description. Add acceptance criteria and technical considerations.' },
+  { from: 'backlog', to: 'pending', agent: null, autoRefine: false, instructions: '' },
+  { from: 'pending', to: 'in_progress', agent: null, autoRefine: false, instructions: '' },
+  { from: 'in_progress', to: 'done', agent: null, autoRefine: false, instructions: '' },
+  { from: 'in_progress', to: 'backlog', agent: null, autoRefine: false, instructions: '' },
+  { from: 'done', to: 'backlog', agent: null, autoRefine: false, instructions: '' },
 ];
 
 const DEFAULT_WORKFLOW = {
@@ -74,34 +73,57 @@ const DEFAULT_WORKFLOW = {
 };
 
 export async function getWorkflow(project) {
-  await ensureDataDir();
+  const pool = getPool();
+  if (!pool) return { ...DEFAULT_WORKFLOW };
+
   try {
-    const raw = await fs.readFile(WORKFLOWS_FILE, 'utf8');
-    const all = JSON.parse(raw);
-    return all[project] || { ...DEFAULT_WORKFLOW };
+    const result = await pool.query('SELECT columns, transitions, version FROM workflows WHERE project = $1', [project]);
+    if (result.rows.length === 0) return { ...DEFAULT_WORKFLOW };
+    const row = result.rows[0];
+    return {
+      columns: row.columns || DEFAULT_COLUMNS,
+      transitions: row.transitions || DEFAULT_TRANSITIONS,
+      version: row.version || 1,
+    };
   } catch {
     return { ...DEFAULT_WORKFLOW };
   }
 }
 
 export async function getAllWorkflows() {
-  await ensureDataDir();
+  const pool = getPool();
+  if (!pool) return {};
+
   try {
-    const raw = await fs.readFile(WORKFLOWS_FILE, 'utf8');
-    return JSON.parse(raw);
+    const result = await pool.query('SELECT project, columns, transitions, version FROM workflows ORDER BY project');
+    const map = {};
+    for (const row of result.rows) {
+      map[row.project] = { columns: row.columns, transitions: row.transitions, version: row.version };
+    }
+    return map;
   } catch {
     return {};
   }
 }
 
 export async function updateWorkflow(project, workflow) {
-  await ensureDataDir();
-  let all = {};
-  try {
-    const raw = await fs.readFile(WORKFLOWS_FILE, 'utf8');
-    all = JSON.parse(raw);
-  } catch { /* fresh file */ }
-  all[project] = { ...workflow, updatedAt: new Date().toISOString() };
-  await fs.writeFile(WORKFLOWS_FILE, JSON.stringify(all, null, 2));
-  return all[project];
+  const pool = getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const columns = JSON.stringify(workflow.columns || DEFAULT_COLUMNS);
+  const transitions = JSON.stringify(workflow.transitions || DEFAULT_TRANSITIONS);
+  const version = (workflow.version || 0) + 1;
+
+  await pool.query(
+    `INSERT INTO workflows (project, columns, transitions, version, updated_at)
+     VALUES ($1, $2::jsonb, $3::jsonb, $4, NOW())
+     ON CONFLICT (project) DO UPDATE SET
+       columns = $2::jsonb,
+       transitions = $3::jsonb,
+       version = $4,
+       updated_at = NOW()`,
+    [project, columns, transitions, version]
+  );
+
+  return { columns: workflow.columns, transitions: workflow.transitions, version };
 }
