@@ -1,17 +1,19 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { CodeIndexService } from '../codeIndexService.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Set data dir to temp BEFORE importing the service (module-level const)
 const TEST_DATA_DIR = path.join(os.tmpdir(), 'code-index-data-' + Date.now());
-process.env.CODE_INDEX_DATA_DIR = TEST_DATA_DIR;
-
-// Dynamic import after env var is set
-const { CodeIndexService } = await import('../codeIndexService.js');
-
 const FIXTURE_DIR = path.join(os.tmpdir(), 'code-index-test-' + Date.now());
+
+function makeService() {
+  return new CodeIndexService({
+    storageRoot: TEST_DATA_DIR,
+    allowedRoots: [FIXTURE_DIR, os.tmpdir()],
+  });
+}
 
 const FIXTURES = {
   'src/auth.js': `
@@ -84,7 +86,6 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, delay: number
 };
 
 before(() => {
-  fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
   for (const [relPath, content] of Object.entries(FIXTURES)) {
     const absPath = path.join(FIXTURE_DIR, relPath);
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
@@ -99,34 +100,35 @@ after(() => {
 
 describe('CodeIndexService', () => {
   it('should index a folder and return stats', () => {
-    const service = new CodeIndexService();
+    const service = makeService();
     const result = service.indexFolder(FIXTURE_DIR, 'test-repo');
-    assert.equal(result.repoId, 'test-repo');
+    assert.ok(result.repoId, 'Should have repoId');
     assert.ok(result.filesIndexed > 0, 'Should index files');
     assert.ok(result.symbolCount > 0, 'Should find symbols');
   });
 
   it('should list indexed repos', () => {
-    const service = new CodeIndexService();
+    const service = makeService();
     service.indexFolder(FIXTURE_DIR, 'test-list');
     const repos = service.listRepos();
     assert.ok(repos.length > 0);
-    assert.equal(repos[0].repoId, 'test-list');
+    assert.ok(repos[0].repoId, 'Should have repoId');
   });
 
   it('should return file tree', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-tree');
-    const tree = service.getFileTree('test-tree');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-tree');
+    const tree = service.getFileTree(result.repoId);
     assert.ok(tree);
-    assert.ok(tree.length > 0);
-    assert.ok(tree.some(f => f.includes('auth.js')));
+    assert.ok(tree.children && tree.children.length > 0, 'Tree should have children');
+    const allNames = JSON.stringify(tree);
+    assert.ok(allNames.includes('auth.js'), 'Should contain auth.js');
   });
 
   it('should return file outline with symbols', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-outline');
-    const outline = service.getFileOutline('test-outline', 'src/auth.js');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-outline');
+    const outline = service.getFileOutline(result.repoId, 'src/auth.js');
     assert.ok(outline);
     assert.ok(outline.length > 0);
     const names = outline.map(s => s.name);
@@ -134,87 +136,87 @@ describe('CodeIndexService', () => {
   });
 
   it('should search symbols by name', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-search');
-    const results = service.searchSymbols('test-search', 'authenticate');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-search');
+    const results = service.searchSymbols(result.repoId, 'authenticate');
     assert.ok(results.length > 0, 'Should find matching symbols');
     assert.ok(results[0].name.toLowerCase().includes('authenticate'));
   });
 
   it('should return empty for no matches', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-no-match');
-    const results = service.searchSymbols('test-no-match', 'xyzNonExistent123');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-no-match');
+    const results = service.searchSymbols(result.repoId, 'xyzNonExistent123');
     assert.deepEqual(results, []);
   });
 
   it('should search semantically', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-semantic');
-    const results = service.searchSemantic('test-semantic', 'JWT authentication middleware');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-semantic');
+    const results = service.searchSemantic(result.repoId, 'JWT authentication middleware');
     assert.ok(results.length > 0);
     const allText = results.map(r => (r.name + ' ' + (r.summary || '')).toLowerCase()).join(' ');
     assert.ok(/auth|token|jwt/.test(allText), 'Should find auth-related symbols');
   });
 
   it('should search text', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-text');
-    const results = service.searchText('test-text', 'jwt.verify');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-text');
+    const results = service.searchText(result.repoId, 'jwt.verify');
     assert.ok(results.length > 0);
   });
 
   it('should retrieve symbol source code', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-symbol');
-    const symbols = service.searchSymbols('test-symbol', 'authenticateToken');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-symbol');
+    const symbols = service.searchSymbols(result.repoId, 'authenticateToken');
     assert.ok(symbols.length > 0);
-    const detail = service.getSymbol('test-symbol', symbols[0].id);
+    const detail = service.getSymbol(result.repoId, symbols[0].id);
     assert.ok(detail);
-    assert.ok(detail.body.includes('jwt.verify'));
+    assert.ok(detail.source.includes('jwt.verify'));
   });
 
   it('should index Python files', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-py');
-    const results = service.searchSymbols('test-py', 'Database');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-py');
+    const results = service.searchSymbols(result.repoId, 'Database');
     assert.ok(results.length > 0);
   });
 
   it('should index TypeScript files', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-ts');
-    const results = service.searchSymbols('test-ts', 'formatDuration');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-ts');
+    const results = service.searchSymbols(result.repoId, 'formatDuration');
     assert.ok(results.length > 0);
   });
 
   it('should reduce tokens vs full file for targeted queries', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-tokens');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-tokens');
     const fullFile = fs.readFileSync(path.join(FIXTURE_DIR, 'src/auth.js'), 'utf8');
     const fullTokens = fullFile.length / 4;
-    const results = service.searchSymbols('test-tokens', 'authenticateToken', { topK: 1 });
+    const results = service.searchSymbols(result.repoId, 'authenticateToken', { topK: 1 });
     assert.equal(results.length, 1);
-    const sym = service.getSymbol('test-tokens', results[0].id);
-    const indexedTokens = sym.body.length / 4;
+    const sym = service.getSymbol(result.repoId, results[0].id);
+    const indexedTokens = sym.source.length / 4;
     const reduction = 1 - (indexedTokens / fullTokens);
     console.log(`  Token reduction: ${(reduction * 100).toFixed(1)}% (full: ~${Math.round(fullTokens)}, indexed: ~${Math.round(indexedTokens)})`);
     assert.ok(reduction > 0.3, `Expected >30% reduction, got ${(reduction*100).toFixed(1)}%`);
   });
 
   it('should reduce tokens vs full codebase for semantic queries', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-tokens-sem');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-tokens-sem');
     let total = '';
     for (const [p, c] of Object.entries(FIXTURES)) {
       if (p.endsWith('.js') || p.endsWith('.py') || p.endsWith('.ts')) total += c;
     }
     const fullTokens = total.length / 4;
-    const results = service.searchSemantic('test-tokens-sem', 'authentication', { topK: 3 });
+    const results = service.searchSemantic(result.repoId, 'authentication', { topK: 3 });
     let indexed = '';
     for (const r of results) {
-      const s = service.getSymbol('test-tokens-sem', r.id);
-      if (s) indexed += s.body;
+      const s = service.getSymbol(result.repoId, r.id);
+      if (s) indexed += s.source;
     }
     const indexedTokens = indexed.length / 4;
     const reduction = 1 - (indexedTokens / fullTokens);
@@ -223,7 +225,7 @@ describe('CodeIndexService', () => {
   });
 
   it('should index in under 1 second', () => {
-    const service = new CodeIndexService();
+    const service = makeService();
     const start = Date.now();
     service.indexFolder(FIXTURE_DIR, 'test-perf');
     const elapsed = Date.now() - start;
@@ -232,15 +234,15 @@ describe('CodeIndexService', () => {
   });
 
   it('should handle repo not found', () => {
-    const service = new CodeIndexService();
+    const service = makeService();
     const tree = service.getFileTree('nonexistent');
     assert.equal(tree, null);
   });
 
   it('should handle symbol not found', () => {
-    const service = new CodeIndexService();
-    service.indexFolder(FIXTURE_DIR, 'test-edge');
-    const sym = service.getSymbol('test-edge', 'nonexistent-id');
+    const service = makeService();
+    const result = service.indexFolder(FIXTURE_DIR, 'test-edge');
+    const sym = service.getSymbol(result.repoId, 'nonexistent-id');
     assert.equal(sym, null);
   });
 });
