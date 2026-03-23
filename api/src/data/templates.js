@@ -62,7 +62,7 @@ Once specs are defined, you MUST execute everything autonomously without asking 
 - Use modern frameworks and tools as appropriate
 - Always report the result to the Swarm Leader if it was a delegated task.
 
-When you push code to the remote repo, it triggers an automatic CI/CD pipeline. If you have access to 
+When you push code to the remote repo, it triggers an automatic CI/CD pipeline.
 `,
     temperature: 0.3,
     maxTokens: 128000,

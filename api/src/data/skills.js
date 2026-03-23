@@ -9,7 +9,38 @@ export const BUILTIN_SKILLS = [
     "mcpServerIds": [
       "mcp-swarm-manager"
     ],
-    "instructions": "You know how to integrate and deploy projects on the Swarm cluster.\\n\\nBuild and deploy operations are managed via MCP tools. The MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\\nCall them using the @mcp_call(ServerName, tool_name, {\"param\": \"value\"}) syntax shown there.\\n\\n## DEPLOYMENT WORKFLOW\\n\\nFIRST TIME SETUP — If the project has no devops/ folder yet:\\n   - Read the existing project structure and understand what needs to be containerized\\n   - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts\\n   - Commit and push: @git_commit_push(feat: add deployment config)\\n\\nIf you are asked to build:\\n   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version\\n   - Images are built from devops/docker-compose.swarm.yml\\n   - Tagged with semantic version and pushed to the registry\\n   - Check build progress with @get_action_status(action_id=\"ACTION_ID\")\\n   - Fix any build errors before proceeding\\n\\nIf you are asked to deploy a specific version:\\n   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version\\n   - Check deploy progress with @get_action_status(action_id=\"ACTION_ID\")\\n   - Verify services are running with @list_stacks() or @list_containers()\\n\\n## MONITORING\\n- Use @list_stacks() to check service health\\n- Use @list_containers() to check running containers\\n- Use @search_logs(query=\"error\", last_hours=24) to investigate issues\\n- Use @list_computers() to check node availability\\n\\n## IMPORTANT\\n- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work."
+    "instructions": `You know how to integrate and deploy projects on the Swarm cluster.
+
+Build and deploy operations are managed via MCP tools. The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
+
+## DEPLOYMENT WORKFLOW
+
+FIRST TIME SETUP — If the project has no devops/ folder yet:
+   - Read the existing project structure and understand what needs to be containerized
+   - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts
+   - Commit and push: use cli
+
+If you are asked to build:
+   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version
+   - Images are built from devops/docker-compose.swarm.yml
+   - Tagged with semantic version and pushed to the registry
+   - Check build progress with @get_action_status(action_id="ACTION_ID")
+   - Fix any build errors before proceeding
+
+If you are asked to deploy a specific version:
+   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version
+   - Check deploy progress with @get_action_status(action_id="ACTION_ID")
+   - Verify services are running with @list_stacks() or @list_containers()
+
+## MONITORING
+- Use @list_stacks() to check service health
+- Use @list_containers() to check running containers
+- Use @search_logs(query="error", last_hours=24) to investigate issues
+- Use @list_computers() to check node availability
+
+## IMPORTANT
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
   },
   {
     "id": "skill-basic-tools",
@@ -18,7 +49,60 @@ export const BUILTIN_SKILLS = [
     "category": "general",
     "icon": "🔧",
     "builtin": true,
-    "instructions": "## TOOLS — USE THEM, DON'T JUST TALK\\n- @read_file(path) — examine existing code\\n- @list_dir(path) — explore project structure\\n- @write_file(path, \"\"\"content\"\"\") — create or update files\\n- @search_files(pattern, query) — find relevant code\\n- @run_command(command) — run tests, builds, git commands, etc.\\n- @list_my_tasks() — list your assigned tasks with their status and ID\\n- @update_todo(todoId, status) — update a task status (in_progress, done, error)\\n- Use @run_command to execute git commands\\n\\nWORKFLOW:\\n1. Always start by exploring the project structure with @list_dir(.)\\n2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use\\n3. Read existing files before modifying them with @read_file(path)\\n4. Write changes with @write_file(path, \"\"\"content\"\"\") — follow the existing code style\\n5. Verify your changes by reading the file back\\n6. Run tests or builds with @run_command(npm test) or similar\\n7. Use @search_files(*.js, keyword) to find relevant code across the project\\n\\nIMPORTANT:\\n- Each tool call MUST be on its own line\\n- Do NOT add decorative text before tool calls — just call the tool directly\\n- NEVER stop yourself — keep working until the task is fully complete\\n- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.\\n- GIT COMMITS: Always include your agent name in the commit message. Format: \"message (by YourName)\" — e.g. @git_commit_push(feat: add login page (by Developer))\\n\\n[Code Index]:\\nYou can use the internal Code Index plugin to explore codebases faster than raw grep alone.\\n\\nThe MCP tools are listed in the \\\\\"--- MCP Tools ---\\\\\" section of your prompt.\\nCall them using the @mcp_call(Code Index, tool_name, {\\\\\"param\\\\\": \\\\\"value\\\\\"}) syntax.\\n\\nRECOMMENDED WORKFLOW:\\n1. BEFORE any search, call @mcp_call(Code Index, list_repos, {}) to check if your current project is already indexed.\\n2. If the current project appears in the list, reuse its repoId — do NOT re-index.\\n3. If the current project is NOT in the list, index it first:\\n   - @mcp_call(Code Index, index_folder, {\\\\\"path\\\\\": \\\\\"/projects/YOUR_PROJECT_NAME\\\\\", \\\\\"repoName\\\\\": \\\\\"YOUR_PROJECT_NAME\\\\\"})\\n   - Use the project name from the PROJECT CONTEXT section of your prompt.\\n4. Search symbols or semantics first, then fetch outlines/source for the best matches.\\n5. Fall back to normal file tools when you need to edit files.\\n\\nMOST USEFUL TOOLS:\\n- @mcp_call(Code Index, list_repos, {})\\n  List all indexed repositories and their repoIds. ALWAYS call this first.\\n- @mcp_call(Code Index, index_folder, {\\\\\"path\\\\\": \\\\\"/projects/MyProject\\\\\", \\\\\"repoName\\\\\": \\\\\"MyProject\\\\\"})\\n  Index a project folder. Use the project name from your PROJECT CONTEXT.\\n- @mcp_call(Code Index, search_symbols, {\\\\\"repoId\\\\\": \\\\\"...\\\\\", \\\\\"query\\\\\": \\\\\"authenticateToken\\\\\", \\\\\"topK\\\\\": 5})\\n  Find classes, functions, and methods by lexical match.\\n- @mcp_call(Code Index, search_semantic, {\\\\\"repoId\\\\\": \\\\\"...\\\\\", \\\\\"query\\\\\": \\\\\"JWT auth middleware\\\\\", \\\\\"topK\\\\\": 5})\\n  Find relevant code by meaning.\\n- @mcp_call(Code Index, get_file_outline, {\\\\\"repoId\\\\\": \\\\\"...\\\\\", \\\\\"filePath\\\\\": \\\\\"src/middleware/auth.js\\\\\"})\\n  Inspect all symbols in a file.\\n- @mcp_call(Code Index, get_symbol, {\\\\\"repoId\\\\\": \\\\\"...\\\\\", \\\\\"symbolId\\\\\": \\\\\"...\\\\\", \\\\\"verify\\\\\": true, \\\\\"contextLines\\\\\": 2})\\n  Retrieve a symbol's source and metadata."
+    "instructions": `## TOOLS — USE THEM, DON'T JUST TALK
+- @read_file(path) — examine existing code
+- @list_dir(path) — explore project structure
+- @write_file(path, """content""") — create or update files
+- @search_files(pattern, query) — find relevant code
+- @run_command(command) — run tests, builds, git commands, etc.
+- @list_my_tasks() — list your assigned tasks with their status and ID
+- @update_todo(todoId, status) — update a task status (in_progress, done, error)
+- Use @run_command to execute git commands
+
+WORKFLOW:
+1. Always start by exploring the project structure with @list_dir(.)
+2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use
+3. Read existing files before modifying them with @read_file(path)
+4. Write changes with @write_file(path, """content""") — follow the existing code style
+5. Verify your changes by reading the file back
+6. Run tests or builds with @run_command(npm test) or similar
+7. Use @search_files(*.js, keyword) to find relevant code across the project
+
+IMPORTANT:
+- Each tool call MUST be on its own line
+- Do NOT add decorative text before tool calls — just call the tool directly
+- NEVER stop yourself — keep working until the task is fully complete
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
+- GIT COMMITS: Always include your agent name in the commit message. Format: "message (by YourName)" — use the cli directly.
+
+[Code Index]:
+You can use the internal Code Index plugin to explore codebases faster than raw grep alone.
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(Code Index, tool_name, {"param": "value"}) syntax.
+
+RECOMMENDED WORKFLOW:
+1. BEFORE any search, call @mcp_call(Code Index, list_repos, {}) to check if your current project is already indexed.
+2. If the current project appears in the list, reuse its repoId — do NOT re-index.
+3. If the current project is NOT in the list, index it first:
+   - @mcp_call(Code Index, index_folder, {"path": "/projects/YOUR_PROJECT_NAME", "repoName": "YOUR_PROJECT_NAME"})
+   - Use the project name from the PROJECT CONTEXT section of your prompt.
+4. Search symbols or semantics first, then fetch outlines/source for the best matches.
+5. Fall back to normal file tools when you need to edit files.
+
+MOST USEFUL TOOLS:
+- @mcp_call(Code Index, list_repos, {})
+  List all indexed repositories and their repoIds. ALWAYS call this first.
+- @mcp_call(Code Index, index_folder, {"path": "/projects/MyProject", "repoName": "MyProject"})
+  Index a project folder. Use the project name from your PROJECT CONTEXT.
+- @mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})
+  Find classes, functions, and methods by lexical match.
+- @mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT auth middleware", "topK": 5})
+  Find relevant code by meaning.
+- @mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})
+  Inspect all symbols in a file.
+- @mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true, "contextLines": 2})
+  Retrieve a symbol's source and metadata.`
   },
   {
     "id": "skill-delegation",

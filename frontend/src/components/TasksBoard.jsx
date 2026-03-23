@@ -245,10 +245,13 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   const [editingProject, setEditingProject] = useState(false);
   const [editProject, setEditProject] = useState(task.project || '');
   const [savingProject, setSavingProject] = useState(false);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [refining, setRefining] = useState(false);
   const transferRef = useRef(null);
   const statusRef = useRef(null);
   const textareaRef = useRef(null);
   const projectInputRef = useRef(null);
+  const refineRef = useRef(null);
 
   // Focus textarea when entering edit mode
   useEffect(() => {
@@ -651,7 +654,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-5 py-3 border-t border-dark-700 gap-2">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-dark-700">
           <button
             onClick={handleDelete}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400
@@ -659,15 +662,59 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
               rounded-lg transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Delete task
+            Delete
           </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs text-dark-300 hover:text-dark-100
-              bg-dark-800 border border-dark-700 hover:border-dark-500 rounded-lg transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Refine with AI */}
+            <div className="relative" ref={refineRef}>
+              <button
+                onClick={() => setRefineOpen(o => !o)}
+                disabled={refining}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400
+                  hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40
+                  rounded-lg transition-colors disabled:opacity-50"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {refining ? 'Refining...' : 'Refine with AI'}
+              </button>
+              {refineOpen && (
+                <div className="absolute right-0 bottom-9 z-50 bg-dark-800 border border-dark-600
+                  rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[180px]">
+                  <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
+                    Choose agent
+                  </div>
+                  {agents.filter(a => a.enabled !== false).map(a => (
+                    <button
+                      key={a.id}
+                      onClick={async () => {
+                        setRefineOpen(false);
+                        setRefining(true);
+                        try {
+                          await api.refineTodo(task.agentId, task.id, a.id);
+                        } finally {
+                          setRefining(false);
+                        }
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-dark-200
+                        hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
+                      {a.name}
+                      <span className="text-dark-500 ml-auto">{a.model}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 text-xs text-dark-300 hover:text-dark-100
+                bg-dark-800 border border-dark-700 hover:border-dark-500 rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1011,7 +1058,7 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                     </button>
                   </div>
 
-                  {/* Auto-refine toggle + agent */}
+                  {/* Automatic transition toggle + agent */}
                   <div className="flex items-center gap-3">
                     <label className="flex items-center gap-1.5 text-xs text-dark-400 cursor-pointer">
                       <input
@@ -1021,7 +1068,7 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                         className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30"
                       />
                       <Zap className="w-3 h-3" />
-                      Auto-refine
+                      Automatic transition
                     </label>
                     {t.autoRefine && (
                       <select

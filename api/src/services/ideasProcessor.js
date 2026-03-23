@@ -6,7 +6,7 @@ import { getSettings } from './configManager.js';
  * then move the todo to the target status with the improved description.
  */
 export async function processIdeaTodo(todo, agentManager, io) {
-  const targetStatus = todo._transition?.to || 'backlog';
+  const targetStatus = todo._transition?.to ?? 'backlog';
 
   try {
     const settings = await getSettings();
@@ -28,8 +28,8 @@ export async function processIdeaTodo(todo, agentManager, io) {
     }
 
     if (!refinementAgent) {
-      console.log(`[Workflow] No agent found for auto-refine, moving to ${targetStatus} as-is`);
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
+      console.log(`[Workflow] No agent found for refinement${targetStatus ? `, moving to ${targetStatus}` : ''}`);
+      if (targetStatus) agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
       return;
     }
 
@@ -74,8 +74,10 @@ Reply ONLY with the improved description. No title, no headers, no preamble.`;
       if (improved) {
         agentManager.updateTodoText(todo.agentId, todo.id, `${todo.text}\n\n---\n${improved}`);
       }
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
-      console.log(`[Workflow] Refined and moved to ${targetStatus}: "${todo.text}"`);
+      if (targetStatus) {
+        agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
+      }
+      console.log(`[Workflow] Refined${targetStatus ? ` and moved to ${targetStatus}` : ''}: "${todo.text}"`);
     } finally {
       io.emit('agent:stream:end', {
         agentId: refinementAgent.id,
@@ -85,10 +87,12 @@ Reply ONLY with the improved description. No title, no headers, no preamble.`;
     }
   } catch (err) {
     console.error(`[Workflow] Error processing "${todo.text}":`, err.message);
-    try {
-      agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
-    } catch (e) {
-      console.error(`[Workflow] Failed to move to ${targetStatus} after error:`, e.message);
+    if (targetStatus) {
+      try {
+        agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true });
+      } catch (e) {
+        console.error(`[Workflow] Failed to move to ${targetStatus} after error:`, e.message);
+      }
     }
   }
 }

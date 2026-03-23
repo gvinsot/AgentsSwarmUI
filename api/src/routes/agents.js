@@ -290,6 +290,33 @@ export function agentRoutes(agentManager) {
     res.status(201).json(todo);
   });
 
+  // ── On-demand AI refinement ─────────────────────────────────────────
+  router.post('/:id/todos/:todoId/refine', async (req, res) => {
+    const { refineAgentId } = req.body;
+    if (!refineAgentId) return res.status(400).json({ error: 'refineAgentId required' });
+
+    const agent = agentManager.agents.get(req.params.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const todo = agent.todoList.find(t => t.id === req.params.todoId);
+    if (!todo) return res.status(404).json({ error: 'Todo not found' });
+
+    const refineAgent = agentManager.agents.get(refineAgentId);
+    if (!refineAgent) return res.status(404).json({ error: 'Refine agent not found' });
+
+    // Fire-and-forget: refine via the agent's chat (visible in UI via stream events)
+    const { processIdeaTodo } = await import('../services/ideasProcessor.js');
+    const enrichedTodo = {
+      ...todo,
+      agentId: req.params.id,
+      _transition: { agent: refineAgent.name, to: null, instructions: '' },
+    };
+    processIdeaTodo(enrichedTodo, agentManager, req.app.get('io')).catch(err => {
+      console.error(`[Refine] Error:`, err.message);
+    });
+
+    res.json({ success: true, message: `Refinement started via ${refineAgent.name}` });
+  });
+
   // ── RAG Document endpoints ─────────────────────────────────────────
   router.post('/:id/rag', (req, res) => {
     const { name, content } = req.body;

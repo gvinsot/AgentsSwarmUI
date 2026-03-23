@@ -150,6 +150,13 @@ export const api = {
       body: JSON.stringify({ targetAgentId })
     }).then(handleResponse),
 
+  refineTodo: (agentId, todoId, refineAgentId) =>
+    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/refine`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ refineAgentId })
+    }).then(handleResponse),
+
   setTodoStatus: (agentId, todoId, status) =>
     fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
       method: 'PATCH',
