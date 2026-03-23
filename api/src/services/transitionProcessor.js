@@ -67,10 +67,10 @@ export async function processTransition(todo, agentManager, io) {
     let prompt;
     let messagePrefix;
     if (isExecution) {
-      // Execution mode: mark in_progress, send the task directly
+      // Execution mode: mark in_progress, execute the task
       agentManager.setTodoStatus(todo.agentId, todo.id, 'in_progress', { skipAutoRefine: true, by: agent.name });
       prompt = todo.text;
-      messagePrefix = '[TASK]';
+      messagePrefix = '';
       console.log(`[Workflow] Executing "${todo.text}" via ${agent.name} (role: ${agent.role})`);
     } else {
       // Refinement mode: ask for an improved description
@@ -90,7 +90,7 @@ export async function processTransition(todo, agentManager, io) {
     try {
       const result = await agentManager.sendMessage(
         agent.id,
-        `${messagePrefix} ${prompt}`,
+        messagePrefix ? `${messagePrefix} ${prompt}` : prompt,
         (chunk) => {
           fullResponse += chunk;
           io.emit('agent:stream:chunk', {

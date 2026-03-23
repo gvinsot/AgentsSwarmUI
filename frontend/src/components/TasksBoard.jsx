@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
-  Search, Trash2, ArrowRightLeft, Clock, X, AlertTriangle,
-  Edit3, Save, Check, User, Tag, Calendar, ChevronDown, Plus, Settings,
+  Search, Trash2, Clock, X, AlertTriangle,
+  Edit3, Save, Check, Tag, Calendar, ChevronDown, Plus, Settings,
   ArrowRight, Zap
 } from 'lucide-react';
 import { api } from '../api';
@@ -80,13 +80,15 @@ const SOURCE_META = {
 
 // ── CreateTaskModal ──────────────────────────────────────────────────────────
 
-function CreateTaskModal({ agents, allProjects, defaultAgentId, onClose, onCreated, statusOptions }) {
+function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOptions }) {
   const [text, setText] = useState('');
-  const [agentId, setAgentId] = useState(defaultAgentId || agents[0]?.id || '');
   const [project, setProject] = useState('');
-  const [status, setStatus] = useState('backlog');
+  const [status, setStatus] = useState('idea');
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef(null);
+
+  // Auto-pick the first enabled agent as container (tasks are no longer agent-specific)
+  const defaultAgentId = agents.find(a => a.enabled !== false)?.id || '';
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -101,10 +103,10 @@ function CreateTaskModal({ agents, allProjects, defaultAgentId, onClose, onCreat
   const handleSubmit = async (e) => {
     e.preventDefault();
     const trimmed = text.trim();
-    if (!trimmed || !agentId) return;
+    if (!trimmed || !defaultAgentId) return;
     setSaving(true);
     try {
-      await api.addTodo(agentId, trimmed, project.trim() || undefined, status);
+      await api.addTodo(defaultAgentId, trimmed, project.trim() || undefined, status);
       await onCreated();
       onClose();
     } finally {
@@ -112,7 +114,6 @@ function CreateTaskModal({ agents, allProjects, defaultAgentId, onClose, onCreat
     }
   };
 
-  const enabledAgents = agents.filter(a => a.enabled !== false);
   const CREATE_STATUSES = statusOptions.filter(s => ['idea', 'backlog', 'pending'].includes(s.value));
   const currentStatus = statusOptions.find(s => s.value === status);
 
@@ -153,23 +154,6 @@ function CreateTaskModal({ agents, allProjects, defaultAgentId, onClose, onCreat
                 text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500
                 resize-none leading-relaxed transition-colors"
             />
-          </div>
-
-          {/* Assign to */}
-          <div>
-            <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
-              <User className="inline w-3 h-3 mr-1" />Assign to <span className="text-red-400">*</span>
-            </label>
-            <select
-              value={agentId}
-              onChange={e => setAgentId(e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
-                focus:outline-none focus:border-indigo-500 transition-colors"
-            >
-              {enabledAgents.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
           </div>
 
           {/* Project + Status row */}
@@ -220,7 +204,7 @@ function CreateTaskModal({ agents, allProjects, defaultAgentId, onClose, onCreat
             </button>
             <button
               type="submit"
-              disabled={saving || !text.trim() || !agentId}
+              disabled={saving || !text.trim()}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white
                 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-lg transition-colors"
             >
@@ -240,14 +224,12 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(task.text);
   const [saving, setSaving] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(false);
   const [editProject, setEditProject] = useState(task.project || '');
   const [savingProject, setSavingProject] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refining, setRefining] = useState(false);
-  const transferRef = useRef(null);
   const statusRef = useRef(null);
   const textareaRef = useRef(null);
   const projectInputRef = useRef(null);
@@ -264,8 +246,8 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (transferRef.current && !transferRef.current.contains(e.target)) setTransferOpen(false);
       if (statusRef.current && !statusRef.current.contains(e.target)) setStatusOpen(false);
+      if (refineRef.current && !refineRef.current.contains(e.target)) setRefineOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -303,13 +285,6 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
     onRefresh();
   };
 
-  const handleTransfer = async (targetAgentId) => {
-    setTransferOpen(false);
-    await api.transferTodo(task.agentId, task.id, targetAgentId);
-    onRefresh();
-    onClose();
-  };
-
   const handleProjectSave = async () => {
     const trimmed = editProject.trim();
     if (trimmed === (task.project || '')) { setEditingProject(false); return; }
@@ -331,7 +306,6 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   const isError = task.status === 'error';
   const sourceMeta = task.source ? (SOURCE_META[task.source.type] || SOURCE_META.api) : null;
   const currentStatus = statusOptions.find(s => s.value === (task.status || 'pending')) || statusOptions[0];
-  const otherAgents = agents.filter(a => a.id !== task.agentId && a.enabled !== false);
 
   return (
     <div
@@ -489,59 +463,12 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
           <div className="space-y-2.5">
             <span className="text-xs font-semibold text-dark-400 uppercase tracking-wide">Details</span>
 
-            {/* Assigned to (agent) */}
-            <div className="flex items-center justify-between py-2 border-b border-dark-800">
-              <div className="flex items-center gap-2 text-xs text-dark-400">
-                <User className="w-3.5 h-3.5" />
-                Assigned to
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium
-                  bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
-                  {task.agentName}
-                </span>
-                {/* Transfer */}
-                <div className="relative" ref={transferRef}>
-                  <button
-                    onClick={() => setTransferOpen(o => !o)}
-                    className="p-1 rounded text-dark-500 hover:text-indigo-400 hover:bg-dark-700 transition-colors"
-                    title="Transfer to another agent"
-                  >
-                    <ArrowRightLeft className="w-3 h-3" />
-                  </button>
-                  {transferOpen && (
-                    <div className="absolute right-0 top-7 z-50 bg-dark-800 border border-dark-600
-                      rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[160px]">
-                      <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
-                        Transfer to
-                      </div>
-                      {otherAgents.length === 0
-                        ? <p className="px-3 py-2 text-xs text-dark-500">No other agents</p>
-                        : otherAgents.map(a => (
-                          <button
-                            key={a.id}
-                            onClick={() => handleTransfer(a.id)}
-                            className="w-full text-left px-3 py-1.5 text-xs text-dark-200
-                              hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
-                            {a.name}
-                          </button>
-                        ))
-                      }
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Assigned by (source) */}
+            {/* Source */}
             {sourceMeta && (
               <div className="flex items-center justify-between py-2 border-b border-dark-800">
                 <div className="flex items-center gap-2 text-xs text-dark-400">
                   <Tag className="w-3.5 h-3.5" />
-                  Assigned by
+                  Source
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ring-1 ${sourceMeta.cls}`}>
                   {sourceMeta.label(task.source)}
@@ -726,20 +653,9 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 // ── TaskCard ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, agents, onDelete, onTransfer, onOpen }) {
-  const [transferOpen, setTransferOpen] = useState(false);
-  const transferRef = useRef(null);
+function TaskCard({ task, agents, onDelete, onOpen }) {
   const isError = task.status === 'error';
   const isDraggingRef = useRef(false);
-
-  useEffect(() => {
-    if (!transferOpen) return;
-    const handler = (e) => {
-      if (transferRef.current && !transferRef.current.contains(e.target)) setTransferOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [transferOpen]);
 
   const sourceMeta = task.source ? (SOURCE_META[task.source.type] || SOURCE_META.api) : null;
 
@@ -805,37 +721,6 @@ function TaskCard({ task, agents, onDelete, onTransfer, onOpen }) {
           {timeAgo(task.createdAt)}
         </span>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {/* Transfer */}
-          <div className="relative" ref={transferRef}>
-            <button
-              onClick={(e) => { e.stopPropagation(); setTransferOpen(o => !o); }}
-              className="p-1.5 rounded text-dark-500 hover:text-indigo-400 hover:bg-dark-700 transition-colors"
-              title="Transfer to another agent"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-            </button>
-            {transferOpen && (
-              <div className="absolute right-0 bottom-8 z-50 bg-dark-800 border border-dark-600 rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[160px]">
-                <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
-                  Transfer to
-                </div>
-                {agents.filter(a => a.id !== task.agentId && a.enabled !== false).map(a => (
-                  <button
-                    key={a.id}
-                    onClick={(e) => { e.stopPropagation(); setTransferOpen(false); onTransfer(task, a.id); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-dark-200 hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
-                    {a.name}
-                  </button>
-                ))}
-                {agents.filter(a => a.id !== task.agentId && a.enabled !== false).length === 0 && (
-                  <p className="px-3 py-2 text-xs text-dark-500">No other agents</p>
-                )}
-              </div>
-            )}
-          </div>
           {/* Delete */}
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task); }}
@@ -852,7 +737,7 @@ function TaskCard({ task, agents, onDelete, onTransfer, onOpen }) {
 
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, agents, onDelete, onTransfer, onDrop, onOpen, onClearAll }) {
+function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll }) {
   const [dragOver, setDragOver] = useState(false);
 
   return (
@@ -903,7 +788,6 @@ function KanbanColumn({ col, tasks, agents, onDelete, onTransfer, onDrop, onOpen
             task={task}
             agents={agents}
             onDelete={onDelete}
-            onTransfer={onTransfer}
             onOpen={onOpen}
           />
         ))}
@@ -1214,11 +1098,6 @@ export default function TasksBoard({ agents, onRefresh }) {
     onRefresh();
   }, [allTasks, onRefresh]);
 
-  const handleTransfer = useCallback(async (task, targetAgentId) => {
-    await api.transferTodo(task.agentId, task.id, targetAgentId);
-    onRefresh();
-  }, [onRefresh]);
-
   const handleDrop = useCallback(async (e, col) => {
     try {
       const { agentId, todoId } = JSON.parse(e.dataTransfer.getData('application/json'));
@@ -1339,7 +1218,6 @@ export default function TasksBoard({ agents, onRefresh }) {
               tasks={tasksByColumn[col.id] || []}
               agents={agents}
               onDelete={handleDelete}
-              onTransfer={handleTransfer}
               onDrop={handleDrop}
               onOpen={setSelectedTask}
               onClearAll={col.id === 'done' ? handleClearDone : undefined}
@@ -1367,7 +1245,6 @@ export default function TasksBoard({ agents, onRefresh }) {
           agents={agents}
           allProjects={allProjects}
           statusOptions={statusOptions}
-          defaultAgentId={agentFilter || null}
           onClose={() => setCreateOpen(false)}
           onCreated={onRefresh}
         />
