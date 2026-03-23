@@ -1,8 +1,17 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { getPool } from './database.js';
 
 const DEFAULTS = {
   ideasAgent: '',
 };
+
+// ── Data directory configuration ────────────────────────────────────────────
+const DATA_DIR = path.join(process.cwd(), '.data');
+
+async function ensureDataDir() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+}
 
 export async function getSettings() {
   const pool = getPool();
