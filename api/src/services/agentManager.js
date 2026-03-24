@@ -1726,11 +1726,53 @@ export class AgentManager {
         }
       }
 
+      // ── Rate limit detection: "You've hit your limit · resets 6am (Europe/Paris)" ──
+      const rateLimitInfo = this._parseRateLimitReset(fullResponse);
+      if (rateLimitInfo) {
+        // Remove the rate-limit response from conversation history (it's not useful)
+        agent.conversationHistory.pop();
+        this.setStatus(id, 'idle');
+        this.abortControllers.delete(id);
+        if (isTopLevel) this._chatLocks.delete(id);
+        // Schedule retry and throw so callers (task loop, transitions) can handle it
+        const err = new Error(`Rate limit reached — resets at ${rateLimitInfo.resetLabel}`);
+        err.isRateLimit = true;
+        err.retryAt = rateLimitInfo.retryAt;
+        err.resetLabel = rateLimitInfo.resetLabel;
+        throw err;
+      }
+
       this.setStatus(id, 'idle');
       this.abortControllers.delete(id); // Clean up abort controller
       if (isTopLevel) this._chatLocks.delete(id);
       return fullResponse;
     } catch (err) {
+      // ── Rate limit: put task on hold and schedule retry ──
+      if (err.isRateLimit) {
+        const delayMs = Math.max(0, err.retryAt - Date.now());
+        console.log(`🕐 [Rate Limit] "${agent.name}": ${err.message} — retry in ${Math.round(delayMs / 60000)}min`);
+        if (streamCallback) streamCallback(`\n⏸️ *${err.message}. Task will auto-retry at ${err.resetLabel} + 5min.*\n`);
+
+        // Find the in_progress task for this agent and put it back to pending
+        const inProgressTodo = agent.todoList?.find(t => t.status === 'in_progress');
+        if (inProgressTodo) {
+          this.setTodoStatus(id, inProgressTodo.id, 'pending', { skipAutoRefine: true, by: 'rate-limit' });
+          console.log(`🕐 [Rate Limit] Task "${inProgressTodo.text.slice(0, 60)}" moved back to pending`);
+        }
+
+        // Schedule re-check after reset time + 5min
+        setTimeout(() => {
+          console.log(`🕐 [Rate Limit] Retry timer fired for "${agent.name}" — triggering re-check`);
+          this._recheckConditionalTransitions();
+        }, delayMs);
+
+        // Don't let the error propagate further — we've handled it
+        this.setStatus(id, 'idle');
+        this.abortControllers.delete(id);
+        if (isTopLevel) this._chatLocks.delete(id);
+        return fullResponse;
+      }
+
       // ── Reactive compaction: context exceeded → compact and retry once ──
       if (this._isContextExceededError(err.message) && !agent._compactionRetried) {
         console.log(`🗜️  [Reactive Compact] "${agent.name}": context exceeded — compacting and retrying`);
@@ -1767,7 +1809,7 @@ export class AgentManager {
       // Do NOT retry on: user abort, context exceeded (handled above), auth errors.
       const isUserStop = err.message === 'Agent stopped by user';
       const isAuthError = err.status === 401 || err.status === 403;
-      const isTransient = !isUserStop && !isAuthError && !this._isContextExceededError(err.message);
+      const isTransient = !isUserStop && !isAuthError && !err.isRateLimit && !this._isContextExceededError(err.message);
       const MAX_STREAM_RETRIES = 3;
       const retryCount = agent._streamRetryCount || 0;
 
@@ -3021,17 +3063,30 @@ export class AgentManager {
     const todo = fromAgent.todoList.find(t => t.id === todoId);
     if (!todo) return null;
 
+    const prevStatus = todo.status;
+
     // Remove from source agent
     fromAgent.todoList = fromAgent.todoList.filter(t => t.id !== todoId);
     saveAgent(fromAgent);
     this._emit('agent:updated', this._sanitize(fromAgent));
 
-    // Add to target agent with updated source tracking
+    // Add to target agent, preserving status and assigning to target agent
     const newTodo = this.addTodo(toAgentId, todo.text, todo.project, {
-      type: 'agent',
+      type: 'transfer',
       name: fromAgent.name,
       id: fromAgent.id,
-    });
+    }, prevStatus);
+
+    // Set the assignee to the target agent so workflow conditions can evaluate
+    if (newTodo) {
+      const actualTodo = toAgent.todoList.find(t => t.id === newTodo.id);
+      if (actualTodo) {
+        actualTodo.assignee = toAgentId;
+        saveAgent(toAgent);
+      }
+      // Re-trigger workflow check with the assignee set
+      this._checkAutoRefine({ ...newTodo, assignee: toAgentId, agentId: toAgentId });
+    }
     return newTodo;
   }
 
@@ -3313,6 +3368,53 @@ export class AgentManager {
   /**
    * Detect if an error message indicates the context window was exceeded.
    */
+  /**
+   * Detect rate-limit messages like "You've hit your limit · resets 6am (Europe/Paris)"
+   * Returns { retryAt: Date ms, resetLabel: string } or null if not a rate limit.
+   */
+  _parseRateLimitReset(text) {
+    if (!text) return null;
+    // Match patterns like: "resets 6am", "resets 6:00am", "resets 6 am (Europe/Paris)"
+    const match = text.match(/(?:hit your limit|rate.limit|limit.reached)[\s\S]*?resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?/i);
+    if (!match) return null;
+
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2] ? parseInt(match[2], 10) : 0;
+    const ampm = match[3].toLowerCase();
+    const tz = match[4] || 'Europe/Paris';
+
+    if (ampm === 'pm' && hours !== 12) hours += 12;
+    if (ampm === 'am' && hours === 12) hours = 0;
+
+    // Build target time in the specified timezone
+    const now = new Date();
+    // Use Intl to get current date in the target timezone
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const todayStr = formatter.format(now); // "YYYY-MM-DD"
+    // Build the reset datetime string in the target timezone
+    const resetStr = `${todayStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+
+    // Convert to UTC by calculating the offset
+    const resetInTz = new Date(resetStr);
+    // Get the offset for this timezone at this time
+    const utcDate = new Date(resetInTz.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const tzDate = new Date(resetInTz.toLocaleString('en-US', { timeZone: tz }));
+    const offsetMs = utcDate - tzDate;
+    let resetUtc = new Date(resetInTz.getTime() + offsetMs);
+
+    // If reset time is in the past, it means tomorrow
+    if (resetUtc.getTime() <= now.getTime()) {
+      resetUtc = new Date(resetUtc.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    // Add 5 minutes buffer
+    const retryAt = resetUtc.getTime() + 5 * 60 * 1000;
+    const resetLabel = `${match[1]}${match[2] ? ':' + match[2] : ''}${ampm} (${tz})`;
+
+    console.log(`🕐 [Rate Limit] Parsed reset: ${resetLabel} → retry at ${new Date(retryAt).toISOString()}`);
+    return { retryAt, resetLabel };
+  }
+
   _isContextExceededError(errMsg) {
     const lower = (errMsg || '').toLowerCase();
     return [
