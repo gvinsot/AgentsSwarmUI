@@ -977,6 +977,17 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                     />
                     <User className="w-3 h-3" />
                   </label>
+                  <select
+                    value={col.autoAssignRole || ''}
+                    onChange={e => updateCol(idx, { autoAssignRole: e.target.value || null })}
+                    className="bg-dark-700 border border-dark-600 rounded px-1.5 py-0.5 text-[10px] text-dark-300"
+                    title="Auto-assign tasks in this column to an agent with this role"
+                  >
+                    <option value="">No auto-assign</option>
+                    {availableRoles.map(r => (
+                      <option key={r} value={r}>Auto: {r}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => removeCol(idx)}
                     className="p-1 text-dark-500 hover:text-red-400 transition-colors"
