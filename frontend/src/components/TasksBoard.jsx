@@ -924,7 +924,8 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
   const updateTransition = (idx, patch) => setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
   const removeTransition = (idx) => setTransitions(prev => prev.filter((_, i) => i !== idx));
   const addTransition = () => {
-    setTransitions(prev => [...prev, { from: cols[0]?.id || '', to: cols[1]?.id || '', agent: null, autoRefine: false, mode: 'refine', instructions: '' }]);
+    setTransitions(prev => [...prev, { from: cols[0]?.id || '', to: cols[1]?.id || '', triggerType: 'none', mode: 'refine', role: '', autoRefine: false, instructions: '', conditions: [] }]);
+  };
   };
 
   return (
@@ -1012,89 +1013,127 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
             <div className="space-y-3">
               {transitions.map((t, idx) => (
                 <div key={idx} className="bg-dark-800 rounded-lg px-3 py-3 space-y-2">
+                  {/* From → To */}
                   <div className="flex items-center gap-2">
-                    <select
-                      value={t.from}
-                      onChange={e => updateTransition(idx, { from: e.target.value })}
-                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
-                    >
+                    <select value={t.from} onChange={e => updateTransition(idx, { from: e.target.value })}
+                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
                       {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
                     <ArrowRight className="w-3 h-3 text-dark-500 flex-shrink-0" />
-                    <select
-                      value={t.to}
-                      onChange={e => updateTransition(idx, { to: e.target.value })}
-                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
-                    >
+                    <select value={t.to} onChange={e => updateTransition(idx, { to: e.target.value })}
+                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
                       {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
-                    <div className="flex-1" />
-                    <button
-                      onClick={() => removeTransition(idx)}
-                      className="p-1 text-dark-500 hover:text-red-400 transition-colors"
-                      title="Remove transition"
-                    >
+                    <button onClick={() => removeTransition(idx)}
+                      className="ml-auto p-1 text-dark-500 hover:text-red-400 transition-colors" title="Remove transition">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
-
-                  {/* Automatic transition toggle + agent */}
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs text-dark-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={t.autoRefine || false}
-                        onChange={e => updateTransition(idx, { autoRefine: e.target.checked })}
-                        className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30"
-                      />
-                      <Zap className="w-3 h-3" />
-                      Automatic transition
-                    </label>
-                    {t.autoRefine && (
-                      <>
-                        <select
-                          value={t.agent || ''}
-                          onChange={e => updateTransition(idx, { agent: e.target.value || null })}
-                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
-                        >
-                          <option value="">Select role...</option>
-                          {availableRoles.map(r => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={t.mode || 'refine'}
-                          onChange={e => updateTransition(idx, { mode: e.target.value })}
-                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200"
-                        >
-                          <option value="refine">Refine task</option>
-                          <option value="execute">Execute task</option>
+                  {/* Trigger Type */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-dark-500 w-12">Trigger:</span>
+                    <select value={t.triggerType || (t.autoRefine ? "agent" : "none")}
+                      onChange={e => {
+                        const v = e.target.value;
+                        updateTransition(idx, {
+                          triggerType: v,
+                          autoRefine: v === "agent",
+                          mode: v === "agent" ? (t.mode || "refine") : t.mode,
+                        });
+                      }}
+                      className="flex-1 px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
+                      <option value="none">Manual (no auto-transition)</option>
+                      <option value="agent">Automatic by Agent</option>
+                      <option value="condition">Conditional</option>
+                    </select>
+                  </div>
+                  {/* Agent mode options */}
+                  {(t.triggerType === "agent" || (!t.triggerType && t.autoRefine)) && (
+                    <div className="space-y-2 pl-2 border-l-2 border-indigo-500/30">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <select value={t.mode || "refine"} onChange={e => updateTransition(idx, { mode: e.target.value })}
+                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
+                          <option value="refine">Refine</option>
+                          <option value="execute">Execute</option>
                           <option value="decide">Decide</option>
                         </select>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Instructions (refine + decide modes) */}
-                  {t.autoRefine && (t.mode || 'refine') !== 'execute' && (
-                    <textarea
-                      value={t.instructions || ''}
-                      onChange={e => updateTransition(idx, { instructions: e.target.value })}
-                      placeholder={t.mode === 'decide'
-                        ? "Criteria for the decision (e.g. 'Approve if the task is clear and actionable')..."
-                        : "Instructions for the agent when processing this transition..."}
-                      rows={2}
-                      className="w-full bg-dark-700 border border-dark-600 rounded-lg px-2.5 py-1.5 text-xs text-dark-200
-                        placeholder-dark-500 focus:outline-none focus:border-indigo-500 resize-none transition-colors"
-                    />
+                        <select value={t.role || ""} onChange={e => updateTransition(idx, { role: e.target.value || null })}
+                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
+                          <option value="">Any role</option>
+                          {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      {(t.mode === "refine" || t.mode === "decide") && (
+                        <textarea value={t.instructions || ""}
+                          onChange={e => updateTransition(idx, { instructions: e.target.value })}
+                          placeholder={t.mode === "decide"
+                            ? "Decision criteria... (e.g., 'Approve if tests pass')"
+                            : "Refinement instructions... (e.g., 'Add acceptance criteria')"}
+                          className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
+                        />
+                      )}
+                    </div>
+                  )}
+                  {/* Conditional options */}
+                  {t.triggerType === "condition" && (
+                    <div className="space-y-2 pl-2 border-l-2 border-amber-500/30">
+                      <div className="text-[10px] text-dark-400">Conditions (all must be true):</div>
+                      {(t.conditions || []).map((cond, ci) => (
+                        <div key={ci} className="flex items-center gap-1.5">
+                          <select value={cond.field || "assignee_status"}
+                            onChange={e => {
+                              const newConds = [...(t.conditions || [])];
+                              newConds[ci] = { ...newConds[ci], field: e.target.value };
+                              updateTransition(idx, { conditions: newConds });
+                            }}
+                            className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                            <option value="assignee_status">Assignee status</option>
+                            <option value="assignee_enabled">Assignee enabled</option>
+                            <option value="assignee_role">Assignee role</option>
+                            <option value="task_has_assignee">Task has assignee</option>
+                          </select>
+                          <select value={cond.operator || "eq"}
+                            onChange={e => {
+                              const newConds = [...(t.conditions || [])];
+                              newConds[ci] = { ...newConds[ci], operator: e.target.value };
+                              updateTransition(idx, { conditions: newConds });
+                            }}
+                            className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                            <option value="eq">is</option>
+                            <option value="neq">is not</option>
+                          </select>
+                          <input value={cond.value || ""}
+                            onChange={e => {
+                              const newConds = [...(t.conditions || [])];
+                              newConds[ci] = { ...newConds[ci], value: e.target.value };
+                              updateTransition(idx, { conditions: newConds });
+                            }}
+                            placeholder="idle, enabled, developer..."
+                            className="flex-1 px-1.5 py-0.5 bg-dark-900 border border-dark-600 rounded text-[10px] text-dark-200 placeholder-dark-500"
+                          />
+                          <button onClick={() => {
+                              const newConds = (t.conditions || []).filter((_, j) => j !== ci);
+                              updateTransition(idx, { conditions: newConds });
+                            }}
+                            className="p-0.5 text-dark-500 hover:text-red-400">
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button onClick={() => {
+                          const newConds = [...(t.conditions || []), { field: "assignee_status", operator: "eq", value: "idle" }];
+                          updateTransition(idx, { conditions: newConds });
+                        }}
+                        className="text-[10px] text-amber-400 hover:text-amber-300">
+                        <Plus className="w-2.5 h-2.5 inline mr-0.5" />Add condition
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
             </div>
-            <button
-              onClick={addTransition}
-              className="mt-2 flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
+            <button onClick={addTransition}
+              className="mt-2 flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
               <Plus className="w-3 h-3" /> Add transition
             </button>
           </section>

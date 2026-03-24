@@ -2748,19 +2748,57 @@ export class AgentManager {
         }
       }
 
-      const transition = workflow.transitions.find(
-        t => t.from === todo.status && t.autoRefine && (t.agent || t.mode === 'execute' || t.mode === 'decide')
-      );
-      if (!transition) {
-        console.log(`[Workflow] No matching transition for status="${todo.status}" (${workflow.transitions.length} transitions checked)`);
-        return;
+      // Find matching transitions — support both agent-based (autoRefine) and conditional
+      const matchingTransitions = workflow.transitions.filter(t => t.from === todo.status);
+      
+      for (const transition of matchingTransitions) {
+        const triggerType = transition.triggerType || (transition.autoRefine ? 'agent' : 'none');
+        
+        if (triggerType === 'agent') {
+          // Agent-based: needs autoRefine + mode/agent
+          if (!transition.autoRefine && !transition.triggerType) continue;
+          if (!(transition.agent || transition.mode === 'execute' || transition.mode === 'decide' || transition.mode === 'refine')) continue;
+          
+          console.log(`[Workflow] Found agent transition: ${transition.from} -> ${transition.to} (mode=${transition.mode})`);
+          const enrichedTodo = { ...todo, _transition: transition };
+          processTransition(enrichedTodo, this, this.io).catch(err => {
+            console.error(`[Workflow] Unhandled error for "${todo.text}":`, err.message);
+          });
+          return;
+        }
+        
+        if (triggerType === 'condition') {
+          // Conditional: evaluate all conditions
+          const conditions = transition.conditions || [];
+          if (conditions.length === 0) continue;
+          
+          const assigneeAgent = todo.assignee ? this.agents.get(todo.assignee) : null;
+          const allMet = conditions.every(cond => {
+            let fieldValue;
+            switch (cond.field) {
+              case 'assignee_status': fieldValue = assigneeAgent?.status || 'none'; break;
+              case 'assignee_enabled': fieldValue = assigneeAgent ? (assigneeAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
+              case 'assignee_role': fieldValue = assigneeAgent?.role || ''; break;
+              case 'task_has_assignee': fieldValue = todo.assignee ? 'true' : 'false'; break;
+              default: fieldValue = '';
+            }
+            return cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
+          });
+          
+          if (allMet) {
+            console.log(`[Workflow] Conditional transition matched: ${transition.from} -> ${transition.to} (${conditions.length} conditions met)`);
+            todo.status = transition.to;
+            const db = require('./database');
+            await db.updateTodo(todo.agentId, todo.id, { status: transition.to });
+            this.io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
+            // Check for further transitions from the new status
+            this._checkAutoRefine({ ...todo, status: transition.to });
+            return;
+          }
+        }
       }
-      console.log(`[Workflow] Found transition: ${transition.from} -> ${transition.to} (mode=${transition.mode}, agent=${transition.agent || 'none'})`);
-      // Attach transition config so the processor knows the target status and instructions
-      const enrichedTodo = { ...todo, _transition: transition };
-      processTransition(enrichedTodo, this, this.io).catch(err => {
-        console.error(`[Workflow] Unhandled error for "${todo.text}":`, err.message);
-      });
+      
+      console.log(`[Workflow] No matching transition for status="${todo.status}" (${matchingTransitions.length} candidates checked)`);
     }).catch(err => {
       console.error(`[Workflow] Failed to load workflow:`, err.message);
     });
