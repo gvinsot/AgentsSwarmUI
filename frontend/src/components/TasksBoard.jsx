@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, Plus, Settings,
-  ArrowRight, Zap
+  ArrowRight, Zap, User
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -39,6 +39,7 @@ function buildColumns(workflowColumns) {
       countCls: c.countCls,
       dropRing: c.dropRing,
       headerActive: c.headerActive,
+      showAgent: col.showAgent || false,
     };
   });
 }
@@ -653,7 +654,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 // ── TaskCard ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, agents, onDelete, onOpen }) {
+function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
   const isError = task.status === 'error';
   const isDraggingRef = useRef(false);
 
@@ -709,6 +710,12 @@ function TaskCard({ task, agents, onDelete, onOpen }) {
             {sourceMeta.label(task.source)}
           </span>
         )}
+        {showAgent && task.agentName && (
+          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+            <User className="w-2.5 h-2.5" />
+            {task.agentName}
+          </span>
+        )}
       </div>
 
       {/* Footer */}
@@ -734,7 +741,7 @@ function TaskCard({ task, agents, onDelete, onOpen }) {
 
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll }) {
+function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll, showAgent }) {
   const [dragOver, setDragOver] = useState(false);
 
   return (
@@ -786,6 +793,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll
             agents={agents}
             onDelete={onDelete}
             onOpen={onOpen}
+            showAgent={showAgent}
           />
         ))}
         {tasks.length === 0 && (
@@ -893,6 +901,15 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                     placeholder="Column name"
                   />
                   <span className="text-[10px] text-dark-500 font-mono">{col.id}</span>
+                  <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer" title="Show assigned agent on task cards">
+                    <input
+                      type="checkbox"
+                      checked={col.showAgent || false}
+                      onChange={e => updateCol(idx, { showAgent: e.target.checked })}
+                      className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3"
+                    />
+                    <User className="w-3 h-3" />
+                  </label>
                   <button
                     onClick={() => removeCol(idx)}
                     className="p-1 text-dark-500 hover:text-red-400 transition-colors"
@@ -1221,6 +1238,7 @@ export default function TasksBoard({ agents, onRefresh }) {
               onDrop={handleDrop}
               onOpen={setSelectedTask}
               onClearAll={col.id === 'done' ? handleClearDone : undefined}
+              showAgent={col.showAgent}
             />
           ))}
         </div>
