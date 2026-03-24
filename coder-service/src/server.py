@@ -106,13 +106,27 @@ async def ensure_agent_user(agent_id: str) -> dict:
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
+            # Copy all Claude config files from the main coder user
+            coder_home = os.path.expanduser("~")
+            agent_claude_dir = os.path.join(home_dir, ".claude")
+            os.makedirs(agent_claude_dir, exist_ok=True)
+            # 1. Credentials (OAuth token for CLI)
             if os.path.exists(CREDENTIALS_FILE):
-                agent_claude_dir = os.path.join(home_dir, ".claude")
-                agent_creds = os.path.join(agent_claude_dir, ".credentials.json")
-                os.makedirs(agent_claude_dir, exist_ok=True)
-                shutil.copy2(CREDENTIALS_FILE, agent_creds)
-                os.chown(agent_creds, uid, gid)
-                os.chown(agent_claude_dir, uid, gid)
+                shutil.copy2(CREDENTIALS_FILE, os.path.join(agent_claude_dir, ".credentials.json"))
+            # 2. Settings (MCP servers config)
+            coder_settings = os.path.join(coder_home, ".claude", "settings.json")
+            if os.path.exists(coder_settings):
+                shutil.copy2(coder_settings, os.path.join(agent_claude_dir, "settings.json"))
+            # 3. Onboarding bypass (.claude.json in home root)
+            coder_claude_json = os.path.join(coder_home, ".claude.json")
+            if os.path.exists(coder_claude_json):
+                shutil.copy2(coder_claude_json, os.path.join(home_dir, ".claude.json"))
+                os.chown(os.path.join(home_dir, ".claude.json"), uid, gid)
+            # Fix ownership
+            for root, dirs, files in os.walk(agent_claude_dir):
+                os.chown(root, uid, gid)
+                for f in files:
+                    os.chown(os.path.join(root, f), uid, gid)
             user_info = {"username": username, "uid": uid, "gid": gid, "home": home_dir}
             _agent_users[agent_id] = user_info
             logger.info(f"[Agent User] Created user {username} (uid={uid}) for agent {agent_id[:12]}")
