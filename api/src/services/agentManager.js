@@ -2874,7 +2874,7 @@ export class AgentManager {
     getWorkflow('_default').then(async (workflow) => {
       // ── Auto-assign by column role (independent of transitions) ──
       const currentColumn = workflow.columns?.find(c => c.id === todo.status);
-      if (currentColumn?.autoAssignRole && !todo.assignee) {
+      if (currentColumn?.autoAssignRole) {
         // Find all matching agents, then pick the one with the fewest tasks in this column
         const candidates = Array.from(this.agents.values()).filter(a =>
           a.enabled !== false &&
