@@ -3036,6 +3036,20 @@ export class AgentManager {
     const prevStatus = todo.status;
     todo.status = prevStatus === 'done' ? 'pending' : 'done';
     if (todo.status === 'done') todo.completedAt = new Date().toISOString();
+
+    // If Jira sync is enabled and this task is not from Jira, create a Jira issue
+    if (isJiraEnabled() && todo.source?.type !== 'jira' && !todo.jiraKey) {
+      createJiraIssue(todo.text, '').then(result => {
+        if (result) {
+          todo.jiraKey = result.key;
+          todo.jiraId = result.id;
+          todo.text = `[${result.key}] ${todo.text}`;
+          this.configManager.updateAgent(agentId, { todoList: agent.todoList });
+          this._emitUpdate(agent);
+          console.log(`[AgentManager] Linked todo to Jira issue ${result.key}`);
+        }
+      }).catch(err => console.error('[AgentManager] Jira issue creation failed:', err.message));
+    }
     const now = new Date().toISOString();
     if (!todo.history) todo.history = [];
     todo.history.push({ from: prevStatus, status: todo.status, at: now, by: 'user' });
@@ -3047,20 +3061,6 @@ export class AgentManager {
   setTodoStatus(agentId, todoId, status, { skipAutoRefine = false, by = null } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
-    const todo = agent.todoList.find(t => t.id === todoId);
-
-    // If Jira sync is enabled and this task is not from Jira, create a Jira issue
-    if (isJiraEnabled() && todo.source?.type !== 'jira' && !todo.jiraKey) {
-      createJiraIssue(todo.title, todo.description).then(result => {
-        if (result) {
-          todo.jiraKey = result.key;
-          todo.jiraId = result.id;
-          todo.title = `[${result.key}] ${todo.title}`;
-          this.configManager.updateAgent(agentId, { todos: agent.todos });
-          if (this.io) this.io.emit('agent:updated', agent);
-          console.log(`[AgentManager] Linked todo to Jira issue ${result.key}`);
-        }
-      }).catch(err => console.error('[AgentManager] Jira issue creation failed:', err.message));
     }
     if (!todo) return null;
     // Guard: only one in_progress task per assignee at a time
