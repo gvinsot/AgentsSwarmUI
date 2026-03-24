@@ -955,7 +955,7 @@ export function createProvider(config) {
       return new VLLMProvider(
         'http://coder-service:8000',
         config.model || 'claude-sonnet-4-20250514',
-        config.apiKey || process.env.ANTHROPIC_API_KEY || '',
+        config.apiKey || process.env.CODER_API_KEY || process.env.ANTHROPIC_API_KEY || '',
         config.agentId || null
       );
     case 'mistral':
