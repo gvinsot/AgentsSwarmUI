@@ -31,6 +31,8 @@ import { ensureApiKeysTable } from './services/apiKeyManager.js';
 import { authenticateApiKey } from './middleware/apiKeyAuth.js';
 import { swarmApiRoutes } from './routes/swarmApi.js';
 import { projectContextRoutes } from './routes/projectContexts.js';
+import { jiraRoutes } from './routes/jira.js';
+import { startJiraSync } from './services/jiraSync.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -111,6 +113,7 @@ app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 app.use('/api/settings/general', authenticateToken, settingsRoutes());
+app.use('/api/jira', authenticateToken, jiraRoutes(agentManager));
 
 // Internal MCP endpoints (used by the MCP client for tool discovery and calls)
 const onedriveMcpHandler = createOneDriveMcpHandler();
@@ -203,6 +206,7 @@ async function start() {
   await mcpManager.seedDefaults(BUILTIN_MCP_SERVERS);
   await agentManager.loadFromDatabase();
   agentManager.startTaskLoop();
+  startJiraSync(agentManager, 60000); // sync every 60s
 
   await sandboxManager.cleanupOrphans();
 

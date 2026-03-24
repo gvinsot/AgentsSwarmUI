@@ -393,6 +393,16 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(workflow)
     }).then(handleResponse),
+
+  // Jira
+  getJiraStatus: () =>
+    fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),
+
+  triggerJiraSync: () =>
+    fetch(`${API_BASE}/jira/sync`, {
+      method: 'POST',
+      headers: getHeaders(),
+    }).then(handleResponse),
 };
 
 export default api;

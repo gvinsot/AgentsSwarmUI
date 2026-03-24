@@ -5,6 +5,7 @@ import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
 import { processTransition } from './transitionProcessor.js';
 import { getWorkflow } from './configManager.js';
+import { onTodoStatusChanged } from './jiraSync.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -3018,6 +3019,8 @@ export class AgentManager {
     todo.history.push({ from: prevStatus, status, at: now, by: by || 'user' });
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
+    // Push status change to Jira (fire-and-forget, skips if no jiraKey or if triggered by jira-sync)
+    if (by !== 'jira-sync') onTodoStatusChanged(todo, status);
     if (!skipAutoRefine) this._checkAutoRefine({ ...todo, agentId });
     return todo;
   }
