@@ -27,17 +27,31 @@ function findAgentByRole(agentManager, role) {
  * Accepts JSON like { "decision": "proceed" } or plain text containing proceed/hold/revise.
  */
 function parseDecision(response) {
-  // Try JSON first
-  try {
-    const jsonMatch = response.match(/\{[\s\S]*?"decision"[\s\S]*?\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        decision: (parsed.decision || 'hold').toLowerCase(),
-        reason: parsed.reason || '',
-      };
-    }
-  } catch (_) { /* not valid JSON, fall through */ }
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  let cleaned = response.replace(/```(?:json)?\s*\n?([\s\S]*?)```/g, '$1').trim();
+
+  // Try JSON parse — first the whole cleaned string, then extract via regex
+  for (const candidate of [cleaned, response]) {
+    try {
+      // Try parsing the whole candidate as JSON
+      const direct = JSON.parse(candidate.trim());
+      if (direct.decision) {
+        return { decision: direct.decision.toLowerCase(), reason: direct.reason || '' };
+      }
+    } catch (_) { /* not valid JSON */ }
+
+    // Extract JSON object containing "decision" — use greedy match for last } to handle nested braces
+    try {
+      const jsonMatch = candidate.match(/\{[^{}]*"decision"\s*:\s*"[^"]*"[^{}]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          decision: (parsed.decision || 'hold').toLowerCase(),
+          reason: parsed.reason || '',
+        };
+      }
+    } catch (_) { /* not valid JSON, fall through */ }
+  }
 
   // Fall back to keyword detection in plain text
   const lower = response.toLowerCase();
