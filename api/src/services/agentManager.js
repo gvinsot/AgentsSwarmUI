@@ -3709,8 +3709,10 @@ export class AgentManager {
       if (this._loopProcessing.has(agentId)) continue;
 
       // Priority 1: resume in_progress tasks that are stalled (agent is idle but task is in_progress)
+      // Skip if workflow manages in_progress transitions (conditions will handle the move)
       const inProgressTodo = agent.todoList?.find(t => t.status === 'in_progress');
       if (inProgressTodo) {
+        if (this._workflowManagedStatuses?.has('in_progress')) continue;
         this._loopProcessing.add(agentId);
         console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has in_progress task "${inProgressTodo.text.slice(0, 60)}" — resuming`);
         this._resumeInProgressTask(agentId, agent, inProgressTodo).finally(() => {
@@ -3802,9 +3804,14 @@ export class AgentManager {
         streamCallback
       );
 
-      // Move to target status on success
-      this.setTodoStatus(agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
-      console.log(`🔄 [TaskLoop] Resumed and completed "${todo.text.slice(0, 60)}" -> ${targetStatus}`);
+      // If workflow manages in_progress transitions, let it handle the next move
+      // Otherwise fall back to moving the task to the target status directly
+      if (this._workflowManagedStatuses?.has('in_progress')) {
+        console.log(`🔄 [TaskLoop] Execution finished for "${todo.text.slice(0, 60)}" — stays in_progress for workflow`);
+      } else {
+        this.setTodoStatus(agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+        console.log(`🔄 [TaskLoop] Resumed and completed "${todo.text.slice(0, 60)}" -> ${targetStatus}`);
+      }
     } catch (err) {
       console.error(`🔄 [TaskLoop] Error resuming task for ${agent.name}:`, err.message);
       this._emit('agent:stream:error', { agentId, error: err.message });
