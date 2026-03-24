@@ -3456,7 +3456,15 @@ export class AgentManager {
     getWorkflow('_default').then(async (workflow) => {
       const condTransitions = workflow.transitions
         .map(t => this._migrateTransition(t))
-        .filter(t => t && t.trigger === 'condition' && (t.conditions || []).length > 0);
+        .filter(t => {
+          if (!t) return false;
+          // Include condition-based transitions with conditions defined
+          if (t.trigger === 'condition' && (t.conditions || []).length > 0) return true;
+          // Include on_enter transitions with run_agent actions — these need retry
+          // when no agent was available at the time the task entered the status
+          if (t.trigger === 'on_enter' && (t.actions || []).some(a => a.type === 'run_agent')) return true;
+          return false;
+        });
 
       if (condTransitions.length === 0) return;
 
@@ -3547,16 +3555,44 @@ export class AgentManager {
   startTaskLoop(intervalMs = 5000) {
     if (this._taskLoopInterval) return;
     this._loopProcessing = new Set();
+    this._workflowManagedStatuses = new Set();
+    this._refreshWorkflowManagedStatuses();
     this._taskLoopInterval = setInterval(() => this._processNextPendingTasks(), intervalMs);
+    // Refresh managed statuses every 30s (picks up workflow config changes)
+    this._workflowRefreshInterval = setInterval(() => this._refreshWorkflowManagedStatuses(), 30000);
     console.log(`🔄 Task loop started (every ${intervalMs / 1000}s)`);
+  }
+
+  _refreshWorkflowManagedStatuses() {
+    getWorkflow('_default').then(workflow => {
+      const managed = new Set();
+      for (const t of workflow.transitions) {
+        const migrated = this._migrateTransition(t);
+        if (!migrated) continue;
+        // A status is "managed" if it has a non-empty transition (on_enter with agent actions, or condition-based)
+        const hasAgentAction = (migrated.actions || []).some(a => a.type === 'run_agent');
+        const isConditional = migrated.trigger === 'condition' && (migrated.conditions || []).length > 0;
+        if (hasAgentAction || isConditional) {
+          managed.add(migrated.from);
+        }
+      }
+      this._workflowManagedStatuses = managed;
+      if (managed.size > 0) {
+        console.log(`🔄 [TaskLoop] Workflow-managed statuses: ${[...managed].join(', ')}`);
+      }
+    }).catch(() => {});
   }
 
   stopTaskLoop() {
     if (this._taskLoopInterval) {
       clearInterval(this._taskLoopInterval);
       this._taskLoopInterval = null;
-      console.log('🔄 Task loop stopped');
     }
+    if (this._workflowRefreshInterval) {
+      clearInterval(this._workflowRefreshInterval);
+      this._workflowRefreshInterval = null;
+    }
+    console.log('🔄 Task loop stopped');
   }
 
   _processNextPendingTasks() {
@@ -3580,9 +3616,12 @@ export class AgentManager {
         continue;
       }
 
-      // Priority 2: pick up the first pending todo
+      // Priority 2: pick up the first pending todo — but skip tasks managed by workflow transitions
       const todo = agent.todoList?.find(t => t.status === 'pending');
       if (!todo) continue;
+
+      // Check if there's a workflow transition for this status — if so, let the workflow handle it
+      if (this._workflowManagedStatuses?.has(todo.status)) continue;
 
       // Mark as being processed by the loop to avoid double-pickup on next tick
       this._loopProcessing.add(agentId);

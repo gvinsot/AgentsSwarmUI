@@ -1187,7 +1187,11 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                         {(t.conditions || []).map((cond, ci) => (
                           <div key={ci} className="flex items-center gap-1.5">
                             <select value={cond.field || 'assignee_status'}
-                              onChange={e => updateCondition(idx, ci, { ...cond, field: e.target.value })}
+                              onChange={e => {
+                                const f = e.target.value;
+                                const defaults = { assignee_status: 'idle', assignee_enabled: 'true', assignee_role: '', task_has_assignee: 'true', idle_agent_available: '' };
+                                updateCondition(idx, ci, { ...cond, field: f, value: defaults[f] || '' });
+                              }}
                               className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
                               <option value="assignee_status">Assigned agent status</option>
                               <option value="assignee_enabled">Assigned agent enabled</option>
