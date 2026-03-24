@@ -229,6 +229,8 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   const [editingProject, setEditingProject] = useState(false);
   const [editProject, setEditProject] = useState(task.project || '');
   const [savingProject, setSavingProject] = useState(false);
+  const [editingAgent, setEditingAgent] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refining, setRefining] = useState(false);
   const statusRef = useRef(null);
@@ -544,19 +546,62 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                 <User className="w-3.5 h-3.5" />
                 Agent
               </div>
-              <select
-                value={task.assignee || task.agentId || ''}
-                onChange={e => {
-                  const ag = agents.find(a => a.id === task.agentId);
-                  if (ag) api.updateTodo(ag.id, task.id, { assignee: e.target.value || null }).then(() => onRefresh?.());
-                }}
-                className="bg-dark-800 border border-dark-600 rounded-lg px-2 py-1 text-xs text-white cursor-pointer"
-              >
-                <option value="">Unassigned</option>
-                {agents.map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
+              {editingAgent ? (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    autoFocus
+                    defaultValue={task.agentId || ''}
+                    onChange={async e => {
+                      const targetId = e.target.value;
+                      if (!targetId || targetId === task.agentId) { setEditingAgent(false); return; }
+                      setTransferring(true);
+                      try {
+                        await api.transferTodo(task.agentId, task.id, targetId);
+                        onRefresh?.();
+                        onClose();
+                      } finally {
+                        setTransferring(false);
+                        setEditingAgent(false);
+                      }
+                    }}
+                    disabled={transferring}
+                    className="px-2 py-0.5 w-36 bg-dark-800 border border-indigo-500/50 rounded text-xs text-dark-200
+                      focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setEditingAgent(false)}
+                    className="p-0.5 rounded text-dark-500 hover:text-dark-300 hover:bg-dark-700 transition-colors"
+                    title="Cancel"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  {(() => {
+                    const ag = agents.find(a => a.id === task.agentId);
+                    return ag ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium
+                        bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
+                        {ag.icon} {ag.name}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-dark-500 italic">Unassigned</span>
+                    );
+                  })()}
+                  <button
+                    onClick={() => setEditingAgent(true)}
+                    className="p-0.5 rounded text-dark-500 hover:text-indigo-400 hover:bg-dark-700 transition-colors"
+                    title="Reassign to another agent"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Transition history */}
