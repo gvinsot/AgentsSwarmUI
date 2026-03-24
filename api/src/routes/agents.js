@@ -295,6 +295,21 @@ export function agentRoutes(agentManager) {
     res.status(201).json(todo);
   });
 
+  // ── Todo commit association ────────────────────────────────────────
+  router.post('/:id/todos/:todoId/commits', (req, res) => {
+    const { hash, message } = req.body;
+    if (!hash) return res.status(400).json({ error: 'Commit hash required' });
+    const todo = agentManager.addTodoCommit(req.params.id, req.params.todoId, hash, message || '');
+    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
+    res.status(201).json(todo);
+  });
+
+  router.delete('/:id/todos/:todoId/commits/:hash', (req, res) => {
+    const todo = agentManager.removeTodoCommit(req.params.id, req.params.todoId, req.params.hash);
+    if (!todo) return res.status(404).json({ error: 'Not found' });
+    res.json(todo);
+  });
+
   // ── On-demand AI refinement ─────────────────────────────────────────
   router.post('/:id/todos/:todoId/refine', async (req, res) => {
     const { refineAgentId } = req.body;

@@ -178,6 +178,19 @@ export const api = {
       body: JSON.stringify({ project: project || '' })
     }).then(handleResponse),
 
+  addTodoCommit: (agentId, todoId, hash, message) =>
+    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/commits`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ hash, message })
+    }).then(handleResponse),
+
+  removeTodoCommit: (agentId, todoId, hash) =>
+    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/commits/${hash}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // Action Logs
   clearActionLogs: (agentId) =>
     fetch(`${API_BASE}/agents/${agentId}/action-logs`, {

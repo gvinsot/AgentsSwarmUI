@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, Plus, Settings,
-  ArrowRight, Zap, User
+  ArrowRight, Zap, User, GitCommit
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -648,6 +648,43 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                 )}
               </>
             )}
+
+            {/* Associated commits */}
+            {task.commits && task.commits.length > 0 && (
+              <div className="space-y-0">
+                <div className="text-[10px] uppercase tracking-wider text-dark-500 font-semibold mb-1.5">Commits</div>
+                <div className="space-y-1">
+                  {task.commits.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-dark-800/50 border border-dark-700/50 group">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GitCommit className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                        <code className="text-xs text-amber-300 font-mono">{c.hash?.slice(0, 7)}</code>
+                        {c.message && (
+                          <span className="text-xs text-dark-300 truncate">{c.message}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {c.date && (
+                          <span className="text-[10px] text-dark-500 flex-shrink-0" title={formatDate(c.date)}>
+                            {timeAgo(c.date)}
+                          </span>
+                        )}
+                        <button
+                          onClick={async () => {
+                            await api.removeTodoCommit(task.agentId, task.id, c.hash);
+                            onRefresh();
+                          }}
+                          className="p-0.5 rounded text-dark-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Remove commit link"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -781,6 +818,12 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
           <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
             <User className="w-2.5 h-2.5" />
             {task.agentName}
+          </span>
+        )}
+        {task.commits && task.commits.length > 0 && (
+          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
+            <GitCommit className="w-2.5 h-2.5" />
+            {task.commits.length}
           </span>
         )}
       </div>

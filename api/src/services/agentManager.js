@@ -1959,6 +1959,24 @@ export class AgentManager {
         continue;
       }
 
+      // ── Handle @link_commit() — associate a commit with a task ─────
+      if (call.tool === 'link_commit') {
+        const [todoId, commitHash, commitMsg] = call.args;
+        if (!todoId || !commitHash) {
+          results.push({ tool: 'link_commit', args: call.args, success: false, error: 'Usage: @link_commit(todoId, commitHash, optionalMessage)' });
+          continue;
+        }
+        const todo = agent.todoList?.find(t => t.id === todoId);
+        if (!todo) {
+          results.push({ tool: 'link_commit', args: call.args, success: false, error: `Todo not found: ${todoId}` });
+          continue;
+        }
+        this.addTodoCommit(agentId, todoId, commitHash, commitMsg || '');
+        console.log(`🔗 [Commit] Agent "${agent.name}" linked ${commitHash.slice(0, 7)} to task "${todo.text.slice(0, 50)}"`);
+        results.push({ tool: 'link_commit', args: call.args, success: true, result: `Commit ${commitHash.slice(0, 7)} linked to task "${todo.text.slice(0, 60)}"` });
+        continue;
+      }
+
       // ── Handle @list_my_tasks() — list agent's own tasks ────────────
       if (call.tool === 'list_my_tasks') {
         const todos = agent.todoList || [];
@@ -2140,6 +2158,20 @@ export class AgentManager {
           args: call.args,
           ...result
         });
+
+        // Auto-capture commit hash from git_commit_push and link to current in_progress task
+        if (call.tool === 'git_commit_push' && result.success && result.result) {
+          const commitMatch = result.result.match(/\[[\w./-]+\s+([a-f0-9]{7,40})\]/);
+          if (commitMatch) {
+            const commitHash = commitMatch[1];
+            const commitMsg = call.args[0] || '';
+            const inProgressTodo = (agent.todoList || []).find(t => t.status === 'in_progress');
+            if (inProgressTodo) {
+              this.addTodoCommit(agentId, inProgressTodo.id, commitHash, commitMsg);
+              console.log(`🔗 [Commit] Auto-linked ${commitHash.slice(0, 7)} to task "${inProgressTodo.text.slice(0, 50)}"`);
+            }
+          }
+        }
 
         // Stream a one-liner per tool execution into the chat
         if (streamCallback) {
@@ -3042,6 +3074,33 @@ export class AgentManager {
     const todo = agent.todoList.find(t => t.id === todoId);
     if (!todo) return null;
     todo.project = project;
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return todo;
+  }
+
+  addTodoCommit(agentId, todoId, hash, message) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const todo = agent.todoList.find(t => t.id === todoId);
+    if (!todo) return null;
+    if (!todo.commits) todo.commits = [];
+    // Avoid duplicates
+    if (todo.commits.some(c => c.hash === hash)) return todo;
+    todo.commits.push({ hash, message: message || '', date: new Date().toISOString() });
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return todo;
+  }
+
+  removeTodoCommit(agentId, todoId, hash) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const todo = agent.todoList.find(t => t.id === todoId);
+    if (!todo || !todo.commits) return null;
+    const before = todo.commits.length;
+    todo.commits = todo.commits.filter(c => c.hash !== hash);
+    if (todo.commits.length === before) return null;
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return todo;
