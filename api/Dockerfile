@@ -25,6 +25,9 @@ RUN apk add --no-cache \
 ENV GIT_USER_NAME=""
 ENV GIT_USER_EMAIL=""
 
+# ZVEC native binary requires glibc but Alpine uses musl — always use in-memory vector store
+ENV CODE_SEARCH_VECTOR_BACKEND=memory
+
 # Add GitHub's SSH host keys to known_hosts
 RUN mkdir -p /root/.ssh && \
     ssh-keyscan github.com >> /root/.ssh/known_hosts
