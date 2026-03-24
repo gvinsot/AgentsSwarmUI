@@ -2748,12 +2748,30 @@ export class AgentManager {
           a.project === todo.project && a.status === 'idle' && a.enabled !== false && (!role || a.role === role)
         );
         fieldValue = found ? 'true' : 'false';
-        // For this condition, operator 'eq' checks if true, 'neq' checks if false
-        return cond.operator === 'neq' ? !found : found;
+        const result = cond.operator === 'neq' ? !found : found;
+        console.log(`[Workflow] Condition: idle_agent_available role="${role}" project="${todo.project}" => ${result}`);
+        return result;
       }
       default: fieldValue = '';
     }
-    return cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
+    const result = cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
+    console.log(`[Workflow] Condition: ${cond.field} ${cond.operator} "${cond.value}" => fieldValue="${fieldValue}" result=${result} (assignee=${todo.assignee || 'none'}, agentName=${assigneeAgent?.name || 'N/A'})`);
+    return result;
+  }
+
+  /** Check if an agent currently has an in_progress task (as owner or assignee) */
+  agentHasActiveTask(agentId) {
+    for (const [ownerId, agent] of this.agents) {
+      if (!agent.todoList) continue;
+      for (const todo of agent.todoList) {
+        if (todo.status !== 'in_progress') continue;
+        // Task is owned by this agent
+        if (ownerId === agentId) return true;
+        // Task is assigned to this agent
+        if (todo.assignee === agentId) return true;
+      }
+    }
+    return false;
   }
 
   /** Migrate old transition format to new trigger+actions format */
@@ -3492,6 +3510,7 @@ export class AgentManager {
                 if (action.target && action.target !== todo.status) {
                   console.log(`[Workflow] Condition re-check: change_status "${todo.status}" -> "${action.target}"`);
                   this.setTodoStatus(agentId, todo.id, action.target, { skipAutoRefine: false, by: 'workflow' });
+                  this._conditionProcessing.delete(lockKey);
                   didReturn = true;
                   break;
                 }
