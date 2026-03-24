@@ -2750,6 +2750,8 @@ export class AgentManager {
   }
 
   // ─── Todo Management ───────────────────────────────────────────────
+  // IMPORTANT: Once a todo's `source` is set at creation, it MUST NOT be modified.
+  // Source tracks the origin (user, api, mcp, agent) and is immutable after creation.
   addTodo(agentId, text, project, source, initialStatus) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;

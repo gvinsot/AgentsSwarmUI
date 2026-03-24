@@ -235,7 +235,11 @@ export function agentRoutes(agentManager) {
   });
 
   router.patch('/:id/todos/:todoId', (req, res) => {
-    const { status, text, project } = req.body || {};
+    const { status, text, project, source } = req.body || {};
+    // Source is immutable once set at creation — reject any attempt to change it
+    if (source !== undefined) {
+      return res.status(400).json({ error: 'Source cannot be modified after creation' });
+    }
     // Capture old status before any update
     const agent = agentManager.agents.get(req.params.id);
     const oldTodo = agent?.todoList?.find(t => t.id === req.params.todoId);
