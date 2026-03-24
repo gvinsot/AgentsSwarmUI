@@ -85,7 +85,7 @@ services:
       - sandbox-net
     restart: unless-stopped
 
-  coder-service-1:
+  coder-service:
     build:
       context: .
       dockerfile: coder-service/Dockerfile
@@ -105,7 +105,6 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-string}
       - PYTHONUNBUFFERED=1
       - PYTHONFAULTHANDLER=1
-      - CODER_INSTANCE_ID=1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
@@ -113,90 +112,6 @@ services:
       - coder-auth-data:/app/data
     ports:
       - "8000:8000"
-    networks:
-      - sandbox-net
-    depends_on:
-      - api
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    restart: unless-stopped
-    profiles:
-      - coder
-
-  coder-service-2:
-    build:
-      context: .
-      dockerfile: coder-service/Dockerfile
-    environment:
-      - TZ=${TZ:-Europe/Paris}
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-4-6}
-      - CLAUDE_MAX_TURNS=${CLAUDE_MAX_TURNS:-50}
-      - TIMEOUT=600
-      - PORT=8000
-      - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
-      - PUID=${CODER_PUID:-1000}
-      - PGID=${CODER_PGID:-1000}
-      - SWARM_API_BASE_URL=http://api:3001
-      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-string}
-      - PYTHONUNBUFFERED=1
-      - PYTHONFAULTHANDLER=1
-      - CODER_INSTANCE_ID=2
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
-      - ${HOST_CODE_PATH:-~}:/projects
-      - coder-auth-data:/app/data
-    ports:
-      - "8001:8000"
-    networks:
-      - sandbox-net
-    depends_on:
-      - api
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    restart: unless-stopped
-    profiles:
-      - coder
-
-  coder-service-3:
-    build:
-      context: .
-      dockerfile: coder-service/Dockerfile
-    environment:
-      - TZ=${TZ:-Europe/Paris}
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-4-6}
-      - CLAUDE_MAX_TURNS=${CLAUDE_MAX_TURNS:-50}
-      - TIMEOUT=600
-      - PORT=8000
-      - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
-      - PUID=${CODER_PUID:-1000}
-      - PGID=${CODER_PGID:-1000}
-      - SWARM_API_BASE_URL=http://api:3001
-      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-string}
-      - PYTHONUNBUFFERED=1
-      - PYTHONFAULTHANDLER=1
-      - CODER_INSTANCE_ID=3
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
-      - ${HOST_CODE_PATH:-~}:/projects
-      - coder-auth-data:/app/data
-    ports:
-      - "8002:8000"
     networks:
       - sandbox-net
     depends_on:

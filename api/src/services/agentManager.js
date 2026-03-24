@@ -862,7 +862,8 @@ export class AgentManager {
         provider: agent.provider,
         model: agent.model,
         endpoint: agent.endpoint,
-        apiKey: agent.apiKey
+        apiKey: agent.apiKey,
+        agentId: id
       });
 
       let fullResponse = '';
@@ -3234,7 +3235,8 @@ export class AgentManager {
         provider: agent.provider,
         model: agent.model,
         endpoint: agent.endpoint,
-        apiKey: agent.apiKey
+        apiKey: agent.apiKey,
+        agentId: id
       });
 
       const msgCount = toSummarize.length + (existingSummary ? 1 : 0);

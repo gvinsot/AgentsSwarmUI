@@ -743,13 +743,18 @@ export class OpenAIProvider {
 
 // ─── vLLM Provider (OpenAI-compatible) ──────────────────────────────────────
 export class VLLMProvider {
-  constructor(baseUrl, model, apiKey) {
+  constructor(baseUrl, model, apiKey, agentId = null) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.model = model;
-    this.client = new OpenAI({
-      apiKey: apiKey || 'dummy',  // vLLM may not require an API key
+    this.agentId = agentId;
+    const clientOpts = {
+      apiKey: apiKey || 'dummy',
       baseURL: `${this.baseUrl}/v1`,
-    });
+    };
+    if (agentId) {
+      clientOpts.defaultHeaders = { 'X-Agent-Id': agentId };
+    }
+    this.client = new OpenAI(clientOpts);
   }
 
   async chat(messages, options = {}) {
@@ -922,20 +927,6 @@ export class MistralProvider {
   }
 }
 
-// ─── Coder Service Round-Robin ────────────────────────────────────────────────
-const CODER_SERVICE_URLS = [
-  'http://coder-service-1:8000',
-  'http://coder-service-2:8000',
-  'http://coder-service-3:8000',
-];
-let _coderServiceIndex = 0;
-function getNextCoderServiceUrl() {
-  const url = CODER_SERVICE_URLS[_coderServiceIndex % CODER_SERVICE_URLS.length];
-  _coderServiceIndex++;
-  console.log(`🔄 [Coder Service] Using instance: ${url} (round-robin #${_coderServiceIndex})`);
-  return url;
-}
-
 // ─── Provider Factory ───────────────────────────────────────────────────────
 export function createProvider(config) {
   switch (config.provider) {
@@ -962,9 +953,10 @@ export function createProvider(config) {
       );
     case 'claude-paid':
       return new VLLMProvider(
-        getNextCoderServiceUrl(),
+        'http://coder-service:8000',
         config.model || 'claude-sonnet-4-20250514',
-        config.apiKey || process.env.ANTHROPIC_API_KEY || ''
+        config.apiKey || process.env.ANTHROPIC_API_KEY || '',
+        config.agentId || null
       );
     case 'mistral':
       return new MistralProvider(
