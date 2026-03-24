@@ -1,7 +1,7 @@
 {
-  "name": "pulsar-team",
+  "name": "pulsarteam-client",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,20 +9,26 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "lucide-react": "^0.468.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "@headlessui/react": "^2.2.4",
+    "chart.js": "^4.5.0",
+    "d3": "^7.9.0",
+    "lucide-react": "^0.474.0",
+    "mermaid": "^11.6.0",
+    "react": "^18.3.1",
+    "react-chartjs-2": "^5.3.0",
+    "react-dom": "^18.3.1",
     "react-markdown": "^9.0.3",
     "react-router-dom": "^7.13.2",
+    "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.0",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
     "vite": "^6.0.7"
   }
