@@ -17,7 +17,7 @@ export function WebSocketProvider({ children }) {
 
         const onConnect = () => setConnected(true);
         const onDisconnect = () => setConnected(false);
-        const onAny = (event, data) => setLastMessage({ event, data, ts: Date.now() });
+        const onAny = (event, data) => setLastMessage({ type: event, data, ts: Date.now() });
 
         s.on('connect', onConnect);
         s.on('disconnect', onDisconnect);
