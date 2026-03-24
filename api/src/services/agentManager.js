@@ -3004,6 +3004,7 @@ export class AgentManager {
       }
     }
     const prevStatus = todo.status;
+    if (prevStatus === status) return todo; // No-op: skip same-status transitions
     todo.status = status;
     const now = new Date().toISOString();
     if (status === 'done') todo.completedAt = now;
