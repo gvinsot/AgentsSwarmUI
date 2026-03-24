@@ -141,19 +141,37 @@ export async function processTransition(todo, agentManager, io) {
       messagePrefix = '';
       console.log(`[Workflow] Executing "${todo.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
     } else if (isDecide) {
-      // Decide mode: agent evaluates whether the task should proceed
-      prompt = `You are a decision gate. Evaluate the following task and decide if it should proceed to the next step.
+      // Decide mode: agent evaluates based ONLY on configured instructions
+      if (!instructions) {
+        // No instructions → auto-proceed without LLM call
+        console.log(`[Workflow] Decide: no instructions configured — auto-proceeding "${todo.text.slice(0, 60)}"`);
+        todo.history = todo.history || [];
+        todo.history.push({
+          status: targetStatus,
+          from: todo.status,
+          timestamp: new Date().toISOString(),
+          agent: agent.name,
+          type: 'decide',
+          decision: 'proceed',
+          reason: 'No decision instructions configured — auto-proceed'
+        });
+        todo.status = targetStatus;
+        todo.assignee = null;
+        await db.updateTodo(todo.agentId, todo.id, { status: targetStatus, assignee: null, history: todo.history });
+        io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
+        return;
+      }
+      prompt = `You are a decision-making agent. Your ONLY job is to evaluate the following instructions and decide if the task should proceed.
 
-Task: ${todo.text}
-${todo.project ? `Project: ${todo.project}\n` : ''}${instructions ? `Criteria: ${instructions}\n` : ''}
-You MUST reply with a JSON object (and nothing else) in this exact format:
-{ "decision": "proceed" | "hold" | "revise", "reason": "brief explanation" }
+Decision instructions:
+${instructions}
 
-- "proceed": the task is ready to move to the next step
-- "hold": the task should stay in its current state (not ready yet)
-- "revise": the task needs changes before it can proceed (explain what needs to change)`;
+Task title: ${todo.text}
+${todo.error ? `Previous error: ${todo.error}` : ''}
+
+Based STRICTLY on the decision instructions above, respond with JSON only: {"decision": "proceed"|"hold"|"revise", "reason": "brief explanation based on the instructions"}`;
       messagePrefix = '[Decide]';
-      console.log(`[Workflow] Deciding "${todo.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
+      console.log(`[Workflow] Deciding "${todo.text.slice(0, 80)}" via ${agent.name}`);
     } else {
       // Refinement mode: ask for an improved description
       prompt = `Refine the following task:\n\nTask: ${todo.text}\n${todo.project ? `Project: ${todo.project}\n` : ''}\n${instructions}\n\nReply ONLY with the improved description.`;
