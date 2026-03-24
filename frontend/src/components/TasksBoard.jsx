@@ -537,6 +537,28 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
               )}
             </div>
 
+
+            {/* Agent */}
+            <div className="flex items-center justify-between py-2 border-b border-dark-800">
+              <div className="flex items-center gap-2 text-xs text-dark-400">
+                <User className="w-3.5 h-3.5" />
+                Agent
+              </div>
+              <select
+                value={task.assignee || task.agentId || ''}
+                onChange={e => {
+                  const ag = agents.find(a => a.id === task.agentId);
+                  if (ag) api.updateTodo(ag.id, task.id, { assignee: e.target.value || null }).then(() => onRefresh?.());
+                }}
+                className="bg-dark-800 border border-dark-600 rounded-lg px-2 py-1 text-xs text-white cursor-pointer"
+              >
+                <option value="">Unassigned</option>
+                {agents.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Transition history */}
             {(task.history && task.history.length > 0) ? (
               <div className="space-y-0">
