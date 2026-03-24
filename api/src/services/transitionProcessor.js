@@ -1,4 +1,5 @@
 import { getSettings } from './configManager.js';
+import { saveAgent } from './database.js';
 
 /**
  * Find the first available agent matching a role.
@@ -157,7 +158,16 @@ export async function processTransition(todo, agentManager, io) {
         });
         todo.status = targetStatus;
         todo.assignee = null;
-        await db.updateTodo(todo.agentId, todo.id, { status: targetStatus, assignee: null, history: todo.history });
+        // Update the actual agent's todoList and persist
+        const ownerAgent = agentManager.agents.get(todo.agentId);
+        const actualTodo = ownerAgent?.todoList?.find(t => t.id === todo.id);
+        if (actualTodo) {
+          actualTodo.status = targetStatus;
+          actualTodo.assignee = null;
+          actualTodo.history = todo.history;
+          if (targetStatus === 'done') actualTodo.completedAt = new Date().toISOString();
+          saveAgent(ownerAgent);
+        }
         io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
         return;
       }

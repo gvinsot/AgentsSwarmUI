@@ -888,11 +888,80 @@ const AVAILABLE_COLORS = [
   { hex: '#64748b', label: 'Slate' },
 ];
 
+// ── Action type helpers ──────────────────────────────────────────────────────
+
+const ACTION_OPTIONS = [
+  { value: 'assign_agent', label: 'Assign to agent' },
+  { value: 'run_agent:execute', label: 'Execute (agent)' },
+  { value: 'run_agent:refine', label: 'Refine (agent)' },
+  { value: 'run_agent:decide', label: 'Decide (agent)' },
+  { value: 'change_status', label: 'Move to status' },
+];
+
+function getActionKey(action) {
+  if (action.type === 'run_agent') return `run_agent:${action.mode}`;
+  return action.type;
+}
+
+function createAction(key, cols) {
+  if (key === 'assign_agent') return { type: 'assign_agent', role: '' };
+  if (key === 'run_agent:execute') return { type: 'run_agent', mode: 'execute', role: '', instructions: '', targetStatus: cols[cols.length - 1]?.id || '' };
+  if (key === 'run_agent:refine') return { type: 'run_agent', mode: 'refine', role: '', instructions: '', targetStatus: cols[1]?.id || '' };
+  if (key === 'run_agent:decide') return { type: 'run_agent', mode: 'decide', role: '', instructions: '', targetStatus: cols[1]?.id || '' };
+  if (key === 'change_status') return { type: 'change_status', target: cols[1]?.id || '' };
+  return { type: 'change_status', target: '' };
+}
+
+/** Migrate old transition format (triggerType/to/agent/mode) to new trigger+actions format */
+function migrateTransition(t) {
+  if (t.actions) return t; // already new format
+  const triggerType = t.triggerType || (t.autoRefine ? 'agent' : 'none');
+  if (triggerType === 'none') return null; // manual → no transition needed
+  const newT = { from: t.from, trigger: triggerType === 'agent' ? 'on_enter' : 'condition', conditions: t.conditions || [], actions: [] };
+  if (triggerType === 'agent') {
+    newT.actions.push({ type: 'run_agent', mode: t.mode || 'refine', role: t.agent || '', instructions: t.instructions || '', targetStatus: t.to || '' });
+  } else {
+    newT.actions.push({ type: 'change_status', target: t.to || '' });
+  }
+  return newT;
+}
+
+// ── Condition value widget ───────────────────────────────────────────────────
+
+function ConditionValueWidget({ cond, onChange }) {
+  if (cond.field === 'owner_status' || cond.field === 'assignee_status') {
+    return (
+      <select value={cond.value || 'idle'} onChange={e => onChange({ ...cond, value: e.target.value })}
+        className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+        <option value="idle">idle</option>
+        <option value="busy">busy</option>
+        <option value="error">error</option>
+      </select>
+    );
+  }
+  if (cond.field === 'owner_enabled' || cond.field === 'assignee_enabled' || cond.field === 'task_has_assignee') {
+    return (
+      <select value={cond.value || 'true'} onChange={e => onChange({ ...cond, value: e.target.value })}
+        className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
+    );
+  }
+  return (
+    <input value={cond.value || ''} onChange={e => onChange({ ...cond, value: e.target.value })}
+      placeholder="value..." className="flex-1 px-1.5 py-0.5 bg-dark-900 border border-dark-600 rounded text-[10px] text-dark-200 placeholder-dark-500" />
+  );
+}
+
 // ── WorkflowEditor ──────────────────────────────────────────────────────────
 
 function WorkflowEditor({ workflow, agents, onClose, onSave }) {
   const [cols, setCols] = useState(() => JSON.parse(JSON.stringify(workflow.columns)));
-  const [transitions, setTransitions] = useState(() => JSON.parse(JSON.stringify(workflow.transitions)));
+  const [transitions, setTransitions] = useState(() => {
+    const raw = JSON.parse(JSON.stringify(workflow.transitions));
+    return raw.map(migrateTransition).filter(Boolean);
+  });
   const [saving, setSaving] = useState(false);
 
   const enabledAgents = agents.filter(a => a.enabled !== false);
@@ -913,7 +982,7 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
   const removeCol = (idx) => {
     const removed = cols[idx];
     setCols(prev => prev.filter((_, i) => i !== idx));
-    setTransitions(prev => prev.filter(t => t.from !== removed.id && t.to !== removed.id));
+    setTransitions(prev => prev.filter(t => t.from !== removed.id));
   };
   const addCol = () => {
     const id = `step_${Date.now()}`;
@@ -924,7 +993,62 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
   const updateTransition = (idx, patch) => setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
   const removeTransition = (idx) => setTransitions(prev => prev.filter((_, i) => i !== idx));
   const addTransition = () => {
-    setTransitions(prev => [...prev, { from: cols[0]?.id || '', to: cols[1]?.id || '', triggerType: 'none', mode: 'refine', agent: '', autoRefine: false, instructions: '', conditions: [] }]);
+    setTransitions(prev => [...prev, {
+      from: cols[0]?.id || '',
+      trigger: 'on_enter',
+      conditions: [],
+      actions: [{ type: 'change_status', target: cols[1]?.id || '' }],
+    }]);
+  };
+
+  // ── Action helpers ──
+  const updateAction = (tIdx, aIdx, patch) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      const newActions = t.actions.map((a, j) => j === aIdx ? { ...a, ...patch } : a);
+      return { ...t, actions: newActions };
+    }));
+  };
+  const removeAction = (tIdx, aIdx) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      return { ...t, actions: t.actions.filter((_, j) => j !== aIdx) };
+    }));
+  };
+  const addAction = (tIdx) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      return { ...t, actions: [...t.actions, createAction('change_status', cols)] };
+    }));
+  };
+  const changeActionType = (tIdx, aIdx, newKey) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      const newActions = [...t.actions];
+      newActions[aIdx] = createAction(newKey, cols);
+      return { ...t, actions: newActions };
+    }));
+  };
+
+  // ── Condition helpers ──
+  const updateCondition = (tIdx, cIdx, cond) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      const newConds = t.conditions.map((c, j) => j === cIdx ? cond : c);
+      return { ...t, conditions: newConds };
+    }));
+  };
+  const removeCondition = (tIdx, cIdx) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      return { ...t, conditions: t.conditions.filter((_, j) => j !== cIdx) };
+    }));
+  };
+  const addCondition = (tIdx) => {
+    setTransitions(prev => prev.map((t, i) => {
+      if (i !== tIdx) return t;
+      return { ...t, conditions: [...t.conditions, { field: 'assignee_status', operator: 'eq', value: 'idle' }] };
+    }));
   };
 
   return (
@@ -1011,15 +1135,11 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
             <h3 className="text-xs font-semibold text-dark-300 uppercase tracking-wider mb-3">Transitions</h3>
             <div className="space-y-3">
               {transitions.map((t, idx) => (
-                <div key={idx} className="bg-dark-800 rounded-lg px-3 py-3 space-y-2">
-                  {/* From → To */}
+                <div key={idx} className="bg-dark-800 rounded-lg px-3 py-3 space-y-3">
+                  {/* From column + delete */}
                   <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-dark-500 w-10">From:</span>
                     <select value={t.from} onChange={e => updateTransition(idx, { from: e.target.value })}
-                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                      {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                    <ArrowRight className="w-3 h-3 text-dark-500 flex-shrink-0" />
-                    <select value={t.to} onChange={e => updateTransition(idx, { to: e.target.value })}
                       className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
                       {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
@@ -1028,133 +1148,130 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
-                  {/* Trigger Type */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-dark-500 w-12">Trigger:</span>
-                    <select value={t.triggerType || (t.autoRefine ? "agent" : "none")}
-                      onChange={e => {
-                        const v = e.target.value;
-                        updateTransition(idx, {
-                          triggerType: v,
-                          autoRefine: v === "agent",
-                          mode: v === "agent" ? (t.mode || "refine") : t.mode,
-                        });
-                      }}
-                      className="flex-1 px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                      <option value="none">Manual (no auto-transition)</option>
-                      <option value="agent">Automatic by Agent</option>
-                      <option value="condition">Conditional</option>
-                    </select>
-                  </div>
-                  {/* Agent mode options */}
-                  {(t.triggerType === "agent" || (!t.triggerType && t.autoRefine)) && (
-                    <div className="space-y-2 pl-2 border-l-2 border-indigo-500/30">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <select value={t.mode || "refine"} onChange={e => updateTransition(idx, { mode: e.target.value })}
-                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                          <option value="refine">Refine</option>
-                          <option value="execute">Execute</option>
-                          <option value="decide">Decide</option>
-                        </select>
-                        <select value={t.agent || ""} onChange={e => updateTransition(idx, { agent: e.target.value || null })}
-                          className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                          <option value="">Select role...</option>
-                          {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                      {(t.mode === "refine" || t.mode === "decide") && (
-                        <textarea value={t.instructions || ""}
-                          onChange={e => updateTransition(idx, { instructions: e.target.value })}
-                          placeholder={t.mode === "decide"
-                            ? "Decision criteria... (e.g., 'Approve if tests pass')"
-                            : "Refinement instructions... (e.g., 'Add acceptance criteria')"}
-                          className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
-                        />
-                      )}
+
+                  {/* Trigger */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Zap className="w-3 h-3 text-amber-400" />
+                      <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Trigger</span>
                     </div>
-                  )}
-                  {/* Conditional options */}
-                  {t.triggerType === "condition" && (
-                    <div className="space-y-2 pl-2 border-l-2 border-amber-500/30">
-                      <div className="text-[10px] text-dark-400">Conditions (all must be true):</div>
-                      {(t.conditions || []).map((cond, ci) => (
-                        <div key={ci} className="flex items-center gap-1.5">
-                          <select value={cond.field || "assignee_status"}
-                            onChange={e => {
-                              const newConds = [...(t.conditions || [])];
-                              newConds[ci] = { ...newConds[ci], field: e.target.value };
-                              updateTransition(idx, { conditions: newConds });
-                            }}
-                            className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
-                            <option value="owner_status">Owner status</option>
-                            <option value="owner_enabled">Owner enabled</option>
-                            <option value="assignee_status">Assignee status</option>
-                            <option value="assignee_enabled">Assignee enabled</option>
-                            <option value="assignee_role">Assignee role</option>
-                            <option value="task_has_assignee">Task has assignee</option>
-                          </select>
-                          <select value={cond.operator || "eq"}
-                            onChange={e => {
-                              const newConds = [...(t.conditions || [])];
-                              newConds[ci] = { ...newConds[ci], operator: e.target.value };
-                              updateTransition(idx, { conditions: newConds });
-                            }}
-                            className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
-                            <option value="eq">is</option>
-                            <option value="neq">is not</option>
-                          </select>
-                          {(cond.field === 'owner_status' || cond.field === 'assignee_status') ? (
-                            <select value={cond.value || "idle"}
-                              onChange={e => {
-                                const newConds = [...(t.conditions || [])];
-                                newConds[ci] = { ...newConds[ci], value: e.target.value };
-                                updateTransition(idx, { conditions: newConds });
-                              }}
+                    <select value={t.trigger || 'on_enter'}
+                      onChange={e => updateTransition(idx, { trigger: e.target.value })}
+                      className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
+                      <option value="on_enter">On enter (fires when task enters this column)</option>
+                      <option value="condition">When conditions are met</option>
+                    </select>
+                    {t.trigger === 'condition' && (
+                      <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-amber-500/30">
+                        <div className="text-[10px] text-dark-400">All conditions must be true:</div>
+                        {(t.conditions || []).map((cond, ci) => (
+                          <div key={ci} className="flex items-center gap-1.5">
+                            <select value={cond.field || 'assignee_status'}
+                              onChange={e => updateCondition(idx, ci, { ...cond, field: e.target.value })}
                               className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
-                              <option value="idle">idle</option>
-                              <option value="busy">busy</option>
-                              <option value="error">error</option>
+                              <option value="owner_status">Owner status</option>
+                              <option value="owner_enabled">Owner enabled</option>
+                              <option value="assignee_status">Assignee status</option>
+                              <option value="assignee_enabled">Assignee enabled</option>
+                              <option value="assignee_role">Assignee role</option>
+                              <option value="task_has_assignee">Task has assignee</option>
                             </select>
-                          ) : (cond.field === 'owner_enabled' || cond.field === 'assignee_enabled' || cond.field === 'task_has_assignee') ? (
-                            <select value={cond.value || "true"}
-                              onChange={e => {
-                                const newConds = [...(t.conditions || [])];
-                                newConds[ci] = { ...newConds[ci], value: e.target.value };
-                                updateTransition(idx, { conditions: newConds });
-                              }}
+                            <select value={cond.operator || 'eq'}
+                              onChange={e => updateCondition(idx, ci, { ...cond, operator: e.target.value })}
                               className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
-                              <option value="true">true</option>
-                              <option value="false">false</option>
+                              <option value="eq">is</option>
+                              <option value="neq">is not</option>
                             </select>
-                          ) : (
-                            <input value={cond.value || ""}
-                              onChange={e => {
-                                const newConds = [...(t.conditions || [])];
-                                newConds[ci] = { ...newConds[ci], value: e.target.value };
-                                updateTransition(idx, { conditions: newConds });
-                              }}
-                              placeholder="value..."
-                              className="flex-1 px-1.5 py-0.5 bg-dark-900 border border-dark-600 rounded text-[10px] text-dark-200 placeholder-dark-500"
+                            <ConditionValueWidget cond={cond} onChange={c => updateCondition(idx, ci, c)} />
+                            <button onClick={() => removeCondition(idx, ci)}
+                              className="p-0.5 text-dark-500 hover:text-red-400">
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ))}
+                        <button onClick={() => addCondition(idx)}
+                          className="text-[10px] text-amber-400 hover:text-amber-300">
+                          <Plus className="w-2.5 h-2.5 inline mr-0.5" />Add condition
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <ArrowRight className="w-3 h-3 text-indigo-400" />
+                      <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">Then</span>
+                    </div>
+                    <div className="space-y-2 pl-3 border-l-2 border-indigo-500/30">
+                      {(t.actions || []).map((action, ai) => (
+                        <div key={ai} className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-dark-500 w-3">{ai + 1}.</span>
+                            <select value={getActionKey(action)}
+                              onChange={e => changeActionType(idx, ai, e.target.value)}
+                              className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                              {ACTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+
+                            {/* Role selector for assign_agent and run_agent */}
+                            {(action.type === 'assign_agent' || action.type === 'run_agent') && (
+                              <select value={action.role || ''}
+                                onChange={e => updateAction(idx, ai, { role: e.target.value })}
+                                className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                                <option value="">Role...</option>
+                                {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                            )}
+
+                            {/* Target status for run_agent */}
+                            {action.type === 'run_agent' && (
+                              <>
+                                <ArrowRight className="w-2.5 h-2.5 text-dark-500 flex-shrink-0" />
+                                <select value={action.targetStatus || ''}
+                                  onChange={e => updateAction(idx, ai, { targetStatus: e.target.value })}
+                                  className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                                  <option value="">Then move to...</option>
+                                  {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                </select>
+                              </>
+                            )}
+
+                            {/* Target status for change_status */}
+                            {action.type === 'change_status' && (
+                              <select value={action.target || ''}
+                                onChange={e => updateAction(idx, ai, { target: e.target.value })}
+                                className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                                <option value="">Select status...</option>
+                                {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                              </select>
+                            )}
+
+                            <button onClick={() => removeAction(idx, ai)}
+                              className="ml-auto p-0.5 text-dark-500 hover:text-red-400">
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          {/* Instructions for refine/decide */}
+                          {action.type === 'run_agent' && (action.mode === 'refine' || action.mode === 'decide') && (
+                            <textarea value={action.instructions || ''}
+                              onChange={e => updateAction(idx, ai, { instructions: e.target.value })}
+                              placeholder={action.mode === 'decide'
+                                ? "Decision criteria... (e.g., 'Approve if task is well-defined')"
+                                : "Refinement instructions... (e.g., 'Add acceptance criteria')"}
+                              className="w-full ml-4 bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
+                              style={{ width: 'calc(100% - 1rem)' }}
                             />
                           )}
-                          <button onClick={() => {
-                              const newConds = (t.conditions || []).filter((_, j) => j !== ci);
-                              updateTransition(idx, { conditions: newConds });
-                            }}
-                            className="p-0.5 text-dark-500 hover:text-red-400">
-                            <Trash2 className="w-2.5 h-2.5" />
-                          </button>
                         </div>
                       ))}
-                      <button onClick={() => {
-                          const newConds = [...(t.conditions || []), { field: "owner_status", operator: "eq", value: "idle" }];
-                          updateTransition(idx, { conditions: newConds });
-                        }}
-                        className="text-[10px] text-amber-400 hover:text-amber-300">
-                        <Plus className="w-2.5 h-2.5 inline mr-0.5" />Add condition
+                      <button onClick={() => addAction(idx)}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-300">
+                        <Plus className="w-2.5 h-2.5 inline mr-0.5" />Add action
                       </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>

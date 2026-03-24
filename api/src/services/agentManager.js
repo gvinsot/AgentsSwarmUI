@@ -2727,6 +2727,37 @@ export class AgentManager {
   }
 
   // ─── Workflow Auto-Refine ───────────────────────────────────────────
+  /** Evaluate a condition against the current todo/agent state */
+  _evaluateCondition(cond, todo) {
+    const ownerAgent = todo.agentId ? this.agents.get(todo.agentId) : null;
+    const assigneeAgent = todo.assignee ? this.agents.get(todo.assignee) : null;
+    let fieldValue;
+    switch (cond.field) {
+      case 'owner_status': fieldValue = ownerAgent?.status || 'none'; break;
+      case 'owner_enabled': fieldValue = ownerAgent ? (ownerAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
+      case 'assignee_status': fieldValue = assigneeAgent?.status || 'none'; break;
+      case 'assignee_enabled': fieldValue = assigneeAgent ? (assigneeAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
+      case 'assignee_role': fieldValue = assigneeAgent?.role || ''; break;
+      case 'task_has_assignee': fieldValue = todo.assignee ? 'true' : 'false'; break;
+      default: fieldValue = '';
+    }
+    return cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
+  }
+
+  /** Migrate old transition format to new trigger+actions format */
+  _migrateTransition(t) {
+    if (t.actions) return t;
+    const triggerType = t.triggerType || (t.autoRefine ? 'agent' : 'none');
+    if (triggerType === 'none') return null;
+    const newT = { from: t.from, trigger: triggerType === 'agent' ? 'on_enter' : 'condition', conditions: t.conditions || [], actions: [] };
+    if (triggerType === 'agent') {
+      newT.actions.push({ type: 'run_agent', mode: t.mode || 'refine', role: t.agent || '', instructions: t.instructions || '', targetStatus: t.to || '' });
+    } else {
+      newT.actions.push({ type: 'change_status', target: t.to || '' });
+    }
+    return newT;
+  }
+
   _checkAutoRefine(todo) {
     // Fire-and-forget: check if there's an autoRefine transition for this status
     console.log(`[Workflow] _checkAutoRefine: status="${todo.status}" text="${(todo.text || '').slice(0, 60)}" agentId="${todo.agentId}"`);
@@ -2740,59 +2771,94 @@ export class AgentManager {
           !this.agentHasActiveTask(a.id)
         );
         if (autoAgent) {
-          console.log(`📋 [Auto-Assign] Task "${(todo.text || '').slice(0, 60)}" assigned to "${autoAgent.name}" (role: ${currentColumn.autoAssignRole}, column: ${currentColumn.label})`);
+          console.log(`[Auto-Assign] Task "${(todo.text || '').slice(0, 60)}" assigned to "${autoAgent.name}" (role: ${currentColumn.autoAssignRole}, column: ${currentColumn.label})`);
           todo.assignee = autoAgent.id;
-          const db = require('./database');
-          await db.updateTodo(todo.agentId, todo.id, { assignee: todo.assignee });
+          // Update the actual agent's todoList (todo is a spread copy)
+          const ownerAgent = this.agents.get(todo.agentId);
+          const actualTodo = ownerAgent?.todoList?.find(t => t.id === todo.id);
+          if (actualTodo) {
+            actualTodo.assignee = autoAgent.id;
+            saveAgent(ownerAgent);
+          }
           this.io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
         }
       }
 
-      // Find matching transitions — support both agent-based (autoRefine) and conditional
-      const matchingTransitions = workflow.transitions.filter(t => t.from === todo.status);
-      
+      // Migrate and filter transitions
+      const matchingTransitions = workflow.transitions
+        .map(t => this._migrateTransition(t))
+        .filter(t => t && t.from === todo.status);
+
       for (const transition of matchingTransitions) {
-        const triggerType = transition.triggerType || (transition.autoRefine ? 'agent' : 'none');
-        
-        if (triggerType === 'agent') {
-          console.log(`[Workflow] Found agent transition: ${transition.from} -> ${transition.to} (mode=${transition.mode}, agent=${transition.agent || 'none'})`);
-          const enrichedTodo = { ...todo, _transition: transition };
-          processTransition(enrichedTodo, this, this.io).catch(err => {
-            console.error(`[Workflow] Unhandled error for "${todo.text}":`, err.message);
-          });
-          return;
-        }
-        
-        if (triggerType === 'condition') {
-          // Conditional: evaluate all conditions
+        // ── Evaluate trigger ──
+        if (transition.trigger === 'condition') {
           const conditions = transition.conditions || [];
           if (conditions.length === 0) continue;
-          
-          const ownerAgent = todo.agentId ? this.agents.get(todo.agentId) : null;
-          const assigneeAgent = todo.assignee ? this.agents.get(todo.assignee) : null;
-          const allMet = conditions.every(cond => {
-            let fieldValue;
-            switch (cond.field) {
-              case 'owner_status': fieldValue = ownerAgent?.status || 'none'; break;
-              case 'owner_enabled': fieldValue = ownerAgent ? (ownerAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
-              case 'assignee_status': fieldValue = assigneeAgent?.status || 'none'; break;
-              case 'assignee_enabled': fieldValue = assigneeAgent ? (assigneeAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
-              case 'assignee_role': fieldValue = assigneeAgent?.role || ''; break;
-              case 'task_has_assignee': fieldValue = todo.assignee ? 'true' : 'false'; break;
-              default: fieldValue = '';
+          const allMet = conditions.every(cond => this._evaluateCondition(cond, todo));
+          if (!allMet) {
+            console.log(`[Workflow] Condition not met for transition from="${transition.from}" (${conditions.length} conditions)`);
+            continue;
+          }
+          console.log(`[Workflow] All ${conditions.length} conditions met for transition from="${transition.from}"`);
+        }
+        // trigger === 'on_enter' always passes
+
+        // ── Process actions sequentially ──
+        const actions = transition.actions || [];
+        console.log(`[Workflow] Transition matched: from="${transition.from}" trigger="${transition.trigger}" (${actions.length} action(s))`);
+
+        for (const action of actions) {
+          if (action.type === 'assign_agent') {
+            // Find an idle agent with the specified role and assign
+            const agent = Array.from(this.agents.values()).find(a =>
+              a.enabled !== false &&
+              a.status === 'idle' &&
+              (a.role || '').toLowerCase() === (action.role || '').toLowerCase() &&
+              !this.agentHasActiveTask(a.id)
+            );
+            if (agent) {
+              todo.assignee = agent.id;
+              // Update the actual agent's todoList (todo is a spread copy)
+              const ownerAgent = this.agents.get(todo.agentId);
+              const actualTodo = ownerAgent?.todoList?.find(t => t.id === todo.id);
+              if (actualTodo) {
+                actualTodo.assignee = agent.id;
+                saveAgent(ownerAgent);
+              }
+              this.io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
+              console.log(`[Workflow] Action: assigned "${(todo.text || '').slice(0, 60)}" to "${agent.name}" (role: ${action.role})`);
+            } else {
+              console.log(`[Workflow] Action: no idle agent with role "${action.role}" — skipping assign`);
             }
-            return cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
-          });
-          
-          if (allMet) {
-            console.log(`[Workflow] Conditional transition matched: ${transition.from} -> ${transition.to} (${conditions.length} conditions met)`);
-            // Use setTodoStatus to properly update history and trigger further transitions
-            this.setTodoStatus(todo.agentId, todo.id, transition.to, { skipAutoRefine: false, by: 'workflow-condition' });
-            return;
+
+          } else if (action.type === 'run_agent') {
+            // Build _transition compatible with processTransition
+            const enrichedTodo = {
+              ...todo,
+              _transition: {
+                agent: action.role || '',
+                mode: action.mode || 'execute',
+                instructions: action.instructions || '',
+                to: action.targetStatus || null,
+              }
+            };
+            console.log(`[Workflow] Action: run_agent mode="${action.mode}" role="${action.role}" target="${action.targetStatus}"`);
+            processTransition(enrichedTodo, this, this.io).catch(err => {
+              console.error(`[Workflow] Error in run_agent for "${(todo.text || '').slice(0, 60)}":`, err.message);
+            });
+            return; // run_agent is async — stop processing further transitions
+
+          } else if (action.type === 'change_status') {
+            if (action.target && action.target !== todo.status) {
+              console.log(`[Workflow] Action: change_status "${todo.status}" -> "${action.target}"`);
+              this.setTodoStatus(todo.agentId, todo.id, action.target, { skipAutoRefine: false, by: 'workflow' });
+              return; // status change triggers a new _checkAutoRefine cycle
+            }
           }
         }
+        return; // transition matched and all actions processed
       }
-      
+
       console.log(`[Workflow] No matching transition for status="${todo.status}" (${matchingTransitions.length} candidates checked)`);
     }).catch(err => {
       console.error(`[Workflow] Failed to load workflow:`, err.message);
