@@ -128,7 +128,7 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
   try {
     switch (toolName) {
       case 'read_file':
-        return await toolReadFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]));
+        return await toolReadFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1], cleanArgs[2]);
 
       case 'write_file':
         return await toolWriteFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
@@ -158,14 +158,36 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
 
 // ─── Tool implementations (all via sandbox) ────────────────────────────────
 
-async function toolReadFile(sandboxMgr, agentId, filePath) {
+async function toolReadFile(sandboxMgr, agentId, filePath, startLineArg, endLineArg) {
   try {
     const content = await sandboxMgr.readFile(agentId, filePath);
-    const lines = content.split('\n').length;
+    const allLines = content.split('\n');
+
+    // Parse line range — handle both @read_file(path, 10, 25) and @read_file(path, "10, 25")
+    let startLine = parseInt(startLineArg, 10);
+    let endLine = parseInt(endLineArg, 10);
+    // If startLineArg contains a comma (e.g. "10, 25" from 2-arg parser), split it
+    if (isNaN(startLine) && typeof startLineArg === 'string' && startLineArg.includes(',')) {
+      const parts = startLineArg.split(',').map(s => parseInt(s.trim(), 10));
+      startLine = parts[0];
+      endLine = parts[1];
+    }
+
+    if (!isNaN(startLine) && startLine > 0) {
+      const start = Math.max(0, startLine - 1);
+      const end = !isNaN(endLine) && endLine >= startLine ? Math.min(endLine, allLines.length) : allLines.length;
+      const sliced = allLines.slice(start, end);
+      return {
+        success: true,
+        result: sliced.join('\n'),
+        meta: { path: filePath, startLine, endLine: end, totalLines: allLines.length }
+      };
+    }
+
     return {
       success: true,
       result: content,
-      meta: { path: filePath, size: content.length, lines }
+      meta: { path: filePath, size: content.length, lines: allLines.length }
     };
   } catch (err) {
     if (err.message.includes('No such file')) {
