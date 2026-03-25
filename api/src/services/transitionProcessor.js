@@ -2,6 +2,9 @@ import { getSettings } from './configManager.js';
 import { saveAgent } from './database.js';
 import { getWorkflow } from './workflowManager.js';
 
+// Lock to prevent concurrent execution of the same task
+const _executionLocks = new Set();
+
 /**
  * Find the first available agent matching a role.
  * "Available" = enabled AND idle (not busy/error).
@@ -82,6 +85,14 @@ export async function processTransition(todo, agentManager, io) {
   const mode = todo._transition?.mode;
   const instructions = todo._transition?.instructions || '';
 
+  // Prevent concurrent execution of the same task
+  const lockKey = `${todo.agentId}:${todo.id}`;
+  if (_executionLocks.has(lockKey)) {
+    console.log(`[Workflow] Skipping duplicate processTransition for "${todo.text?.slice(0, 60)}" — already in progress`);
+    return;
+  }
+  _executionLocks.add(lockKey);
+
   console.log(`[Workflow] processTransition called: todo="${todo.text?.slice(0, 60)}" from="${todo.status}" to="${targetStatus}" mode="${mode}" role="${transitionRole || 'none'}" agentId="${todo.agentId}"`);
 
   try {
@@ -102,6 +113,7 @@ export async function processTransition(todo, agentManager, io) {
       // If assignee is not idle, don't fallback — task will be picked up when assignee becomes available
       if (!agent) {
         console.log(`[Workflow] Execute mode: assignee not available — task stays pending (will retry when assignee is idle)`);
+        _executionLocks.delete(lockKey);
         return;
       }
     } else {
@@ -125,6 +137,7 @@ export async function processTransition(todo, agentManager, io) {
 
     if (!agent) {
       console.log(`[Workflow] No idle agent found for role "${transitionRole || 'any'}" — task stays pending (will be picked up when an agent becomes available)`);
+      _executionLocks.delete(lockKey);
       return;
     }
 
@@ -175,6 +188,7 @@ export async function processTransition(todo, agentManager, io) {
           saveAgent(ownerAgent);
         }
         io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
+        _executionLocks.delete(lockKey);
         return;
       }
       prompt = `You are a decision-making agent. Your ONLY job is to evaluate the following instructions and decide if the task should proceed.
@@ -304,5 +318,7 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
     } catch (e) {
       console.error(`[Workflow] Failed to set status after error:`, e.message);
     }
+  } finally {
+    _executionLocks.delete(lockKey);
   }
 }
