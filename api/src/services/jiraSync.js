@@ -15,7 +15,7 @@
  *  JIRA_USER_EMAIL  – Atlassian account email
  */
 
-import { getWorkflow } from './workflowManager.js';
+import { getWorkflow } from './configManager.js';
 import { saveAgent } from './database.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
