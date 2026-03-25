@@ -218,8 +218,8 @@ export function agentRoutes(agentManager) {
     }
   });
 
-  // ── Todo endpoints ──────────────────────────────────────────────────
-  router.post('/:id/todos', (req, res) => {
+  // ── Task endpoints ──────────────────────────────────────────────────────
+  router.post('/:id/tasks', (req, res) => {
     const { text, project, source, status } = req.body;
     if (!text) return res.status(400).json({ error: 'Text required' });
     const agent = agentManager.agents.get(req.params.id);
@@ -231,12 +231,12 @@ export function agentRoutes(agentManager) {
     const resolvedSource = source || { type: 'user' };
     const validStatuses = ['idea', 'backlog', 'pending', 'in_progress', 'done', 'error'];
     const resolvedStatus = status && validStatuses.includes(status) ? status : undefined;
-    const todo = agentManager.addTodo(req.params.id, text, project, resolvedSource, resolvedStatus);
-    if (!todo) return res.status(404).json({ error: 'Agent not found' });
-    res.status(201).json(todo);
+    const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus);
+    if (!task) return res.status(404).json({ error: 'Agent not found' });
+    res.status(201).json(task);
   });
 
-  router.patch('/:id/todos/:todoId', (req, res) => {
+  router.patch('/:id/tasks/:taskId', (req, res) => {
     const { status, text, project, source } = req.body || {};
     // Source is immutable once set at creation — reject any attempt to change it
     if (source !== undefined) {
@@ -244,105 +244,105 @@ export function agentRoutes(agentManager) {
     }
     // Capture old status before any update
     const agent = agentManager.agents.get(req.params.id);
-    const oldTodo = agent?.todoList?.find(t => t.id === req.params.todoId);
-    const oldStatus = oldTodo?.status;
+    const oldTask = agent?.todoList?.find(t => t.id === req.params.taskId);
+    const oldStatus = oldTask?.status;
     
-    let todo;
+    let task;
     if (text !== undefined) {
       if (!text.trim()) return res.status(400).json({ error: 'Text cannot be empty' });
-      todo = agentManager.updateTodoText(req.params.id, req.params.todoId, text.trim());
+      task = agentManager.updateTaskText(req.params.id, req.params.taskId, text.trim());
     } else if (project !== undefined) {
-      todo = agentManager.updateTodoProject(req.params.id, req.params.todoId, project || null);
+      task = agentManager.updateTaskProject(req.params.id, req.params.taskId, project || null);
     } else if (status) {
-      todo = agentManager.setTodoStatus(req.params.id, req.params.todoId, status);
+      task = agentManager.setTaskStatus(req.params.id, req.params.taskId, status);
     } else {
-      todo = agentManager.toggleTodo(req.params.id, req.params.todoId);
+      task = agentManager.toggleTask(req.params.id, req.params.taskId);
     }
-    if (!todo) return res.status(404).json({ error: 'Not found' });
+    if (!task) return res.status(404).json({ error: 'Not found' });
     // If task moved OUT of in_progress, stop the agent
     if (oldStatus === 'in_progress' && status && status !== 'in_progress' && agent?.status === 'busy') {
-      console.log(`\u{1F6D1} [Todo] Task moved from in_progress to ${status} — stopping agent "${agent.name}"`);
+      console.log(`\u{1F6D1} [Task] Task moved from in_progress to ${status} \u2014 stopping agent "${agent.name}"`);
       agentManager.stopAgent(req.params.id);
     }
-    res.json(todo);
+    res.json(task);
   });
 
-  router.delete('/:id/todos', (req, res) => {
-    const success = agentManager.clearTodos(req.params.id);
+  router.delete('/:id/tasks', (req, res) => {
+    const success = agentManager.clearTasks(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
     res.json({ success: true });
   });
 
-  router.delete('/:id/todos/:todoId', (req, res) => {
-    // Check if deleting an in_progress todo
+  router.delete('/:id/tasks/:taskId', (req, res) => {
+    // Check if deleting an in_progress task
     const agent = agentManager.agents.get(req.params.id);
-    const todoToDelete = agent?.todoList?.find(t => t.id === req.params.todoId);
-    const wasInProgress = todoToDelete?.status === 'in_progress';
+    const taskToDelete = agent?.todoList?.find(t => t.id === req.params.taskId);
+    const wasInProgress = taskToDelete?.status === 'in_progress';
     
-    const success = agentManager.deleteTodo(req.params.id, req.params.todoId);
+    const success = agentManager.deleteTask(req.params.id, req.params.taskId);
     if (!success) return res.status(404).json({ error: 'Not found' });
-    // If deleted todo was in_progress, stop the agent
+    // If deleted task was in_progress, stop the agent
     if (wasInProgress && agent?.status === 'busy') {
-      console.log(`\u{1F6D1} [Todo] Task deleted while in_progress — stopping agent "${agent.name}"`);
+      console.log(`\u{1F6D1} [Task] Task deleted while in_progress \u2014 stopping agent "${agent.name}"`);
       agentManager.stopAgent(req.params.id);
     }
     res.json({ success: true });
   });
 
-  router.post('/:id/todos/:todoId/transfer', (req, res) => {
+  router.post('/:id/tasks/:taskId/transfer', (req, res) => {
     const { targetAgentId } = req.body;
     if (!targetAgentId) return res.status(400).json({ error: 'targetAgentId required' });
-    const todo = agentManager.transferTodo(req.params.id, req.params.todoId, targetAgentId);
-    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
-    res.status(201).json(todo);
+    const task = agentManager.transferTask(req.params.id, req.params.taskId, targetAgentId);
+    if (!task) return res.status(404).json({ error: 'Agent or task not found' });
+    res.status(201).json(task);
   });
 
-  router.patch('/:id/todos/:todoId/assignee', (req, res) => {
+  router.patch('/:id/tasks/:taskId/assignee', (req, res) => {
     const { assigneeId } = req.body;
     // assigneeId can be null to unassign
     if (assigneeId && !agentManager.agents.get(assigneeId)) {
       return res.status(404).json({ error: 'Assignee agent not found' });
     }
-    const todo = agentManager.setTodoAssignee(req.params.id, req.params.todoId, assigneeId || null);
-    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
-    res.json(todo);
+    const task = agentManager.setTaskAssignee(req.params.id, req.params.taskId, assigneeId || null);
+    if (!task) return res.status(404).json({ error: 'Agent or task not found' });
+    res.json(task);
   });
 
-  // ── Todo commit association ────────────────────────────────────────
-  router.post('/:id/todos/:todoId/commits', (req, res) => {
+  // ── Task commit association ────────────────────────────────────────
+  router.post('/:id/tasks/:taskId/commits', (req, res) => {
     const { hash, message } = req.body;
     if (!hash) return res.status(400).json({ error: 'Commit hash required' });
-    const todo = agentManager.addTodoCommit(req.params.id, req.params.todoId, hash, message || '');
-    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
-    res.status(201).json(todo);
+    const task = agentManager.addTaskCommit(req.params.id, req.params.taskId, hash, message || '');
+    if (!task) return res.status(404).json({ error: 'Agent or task not found' });
+    res.status(201).json(task);
   });
 
-  router.delete('/:id/todos/:todoId/commits/:hash', (req, res) => {
-    const todo = agentManager.removeTodoCommit(req.params.id, req.params.todoId, req.params.hash);
-    if (!todo) return res.status(404).json({ error: 'Not found' });
-    res.json(todo);
+  router.delete('/:id/tasks/:taskId/commits/:hash', (req, res) => {
+    const task = agentManager.removeTaskCommit(req.params.id, req.params.taskId, req.params.hash);
+    if (!task) return res.status(404).json({ error: 'Not found' });
+    res.json(task);
   });
 
   // ── On-demand AI refinement (synchronous — waits for result) ────────
-  router.post('/:id/todos/:todoId/refine', async (req, res) => {
+  router.post('/:id/tasks/:taskId/refine', async (req, res) => {
     const { refineAgentId } = req.body;
     if (!refineAgentId) return res.status(400).json({ error: 'refineAgentId required' });
 
     const agent = agentManager.agents.get(req.params.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    const todo = agent.todoList.find(t => t.id === req.params.todoId);
-    if (!todo) return res.status(404).json({ error: 'Todo not found' });
+    const task = agent.todoList.find(t => t.id === req.params.taskId);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
 
     const refineAgent = agentManager.agents.get(refineAgentId);
     if (!refineAgent) return res.status(404).json({ error: 'Refine agent not found' });
     if (refineAgent.status !== 'idle') return res.status(409).json({ error: 'Agent is busy' });
 
     try {
-      const prompt = `Refine the following task description. Make it clearer, more actionable, and add acceptance criteria if missing.\n\nTask: ${todo.text}\n\nReply ONLY with the improved description (no preamble, no explanation).`;
+      const prompt = `Refine the following task description. Make it clearer, more actionable, and add acceptance criteria if missing.\n\nTask: ${task.text}\n\nReply ONLY with the improved description (no preamble, no explanation).`;
       const result = await agentManager.sendMessage(refineAgentId, prompt, () => {});
       const refined = (result?.content || result || '').trim();
       if (refined) {
-        agentManager.updateTodoText(req.params.id, req.params.todoId, refined);
+        agentManager.updateTaskText(req.params.id, req.params.taskId, refined);
       }
       res.json({ success: true, text: refined });
     } catch (err) {
@@ -385,15 +385,15 @@ export function agentRoutes(agentManager) {
   // Backward compatibility
   router.post('/:id/skills', pluginAssignHandler);
 
-// ── Todo History & Stats ──────────────────────────────────────────────────────
+// ── Task History & Stats ──────────────────────────────────────────────────────
 
-router.get("/todos/stats", (req, res) => {
+router.get("/tasks/stats", (req, res) => {
   const { project } = req.query;
   const stats = globalTodoStore.getStats(project || null);
   res.json(stats);
 });
 
-router.get("/todos/:id/history", (req, res) => {
+router.get("/tasks/:id/history", (req, res) => {
   const history = globalTodoStore.getHistory(req.params.id);
   if (!history) return res.status(404).json({ error: "Not found" });
   res.json(history);

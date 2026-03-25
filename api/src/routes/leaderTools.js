@@ -51,7 +51,7 @@ export function leaderToolsRoutes(agentManager) {
   });
 
   // Swarm Leader tool: get lightweight status for ALL enabled agents
-  // Returns an array of agent status objects (each includes project, currentTask, todos, etc.)
+  // Returns an array of agent status objects (each includes project, currentTask, tasks, etc.)
   // Much lighter than GET /agents which returns full agent data with conversation history
   // Optional query param: ?project=ProjectName to filter by project
   router.get('/all-statuses', (req, res) => {

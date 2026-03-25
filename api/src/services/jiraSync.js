@@ -115,19 +115,19 @@ export async function getJiraColumns() {
 
 // ── Execute transition actions after Jira import ────────────────────────────
 
-async function executeTransitionActions(trigger, todo, agentId, agentManager) {
+async function executeTransitionActions(trigger, task, agentId, agentManager) {
   const actions = trigger.actions || [];
   if (actions.length === 0) return;
 
   for (const action of actions) {
     if (action.type === 'change_status' && action.target) {
-      agentManager.setTodoStatus(agentId, todo.id, action.target, { skipAutoRefine: false, by: 'jira-sync' });
-      console.log(`[Jira] Action: moved "${todo.text?.slice(0, 50)}" → ${action.target}`);
+      agentManager.setTaskStatus(agentId, task.id, action.target, { skipAutoRefine: false, by: 'jira-sync' });
+      console.log(`[Jira] Action: moved "${task.text?.slice(0, 50)}" → ${action.target}`);
     } else if (action.type === 'assign_agent' && action.role) {
       // Handled by _checkAutoRefine via autoAssignRole on the target column
     } else if (action.type === 'run_agent') {
-      const enrichedTodo = {
-        ...todo, agentId,
+      const enrichedTask = {
+        ...task, agentId,
         _transition: {
           agent: action.role || '',
           mode: action.mode || 'execute',
@@ -135,13 +135,13 @@ async function executeTransitionActions(trigger, todo, agentId, agentManager) {
           to: action.targetStatus || null,
         }
       };
-      processTransition(enrichedTodo, agentManager, _io).catch(err =>
+      processTransition(enrichedTask, agentManager, _io).catch(err =>
         console.error(`[Jira] Action run_agent error:`, err.message)
       );
     } else if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
-      await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
-    } else if (action.type === 'jira_ai_comment' && todo.jiraKey) {
-      analyzeAndCommentJira(todo.jiraKey, todo, agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
+      await moveJiraIssue(task.jiraKey, action.jiraStatusIds);
+    } else if (action.type === 'jira_ai_comment' && task.jiraKey) {
+      analyzeAndCommentJira(task.jiraKey, task, agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
         console.error(`[Jira] AI comment action error:`, err.message)
       );
     }
@@ -212,7 +212,7 @@ export async function pollJira(agentManager) {
       if (!ownerAgent) continue;
 
       const summary = issue.fields?.summary || issue.key;
-      const todo = agentManager.addTodo(
+      const task = agentManager.addTask(
         ownerAgent.id,
         `[${issue.key}] ${summary}`,
         null,
@@ -220,18 +220,18 @@ export async function pollJira(agentManager) {
         targetColumn
       );
 
-      if (todo) {
-        const actualTodo = ownerAgent.todoList.find(t => t.id === todo.id);
-        if (actualTodo) {
-          actualTodo.jiraKey = issue.key;
-          actualTodo.jiraStatusId = statusId;
+      if (task) {
+        const actualTask = ownerAgent.todoList.find(t => t.id === task.id);
+        if (actualTask) {
+          actualTask.jiraKey = issue.key;
+          actualTask.jiraStatusId = statusId;
           saveAgent(ownerAgent);
         }
         existingJiraKeys.add(issue.key);
         created++;
         console.log(`[Jira] Imported ${issue.key} "${summary}" → column "${targetColumn}"`);
         // Execute transition actions (change_status, run_agent, etc.)
-        await executeTransitionActions(trigger, actualTodo || todo, ownerAgent.id, agentManager);
+        await executeTransitionActions(trigger, actualTask || task, ownerAgent.id, agentManager);
       }
     }
   }
@@ -386,13 +386,13 @@ export async function addCommentToJira(jiraKey, commentText) {
  * Called as a workflow action when a task enters a column.
  *
  * @param {string} jiraKey - The Jira issue key (e.g. KAN-7)
- * @param {object} todo - The PulsarTeam task object
+ * @param {object} task - The PulsarTeam task object
  * @param {string} agentId - The owner agent ID
  * @param {object} agentManager - The AgentManager instance
  * @param {string} instructions - Custom analysis instructions from workflow config
  * @param {string} role - Agent role to use for the analysis
  */
-export async function analyzeAndCommentJira(jiraKey, todo, agentId, agentManager, instructions, role) {
+export async function analyzeAndCommentJira(jiraKey, task, agentId, agentManager, instructions, role) {
   if (!jiraKey) return;
 
   // Fetch full issue details from Jira
@@ -512,14 +512,14 @@ IMPORTANT: Reply with ONLY the comment text to post on the Jira ticket. Do not i
   }
 }
 
-// ── Hook: called from agentManager.setTodoStatus ────────────────────────────
+// ── Hook: called from agentManager.setTaskStatus ────────────────────────────
 
 /**
- * When a todo with a jiraKey changes status, check if the new column has a
+ * When a task with a jiraKey changes status, check if the new column has a
  * "move_jira_status" action and execute it.
  */
-export async function onTodoStatusChanged(todo, newStatus, agentManager) {
-  if (!todo.jiraKey) return;
+export async function onTaskStatusChanged(task, newStatus, agentManager) {
+  if (!task.jiraKey) return;
 
   const cfg = getConfig();
   if (!cfg) return;
@@ -532,16 +532,16 @@ export async function onTodoStatusChanged(todo, newStatus, agentManager) {
     for (const transition of matching) {
       for (const action of transition.actions || []) {
         if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
-          await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
+          await moveJiraIssue(task.jiraKey, action.jiraStatusIds);
         } else if (action.type === 'jira_ai_comment' && agentManager) {
-          analyzeAndCommentJira(todo.jiraKey, todo, todo.agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
+          analyzeAndCommentJira(task.jiraKey, task, task.agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
             console.error(`[Jira] AI comment error on status change:`, err.message)
           );
         }
       }
     }
   } catch (err) {
-    console.error(`[Jira] onTodoStatusChanged error for ${todo.jiraKey}:`, err.message);
+    console.error(`[Jira] onTaskStatusChanged error for ${task.jiraKey}:`, err.message);
   }
 }
 
@@ -639,18 +639,18 @@ export async function handleWebhook(payload, agentManager) {
   console.log(`[Jira] Webhook: ${jiraTriggers.length} jira_ticket trigger(s), statusId="${statusId}", watched: ${jiraTriggers.map(t => JSON.stringify(t.jiraStatusIds)).join(', ') || 'none'}`);
 
   // Check if issue already tracked
-  let existingTodo = null;
+  let existingTask = null;
   let existingAgentId = null;
   for (const [agentId, agent] of agentManager.agents) {
     const found = (agent.todoList || []).find(t => t.jiraKey === issue.key);
     if (found) {
-      existingTodo = found;
+      existingTask = found;
       existingAgentId = agentId;
       break;
     }
   }
 
-  if (!existingTodo) {
+  if (!existingTask) {
     // Try to import as new task
     for (const trigger of jiraTriggers) {
       if (!new Set(trigger.jiraStatusIds).has(statusId)) continue;
@@ -663,23 +663,23 @@ export async function handleWebhook(payload, agentManager) {
       }
       if (!ownerAgent) return;
 
-      const todo = agentManager.addTodo(
+      const task = agentManager.addTask(
         ownerAgent.id,
         `[${issue.key}] ${summary}`,
         null,
         { type: 'jira', name: 'Jira', key: issue.key },
         trigger.from
       );
-      if (todo) {
-        const actualTodo = ownerAgent.todoList.find(t => t.id === todo.id);
-        if (actualTodo) {
-          actualTodo.jiraKey = issue.key;
-          actualTodo.jiraStatusId = statusId;
+      if (task) {
+        const actualTask = ownerAgent.todoList.find(t => t.id === task.id);
+        if (actualTask) {
+          actualTask.jiraKey = issue.key;
+          actualTask.jiraStatusId = statusId;
           saveAgent(ownerAgent);
         }
         console.log(`[Jira] Webhook: imported ${issue.key} → column "${trigger.from}"`);
         // Execute transition actions (change_status, run_agent, etc.)
-        await executeTransitionActions(trigger, actualTodo || todo, ownerAgent.id, agentManager);
+        await executeTransitionActions(trigger, actualTask || task, ownerAgent.id, agentManager);
         if (_io) {
           _io.emit('agent:updated', agentManager._sanitize(ownerAgent));
         }
@@ -690,8 +690,8 @@ export async function handleWebhook(payload, agentManager) {
 
   // ── Existing task: check if Jira status moved away from watched columns ──
   // (means the ticket was moved in Jira, not by us)
-  if (existingTodo && existingTodo.jiraStatusId !== statusId) {
-    existingTodo.jiraStatusId = statusId;
+  if (existingTask && existingTask.jiraStatusId !== statusId) {
+    existingTask.jiraStatusId = statusId;
     console.log(`[Jira] Webhook: ${issue.key} status updated to "${issue.fields.status.name}"`);
     // Don't auto-move the PulsarTeam task — Jira status changes from outside
     // are informational. The workflow transitions in PulsarTeam drive the flow.

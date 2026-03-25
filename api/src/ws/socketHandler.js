@@ -198,35 +198,35 @@ export function setupSocketHandlers(io, agentManager) {
       }
     });
 
-    // ── Execute single todo ─────────────────────────────────────────
-    socket.on('agent:todo:execute', async (data) => {
-      const { agentId, todoId } = data;
-      if (!agentId || !todoId) return;
+    // ── Execute single task ─────────────────────────────────────────
+    socket.on('agent:task:execute', async (data) => {
+      const { agentId, taskId } = data;
+      if (!agentId || !taskId) return;
 
-      const todoAgent = agentManager.agents.get(agentId);
-      const todoProject = todoAgent?.project || null;
+      const taskAgent = agentManager.agents.get(agentId);
+      const taskProject = taskAgent?.project || null;
 
       try {
-        socket.emit('agent:stream:start', { agentId, project: todoProject });
+        socket.emit('agent:stream:start', { agentId, project: taskProject });
 
-        const result = await agentManager.executeTodo(agentId, todoId, (chunk) => {
-          socket.emit('agent:stream:chunk', { agentId, project: todoProject, chunk });
+        const result = await agentManager.executeTask(agentId, taskId, (chunk) => {
+          socket.emit('agent:stream:chunk', { agentId, project: taskProject, chunk });
           io.emit('agent:thinking', {
             agentId,
-            project: todoProject,
+            project: taskProject,
             thinking: agentManager.agents.get(agentId)?.currentThinking || ''
           });
         });
 
-        socket.emit('agent:stream:end', { agentId, project: todoProject });
-        // Note: agentManager.executeTodo() already emits agent:updated internally
+        socket.emit('agent:stream:end', { agentId, project: taskProject });
+        // Note: agentManager.executeTask() already emits agent:updated internally
       } catch (err) {
-        socket.emit('agent:stream:error', { agentId, project: todoProject, error: err.message });
+        socket.emit('agent:stream:error', { agentId, project: taskProject, error: err.message });
       }
     });
 
-    // ── Execute all pending todos ─────────────────────────────────────
-    socket.on('agent:todo:executeAll', async (data) => {
+    // ── Execute all pending tasks ─────────────────────────────────────
+    socket.on('agent:task:executeAll', async (data) => {
       const { agentId } = data;
       if (!agentId) return;
 
@@ -236,7 +236,7 @@ export function setupSocketHandlers(io, agentManager) {
       try {
         socket.emit('agent:stream:start', { agentId, project: execProject });
 
-        await agentManager.executeAllTodos(agentId, (chunk) => {
+        await agentManager.executeAllTasks(agentId, (chunk) => {
           socket.emit('agent:stream:chunk', { agentId, project: execProject, chunk });
           io.emit('agent:thinking', {
             agentId,
@@ -246,7 +246,7 @@ export function setupSocketHandlers(io, agentManager) {
         });
 
         socket.emit('agent:stream:end', { agentId, project: execProject });
-        // Note: agentManager.executeAllTodos() already emits agent:updated internally
+        // Note: agentManager.executeAllTasks() already emits agent:updated internally
       } catch (err) {
         socket.emit('agent:stream:error', { agentId, project: execProject, error: err.message });
       }
@@ -286,8 +286,8 @@ export function setupSocketHandlers(io, agentManager) {
         const leader = agentManager.agents.get(agentId);
         const leaderName = leader?.name || 'Voice Leader';
 
-        // Create a todo on the target agent
-        agentManager.addTodo(targetAgent.id, `[From ${leaderName}] ${task}`);
+        // Create a task on the target agent
+        agentManager.addTask(targetAgent.id, `[From ${leaderName}] ${task}`);
 
         const response = await agentManager.sendMessage(
           targetAgent.id,
@@ -415,7 +415,7 @@ export function setupSocketHandlers(io, agentManager) {
             const pending = (target.todoList || []).filter(t => t.status === 'pending' || t.status === 'error').length;
             const total = (target.todoList || []).length;
             const msgs = (target.conversationHistory || []).length;
-            result = `${target.name}: status=${target.status}, role=${target.role || 'worker'}, project=${target.project || 'none'}, todos=${pending} pending/${total} total, messages=${msgs}`;
+            result = `${target.name}: status=${target.status}, role=${target.role || 'worker'}, project=${target.project || 'none'}, tasks=${pending} pending/${total} total, messages=${msgs}`;
             break;
           }
           case 'get_available_agent': {

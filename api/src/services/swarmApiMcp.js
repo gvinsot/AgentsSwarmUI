@@ -7,7 +7,7 @@ import { z } from 'zod';
  * Creates an MCP server exposing swarm management tools:
  * - list_agents: List all agents with their status
  * - get_agent_status: Get detailed status for a specific agent
- * - add_task: Add a task/todo to an agent
+ * - add_task: Add a task to an agent
  */
 export function createSwarmApiMcpServer(agentManager) {
   const server = new McpServer({
@@ -57,7 +57,7 @@ export function createSwarmApiMcpServer(agentManager) {
   // ── get_agent_status ───────────────────────────────────────────────────
   server.tool(
     'get_agent_status',
-    'Get detailed status for a specific agent including current task, todo list, and metrics.',
+    'Get detailed status for a specific agent including current task, task list, and metrics.',
     {
       agent_id: z.string().optional().describe('Agent UUID'),
       agent_name: z.string().optional().describe('Agent name (alternative to agent_id)'),
@@ -120,7 +120,7 @@ export function createSwarmApiMcpServer(agentManager) {
   // ── add_task ───────────────────────────────────────────────────────────
   server.tool(
     'add_task',
-    'Add a new task (todo) to an agent. The agent will automatically pick it up when idle.',
+    'Add a new task to an agent. The agent will automatically pick it up when idle.',
     {
       agent_id: z.string().optional().describe('Agent UUID'),
       agent_name: z.string().optional().describe('Agent name (alternative to agent_id)'),
@@ -151,15 +151,15 @@ export function createSwarmApiMcpServer(agentManager) {
         };
       }
 
-      const todo = agentManager.addTodo(agent.id, task, project || undefined, { type: 'mcp' }, status);
-      console.log(`✅ [SwarmMCP] add_task — Task created for agent "${agent.name}" (${agent.id}) — todo: ${todo?.id}, project: ${project || '(none)'}, status: ${status || '(default)'}`);
+      const newTask = agentManager.addTask(agent.id, task, project || undefined, { type: 'mcp' }, status);
+      console.log(`✅ [SwarmMCP] add_task — Task created for agent "${agent.name}" (${agent.id}) — task: ${newTask?.id}, project: ${project || '(none)'}, status: ${status || '(default)'}`);
 
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             success: true,
-            todo,
+            task: newTask,
             agent: { id: agent.id, name: agent.name },
           }, null, 2),
         }],

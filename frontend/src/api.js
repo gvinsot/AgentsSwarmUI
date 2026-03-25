@@ -117,83 +117,83 @@ export const api = {
       body: JSON.stringify({ project })
     }).then(handleResponse),
 
-  // Todos
-  addTodo: (agentId, text, project, status) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos`, {
+  // Tasks
+  addTask: (agentId, text, project, status) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ text, ...(project !== undefined && { project }), ...(status && { status }) })
     }).then(handleResponse),
 
-  toggleTodo: (agentId, todoId) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
+  toggleTask: (agentId, taskId) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: getHeaders()
     }).then(handleResponse),
 
-  deleteTodo: (agentId, todoId) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
+  deleteTask: (agentId, taskId) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),
 
-  clearTodos: (agentId) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos`, {
+  clearTasks: (agentId) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks`, {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),
 
-  transferTodo: (fromAgentId, todoId, targetAgentId) =>
-    fetch(`${API_BASE}/agents/${fromAgentId}/todos/${todoId}/transfer`, {
+  transferTask: (fromAgentId, taskId, targetAgentId) =>
+    fetch(`${API_BASE}/agents/${fromAgentId}/tasks/${taskId}/transfer`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ targetAgentId })
     }).then(handleResponse),
 
-  setTodoAssignee: (agentId, todoId, assigneeId) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/assignee`, {
+  setTaskAssignee: (agentId, taskId, assigneeId) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}/assignee`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ assigneeId })
     }).then(handleResponse),
 
-  refineTodo: (agentId, todoId, refineAgentId) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/refine`, {
+  refineTask: (agentId, taskId, refineAgentId) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}/refine`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ refineAgentId })
     }).then(handleResponse),
 
-  setTodoStatus: (agentId, todoId, status) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
+  setTaskStatus: (agentId, taskId, status) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ status })
     }).then(handleResponse),
 
-  updateTodoText: (agentId, todoId, text) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
+  updateTaskText: (agentId, taskId, text) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ text })
     }).then(handleResponse),
 
-  updateTodoProject: (agentId, todoId, project) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}`, {
+  updateTaskProject: (agentId, taskId, project) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ project: project || '' })
     }).then(handleResponse),
 
-  addTodoCommit: (agentId, todoId, hash, message) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/commits`, {
+  addTaskCommit: (agentId, taskId, hash, message) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}/commits`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ hash, message })
     }).then(handleResponse),
 
-  removeTodoCommit: (agentId, todoId, hash) =>
-    fetch(`${API_BASE}/agents/${agentId}/todos/${todoId}/commits/${hash}`, {
+  removeTaskCommit: (agentId, taskId, hash) =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}/commits/${hash}`, {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),

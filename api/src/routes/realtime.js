@@ -69,7 +69,7 @@ const LIST_AGENTS_TOOL = {
 const AGENT_STATUS_TOOL = {
   type: 'function',
   name: 'agent_status',
-  description: "Check a specific agent's status (busy/idle/error), project, pending todos, and message count.",
+  description: "Check a specific agent's status (busy/idle/error), project, pending tasks, and message count.",
   parameters: {
     type: 'object',
     properties: {

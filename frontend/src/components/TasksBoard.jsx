@@ -111,7 +111,7 @@ function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOption
     if (!trimmed || !defaultAgentId) return;
     setSaving(true);
     try {
-      await api.addTodo(defaultAgentId, trimmed, project.trim() || undefined, status);
+      await api.addTask(defaultAgentId, trimmed, project.trim() || undefined, status);
       await onCreated();
       onClose();
     } finally {
@@ -276,7 +276,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
     if (!trimmed || trimmed === task.text) { setEditing(false); return; }
     setSaving(true);
     try {
-      await api.updateTodoText(task.agentId, task.id, trimmed);
+      await api.updateTaskText(task.agentId, task.id, trimmed);
       await onRefresh();
       setEditing(false);
     } finally {
@@ -287,7 +287,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
   const handleStatusChange = async (newStatus) => {
     setStatusOpen(false);
     if (newStatus === task.status) return;
-    await api.setTodoStatus(task.agentId, task.id, newStatus);
+    await api.setTaskStatus(task.agentId, task.id, newStatus);
     onRefresh();
   };
 
@@ -296,7 +296,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
     if (trimmed === (task.project || '')) { setEditingProject(false); return; }
     setSavingProject(true);
     try {
-      await api.updateTodoProject(task.agentId, task.id, trimmed || null);
+      await api.updateTaskProject(task.agentId, task.id, trimmed || null);
       await onRefresh();
       setEditingProject(false);
     } finally {
@@ -559,7 +559,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                       if (targetId === (task.assignee || '')) { setEditingAgent(false); return; }
                       setTransferring(true);
                       try {
-                        await api.setTodoAssignee(task.agentId, task.id, targetId);
+                        await api.setTaskAssignee(task.agentId, task.id, targetId);
                         onRefresh?.();
                       } finally {
                         setTransferring(false);
@@ -675,7 +675,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                         )}
                         <button
                           onClick={async () => {
-                            await api.removeTodoCommit(task.agentId, task.id, c.hash);
+                            await api.removeTaskCommit(task.agentId, task.id, c.hash);
                             onRefresh();
                           }}
                           className="p-0.5 rounded text-dark-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
@@ -739,7 +739,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                         setRefineOpen(false);
                         setRefining(true);
                         try {
-                          const result = await api.refineTodo(task.agentId, task.id, a.id);
+                          const result = await api.refineTask(task.agentId, task.id, a.id);
                           if (result?.text) onRefresh?.();
                         } catch (err) {
                           console.error('Refine failed:', err);
@@ -785,7 +785,7 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
       onDragStart={(e) => {
         isDraggingRef.current = true;
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/json', JSON.stringify({ agentId: task.agentId, todoId: task.id }));
+        e.dataTransfer.setData('application/json', JSON.stringify({ agentId: task.agentId, taskId: task.id }));
         setTimeout(() => e.target.classList.add('opacity-40'), 0);
       }}
       onDragEnd={(e) => {
@@ -1504,7 +1504,7 @@ export default function TasksBoard({ agents, onRefresh }) {
   const columns = useMemo(() => workflow ? buildColumns(workflow.columns) : [], [workflow]);
   const statusOptions = useMemo(() => workflow ? buildStatusOptions(workflow.columns) : [], [workflow]);
 
-  // Aggregate all todos from all agents
+  // Aggregate all tasks from all agents
   const allTasks = useMemo(() =>
     agents.flatMap(a =>
       (a.todoList || []).map(t => {
@@ -1554,22 +1554,22 @@ export default function TasksBoard({ agents, onRefresh }) {
   }, [filteredTasks, columns]);
 
   const handleDelete = useCallback(async (task) => {
-    await api.deleteTodo(task.agentId, task.id);
+    await api.deleteTask(task.agentId, task.id);
     onRefresh();
   }, [onRefresh]);
 
   const handleClearDone = useCallback(async () => {
     const doneTasks = allTasks.filter(t => t.status === 'done');
-    await Promise.all(doneTasks.map(t => api.deleteTodo(t.agentId, t.id)));
+    await Promise.all(doneTasks.map(t => api.deleteTask(t.agentId, t.id)));
     onRefresh();
   }, [allTasks, onRefresh]);
 
   const handleDrop = useCallback(async (e, col) => {
     try {
-      const { agentId, todoId } = JSON.parse(e.dataTransfer.getData('application/json'));
-      const task = allTasks.find(t => t.id === todoId && t.agentId === agentId);
+      const { agentId, taskId } = JSON.parse(e.dataTransfer.getData('application/json'));
+      const task = allTasks.find(t => t.id === taskId && t.agentId === agentId);
       if (!task || col.statuses.includes(task.status || 'pending')) return;
-      await api.setTodoStatus(agentId, todoId, col.dropStatus);
+      await api.setTaskStatus(agentId, taskId, col.dropStatus);
       onRefresh();
     } catch { /* invalid drag data */ }
   }, [allTasks, onRefresh]);

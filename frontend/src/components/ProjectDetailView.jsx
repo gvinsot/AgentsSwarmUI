@@ -13,7 +13,7 @@ export default function ProjectDetailView() {
 
   const [project, setProject] = useState(null);
   const [agents, setAgents] = useState([]);
-  const [todos, setTodos] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [branches, setBranches] = useState([]);
   const [commits, setCommits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,7 @@ export default function ProjectDetailView() {
       setLoading(true);
       setError(null);
       try {
-        const [projRes, agentsRes, todosRes, branchesRes, commitsRes] = await Promise.all([
+        const [projRes, agentsRes, tasksRes, branchesRes, commitsRes] = await Promise.all([
           api.get(`/api/projects/${encodeURIComponent(name)}`),
           api.get(`/api/projects/${encodeURIComponent(name)}/agents`),
           api.get(`/api/projects/${encodeURIComponent(name)}/todos`),
@@ -33,7 +33,7 @@ export default function ProjectDetailView() {
         ]);
         setProject(projRes.data?.project || null);
         setAgents(agentsRes.data?.agents || []);
-        setTodos(todosRes.data?.todos || []);
+        setTasks(tasksRes.data?.todos || []);
         setBranches(branchesRes.data?.branches || []);
         setCommits(commitsRes.data?.commits || []);
       } catch (err) {
@@ -66,10 +66,10 @@ export default function ProjectDetailView() {
 
   // Task stats
   const taskStats = {
-    total: todos.length,
-    done: todos.filter(t => t.status === 'done').length,
-    inProgress: todos.filter(t => t.status === 'in_progress').length,
-    pending: todos.filter(t => t.status !== 'done' && t.status !== 'in_progress').length,
+    total: tasks.length,
+    done: tasks.filter(t => t.status === 'done').length,
+    inProgress: tasks.filter(t => t.status === 'in_progress').length,
+    pending: tasks.filter(t => t.status !== 'done' && t.status !== 'in_progress').length,
   };
 
   return (
@@ -134,22 +134,22 @@ export default function ProjectDetailView() {
 
         {/* Task Overview */}
         <Section title="Task Overview" icon={<CheckCircle size={18} />}>
-          {todos.length === 0 ? (
+          {tasks.length === 0 ? (
             <p className="text-gray-500 text-sm">No tasks yet</p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {todos.slice(0, 15).map(todo => (
-                <div key={todo.id} className="flex items-center gap-3 p-2 rounded-lg bg-gray-700/30">
-                  <TaskStatusIcon status={todo.status} />
+              {tasks.slice(0, 15).map(task => (
+                <div key={task.id} className="flex items-center gap-3 p-2 rounded-lg bg-gray-700/30">
+                  <TaskStatusIcon status={task.status} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{todo.text}</p>
-                    <p className="text-xs text-gray-500">{todo.agentName} &middot; {todo.status}</p>
+                    <p className="text-sm text-white truncate">{task.text}</p>
+                    <p className="text-xs text-gray-500">{task.agentName} &middot; {task.status}</p>
                   </div>
                 </div>
               ))}
-              {todos.length > 15 && (
+              {tasks.length > 15 && (
                 <p className="text-xs text-gray-500 text-center pt-1">
-                  +{todos.length - 15} more tasks
+                  +{tasks.length - 15} more tasks
                 </p>
               )}
             </div>

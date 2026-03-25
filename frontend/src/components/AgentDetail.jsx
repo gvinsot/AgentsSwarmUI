@@ -27,7 +27,7 @@ function timeAgo(iso) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-const TODO_STATUS_META = {
+const TASK_STATUS_META = {
   backlog: { label: 'Backlog', dot: 'bg-purple-400', text: 'text-purple-300', ring: 'ring-purple-500/30 bg-purple-500/10' },
   pending: { label: 'Pending', dot: 'bg-amber-400', text: 'text-amber-300', ring: 'ring-amber-500/30 bg-amber-500/10' },
   in_progress: { label: 'In Progress', dot: 'bg-blue-400 animate-pulse', text: 'text-blue-300', ring: 'ring-blue-500/30 bg-blue-500/10' },
@@ -37,7 +37,7 @@ const TODO_STATUS_META = {
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'todos', label: 'Tasks', icon: CheckSquare },
+  { id: 'tasks', label: 'Tasks', icon: CheckSquare },
   { id: 'rag', label: 'RAG', icon: FileText },
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
   { id: 'plugins', label: 'Plugins', icon: Wrench },
@@ -564,8 +564,8 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
             />
           )
         )}
-        {activeTab === 'todos' && (
-          <TodoTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
+        {activeTab === 'tasks' && (
+          <TaskTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'rag' && (
           <RagTab agent={agent} onRefresh={onRefresh} />
@@ -1020,8 +1020,8 @@ function DelegationResultItem({ result }) {
   );
 }
 
-// ─── Todo Tab ──────────────────────────────────────────────────────────────
-function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, onDelete, onTransfer }) {
+// ─── Task Tab ──────────────────────────────────────────────────────────────
+function TaskItem({ task, executing, agentStatus, agents, onToggle, onExecute, onDelete, onTransfer }) {
   const [expanded, setExpanded] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const textRef = useRef(null);
@@ -1036,24 +1036,24 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [transferOpen]);
-  const firstLine = todo.text.split('\n')[0];
-  const isMultiline = todo.text.includes('\n') && todo.text.trim() !== firstLine.trim();
+  const firstLine = task.text.split('\n')[0];
+  const isMultiline = task.text.includes('\n') && task.text.trim() !== firstLine.trim();
 
   useEffect(() => {
     const el = textRef.current;
     if (el) {
       setIsTruncated(el.scrollWidth > el.clientWidth);
     }
-  }, [todo.text]);
+  }, [task.text]);
 
   const canExpand = isMultiline || isTruncated;
-  const isDone = todo.status === 'done';
-  const isInProgress = todo.status === 'in_progress';
-  const isError = todo.status === 'error';
-  const isBacklog = todo.status === 'backlog';
-  const isPending = todo.status === 'pending' || !todo.status;
-  const statusKey = todo.status || 'pending';
-  const statusMeta = TODO_STATUS_META[statusKey] || TODO_STATUS_META.pending;
+  const isDone = task.status === 'done';
+  const isInProgress = task.status === 'in_progress';
+  const isError = task.status === 'error';
+  const isBacklog = task.status === 'backlog';
+  const isPending = task.status === 'pending' || !task.status;
+  const statusKey = task.status || 'pending';
+  const statusMeta = TASK_STATUS_META[statusKey] || TASK_STATUS_META.pending;
 
   const borderClass = isInProgress
     ? 'border-amber-500/50 bg-amber-500/5'
@@ -1087,7 +1087,7 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
     <div className={`bg-dark-800/50 rounded-lg border group transition-colors ${borderClass}`}>
       <div className="flex items-center gap-3 px-3 py-2">
         <button
-          onClick={() => onToggle(todo.id)}
+          onClick={() => onToggle(task.id)}
           disabled={isInProgress}
           className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${checkboxClass}`}
         >
@@ -1114,7 +1114,7 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
         <div className="flex items-center gap-1 flex-shrink-0">
           {(isPending || isError || isBacklog) && (
             <button
-              onClick={() => onExecute(todo.id)}
+              onClick={() => onExecute(task.id)}
               disabled={!!executing || agentStatus === 'busy'}
               className="p-1 text-dark-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 disabled:opacity-30 transition-all"
               title={isError ? 'Retry this task' : 'Execute this task'}
@@ -1123,7 +1123,7 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
             </button>
           )}
           <button
-            onClick={() => onDelete(todo.id)}
+            onClick={() => onDelete(task.id)}
             className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -1142,7 +1142,7 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
                   {agents.map(a => (
                     <button
                       key={a.id}
-                      onClick={() => { setTransferOpen(false); onTransfer(todo.id, a.id); }}
+                      onClick={() => { setTransferOpen(false); onTransfer(task.id, a.id); }}
                       className="w-full text-left px-3 py-1.5 text-xs text-dark-200 hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
                     >
                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
@@ -1155,37 +1155,37 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
           )}
         </div>
       </div>
-      {(todo.source || todo.project || todo.createdAt) && (
+      {(task.source || task.project || task.createdAt) && (
         <div className="flex items-center gap-2 px-3 pb-2 ml-8 flex-wrap">
-          {todo.source && (() => {
-            const meta = SOURCE_META[todo.source.type] || SOURCE_META.api;
+          {task.source && (() => {
+            const meta = SOURCE_META[task.source.type] || SOURCE_META.api;
             return (
               <span className={`text-xs font-medium px-1.5 py-0.5 rounded ring-1 ${meta.color} ${meta.bg}`}>
-                {meta.label(todo.source)}
+                {meta.label(task.source)}
               </span>
             );
           })()}
-          {todo.project && (
+          {task.project && (
             <span className="text-xs font-medium px-1.5 py-0.5 rounded ring-1 text-indigo-400 bg-indigo-500/10 ring-indigo-500/20">
-              {todo.project}
+              {task.project}
             </span>
           )}
-          {todo.createdAt && (
+          {task.createdAt && (
             <span className="flex items-center gap-1 text-xs text-dark-500">
-              <Clock className="w-3 h-3" />{timeAgo(todo.createdAt)}
+              <Clock className="w-3 h-3" />{timeAgo(task.createdAt)}
             </span>
           )}
         </div>
       )}
-      {isError && todo.error && (
+      {isError && task.error && (
         <div className="px-3 pb-2 ml-8">
-          <p className="text-xs text-red-400/70">{todo.error}</p>
+          <p className="text-xs text-red-400/70">{task.error}</p>
         </div>
       )}
       {canExpand && expanded && isMultiline && (
         <div className={`px-3 pb-2 ml-8 border-t border-dark-700/30 pt-2 ${isDone ? 'opacity-50' : ''}`}>
           <div className="markdown-content text-xs text-dark-300 leading-relaxed">
-            <ReactMarkdown>{todo.text}</ReactMarkdown>
+            <ReactMarkdown>{task.text}</ReactMarkdown>
           </div>
         </div>
       )}
@@ -1193,32 +1193,32 @@ function TodoItem({ todo, executing, agentStatus, agents, onToggle, onExecute, o
   );
 }
 
-function TodoTab({ agent, agents, socket, onRefresh }) {
-  const [newTodo, setNewTodo] = useState('');
-  const [executing, setExecuting] = useState(null); // todoId or 'all'
+function TaskTab({ agent, agents, socket, onRefresh }) {
+  const [newTask, setNewTask] = useState('');
+  const [executing, setExecuting] = useState(null); // taskId or 'all'
   const [confirmClear, setConfirmClear] = useState(false);
   const confirmClearTimer = useRef(null);
   const otherAgents = (agents || []).filter(a => a.id !== agent.id && a.enabled !== false);
 
   const handleAdd = async () => {
-    if (!newTodo.trim()) return;
-    await api.addTodo(agent.id, newTodo.trim(), agent.project || undefined);
-    setNewTodo('');
+    if (!newTask.trim()) return;
+    await api.addTask(agent.id, newTask.trim(), agent.project || undefined);
+    setNewTask('');
     onRefresh();
   };
 
-  const handleToggle = async (todoId) => {
-    await api.toggleTodo(agent.id, todoId);
+  const handleToggle = async (taskId) => {
+    await api.toggleTask(agent.id, taskId);
     onRefresh();
   };
 
-  const handleDelete = async (todoId) => {
-    await api.deleteTodo(agent.id, todoId);
+  const handleDelete = async (taskId) => {
+    await api.deleteTask(agent.id, taskId);
     onRefresh();
   };
 
-  const handleTransfer = async (todoId, targetAgentId) => {
-    await api.transferTodo(agent.id, todoId, targetAgentId);
+  const handleTransfer = async (taskId, targetAgentId) => {
+    await api.transferTask(agent.id, taskId, targetAgentId);
     onRefresh();
   };
 
@@ -1230,20 +1230,20 @@ function TodoTab({ agent, agents, socket, onRefresh }) {
     }
     clearTimeout(confirmClearTimer.current);
     setConfirmClear(false);
-    await api.clearTodos(agent.id);
+    await api.clearTasks(agent.id);
     onRefresh();
   };
 
-  const handleExecute = (todoId) => {
+  const handleExecute = (taskId) => {
     if (!socket || executing) return;
-    setExecuting(todoId);
-    socket.emit('agent:todo:execute', { agentId: agent.id, todoId });
+    setExecuting(taskId);
+    socket.emit('agent:task:execute', { agentId: agent.id, taskId });
   };
 
   const handleExecuteAll = () => {
     if (!socket || executing) return;
     setExecuting('all');
-    socket.emit('agent:todo:executeAll', { agentId: agent.id });
+    socket.emit('agent:task:executeAll', { agentId: agent.id });
   };
 
   // Reset executing state when agent goes idle
@@ -1313,31 +1313,31 @@ function TodoTab({ agent, agents, socket, onRefresh }) {
         </div>
       )}
 
-      {/* Add todo */}
+      {/* Add task */}
       <div className="flex gap-2">
         <input
           type="text"
-          value={newTodo}
-          onChange={(e) => setNewTodo(e.target.value)}
+          value={newTask}
+          onChange={(e) => setNewTask(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           className="flex-1 px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
           placeholder="Add a new task..."
         />
         <button
           onClick={handleAdd}
-          disabled={!newTodo.trim()}
+          disabled={!newTask.trim()}
           className="px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 transition-colors"
         >
           <Plus className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Todo list */}
+      {/* Task list */}
       <div className="space-y-2">
-        {(agent.todoList || []).map(todo => (
-          <TodoItem
-            key={todo.id}
-            todo={todo}
+        {(agent.todoList || []).map(task => (
+          <TaskItem
+            key={task.id}
+            task={task}
             executing={executing}
             agentStatus={agent.status}
             agents={otherAgents}

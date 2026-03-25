@@ -110,12 +110,12 @@ export function swarmApiRoutes(agentManager) {
       agentManager.update(agent.id, { project });
     }
 
-    const todo = agentManager.addTodo(agent.id, task, project, { type: 'api' }, status);
-    console.log(`✅ [SwarmAPI] Task created for agent "${agent.name}" (${agent.id}) — todo: ${todo?.id}, project: ${project}, task: ${task.slice(0, 100)}`);
+    const newTask = agentManager.addTask(agent.id, task, project, { type: 'api' }, status);
+    console.log(`✅ [SwarmAPI] Task created for agent "${agent.name}" (${agent.id}) — task: ${newTask?.id}, project: ${project}, task: ${task.slice(0, 100)}`);
 
     res.status(201).json({
       success: true,
-      todo,
+      task: newTask,
       agent: { id: agent.id, name: agent.name },
     });
   });

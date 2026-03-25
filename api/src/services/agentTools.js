@@ -103,13 +103,13 @@ function normalizePath(pathArg) {
  * @param {string} agentId
  */
 export async function executeTool(toolName, args, projectPath, sandboxMgr, agentId) {
-  // report_error and update_todo don't need sandbox access
+  // report_error and update_task don't need sandbox access
   if (toolName === 'report_error') {
     const description = args[0] || 'Unknown error';
     return { success: true, result: `Error reported: ${description}`, isErrorReport: true };
   }
   if (toolName === 'update_task') {
-    return { success: true, result: `Task update: ${args[0]} → ${args[1]}`, isTodoUpdate: true };
+    return { success: true, result: `Task update: ${args[0]} → ${args[1]}`, isTaskUpdate: true };
   }
   if (toolName === 'link_commit') {
     return { success: true, result: `Commit linked: ${args[1]} → ${args[0]}`, isLinkCommit: true };

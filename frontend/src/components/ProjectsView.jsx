@@ -20,42 +20,42 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
   const [sortBy, setSortBy] = useState('name');
   const [selectedProject, setSelectedProject] = useState(null);
 
-  // Derive todos from agents (same approach as TasksBoard)
-  const todos = useMemo(() =>
+  // Derive tasks from agents (same approach as TasksBoard)
+  const tasks = useMemo(() =>
     agents.flatMap(a =>
       (a.todoList || []).map(t => ({ ...t, agentId: a.id, agentName: a.name, project: t.project || a.project }))
     ),
     [agents]
   );
 
-  // Derive projects from agents + todos
+  // Derive projects from agents + tasks
   const projects = useMemo(() => {
     const projectMap = new Map();
 
     for (const a of agents) {
       if (!a.project) continue;
       if (!projectMap.has(a.project)) {
-        projectMap.set(a.project, { name: a.project, agents: [], todos: [], stats: {} });
+        projectMap.set(a.project, { name: a.project, agents: [], tasks: [], stats: {} });
       }
       projectMap.get(a.project).agents.push(a);
     }
 
-    for (const t of todos) {
+    for (const t of tasks) {
       if (!t.project) continue;
       if (!projectMap.has(t.project)) {
-        projectMap.set(t.project, { name: t.project, agents: [], todos: [], stats: {} });
+        projectMap.set(t.project, { name: t.project, agents: [], tasks: [], stats: {} });
       }
-      projectMap.get(t.project).todos.push(t);
+      projectMap.get(t.project).tasks.push(t);
     }
 
     for (const [, p] of projectMap) {
-      const total = p.todos.length;
-      const done = p.todos.filter(t => t.status === 'done').length;
-      const inProgress = p.todos.filter(t => t.status === 'in_progress').length;
-      const pending = p.todos.filter(t => t.status === 'pending').length;
-      const backlog = p.todos.filter(t => t.status === 'backlog').length;
-      const bugs = p.todos.filter(t => (t.type || 'bug') === 'bug').length;
-      const features = p.todos.filter(t => t.type === 'feature').length;
+      const total = p.tasks.length;
+      const done = p.tasks.filter(t => t.status === 'done').length;
+      const inProgress = p.tasks.filter(t => t.status === 'in_progress').length;
+      const pending = p.tasks.filter(t => t.status === 'pending').length;
+      const backlog = p.tasks.filter(t => t.status === 'backlog').length;
+      const bugs = p.tasks.filter(t => (t.type || 'bug') === 'bug').length;
+      const features = p.tasks.filter(t => t.type === 'feature').length;
       p.stats = { total, done, inProgress, pending, backlog, bugs, features, completion: total ? Math.round((done / total) * 100) : 0 };
     }
 
@@ -67,7 +67,7 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
     else if (sortBy === 'tasks') result.sort((a, b) => b.stats.total - a.stats.total);
     else if (sortBy === 'completion') result.sort((a, b) => b.stats.completion - a.stats.completion);
     return result;
-  }, [agents, todos, search, sortBy]);
+  }, [agents, tasks, search, sortBy]);
 
   return (
     <div className="space-y-4">
@@ -103,7 +103,7 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
 
       {/* Stats Panel */}
       {selectedProject && (() => {
-        const pt = todos.filter(t => t.project === selectedProject);
+        const pt = tasks.filter(t => t.project === selectedProject);
         const total = pt.length;
         if (!total) return null;
         const done = pt.filter(t => t.status === 'done').length;
@@ -148,7 +148,7 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
               <div className="flex gap-3 mt-1 text-xs text-dark-400">
                 {done > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Done: {done}</span>}
                 {inProgress > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Active: {inProgress}</span>}
-                {pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Todo: {pending}</span>}
+                {pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Pending: {pending}</span>}
                 {backlog > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />Backlog: {backlog}</span>}
               </div>
             </div>

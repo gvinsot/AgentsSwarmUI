@@ -260,7 +260,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
   const handleClearAllTasks = useCallback(async () => {
     if (!agents.length) return;
     try {
-      await Promise.all(agents.map(a => api.clearTodos(a.id)));
+      await Promise.all(agents.map(a => api.clearTasks(a.id)));
       if (onRefresh) onRefresh();
     } catch (err) { console.error('Failed to clear tasks:', err); }
   }, [agents, onRefresh]);

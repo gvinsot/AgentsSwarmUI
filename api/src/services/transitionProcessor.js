@@ -93,22 +93,22 @@ function parseDecision(response) {
  * - Execution mode: sends the task as-is for execution
  * - Decide mode: agent evaluates whether the task should proceed, hold, or be revised
  *
- * The `todo._transition` object carries: { agent (role), to (target status or null), instructions, mode }
+ * The `task._transition` object carries: { agent (role), to (target status or null), instructions, mode }
  */
-export async function processTransition(todo, agentManager, io) {
-  const targetStatus = todo._transition?.to ?? 'backlog';
-  const transitionRole = todo._transition?.agent;
-  const mode = todo._transition?.mode;
-  const instructions = todo._transition?.instructions || '';
+export async function processTransition(task, agentManager, io) {
+  const targetStatus = task._transition?.to ?? 'backlog';
+  const transitionRole = task._transition?.agent;
+  const mode = task._transition?.mode;
+  const instructions = task._transition?.instructions || '';
 
   // Prevent concurrent execution of the same task (with TTL-based lock)
-  const lockKey = `${todo.agentId}:${todo.id}`;
+  const lockKey = `${task.agentId}:${task.id}`;
   if (!_acquireExecutionLock(lockKey)) {
-    console.log(`[Workflow] Skipping duplicate processTransition for "${todo.text?.slice(0, 60)}" — already in progress`);
+    console.log(`[Workflow] Skipping duplicate processTransition for "${task.text?.slice(0, 60)}" — already in progress`);
     return;
   }
 
-  console.log(`[Workflow] processTransition called: todo="${todo.text?.slice(0, 60)}" from="${todo.status}" to="${targetStatus}" mode="${mode}" role="${transitionRole || 'none'}" agentId="${todo.agentId}"`);
+  console.log(`[Workflow] processTransition called: task="${task.text?.slice(0, 60)}" from="${task.status}" to="${targetStatus}" mode="${mode}" role="${transitionRole || 'none'}" agentId="${task.agentId}"`);
 
   try {
     // Explicit mode takes precedence; fall back to legacy heuristic
@@ -120,7 +120,7 @@ export async function processTransition(todo, agentManager, io) {
 
     if (isExecution) {
       // Execute mode: use the task's assignee ONLY — never fallback to owner
-      const assignee = todo.assignee ? agentManager.agents.get(todo.assignee) : null;
+      const assignee = task.assignee ? agentManager.agents.get(task.assignee) : null;
       if (assignee && assignee.enabled !== false && assignee.status === 'idle') {
         agent = assignee;
         console.log(`[Workflow] Execute mode: using idle assignee "${agent.name}" (${agent.id})`);
@@ -156,53 +156,53 @@ export async function processTransition(todo, agentManager, io) {
       return;
     }
 
-    // Auto-switch agent to the todo's project if needed
-    if (todo.project && todo.project !== agent.project) {
-      console.log(`[Workflow] Switching "${agent.name}" to project "${todo.project}" for transition`);
+    // Auto-switch agent to the task's project if needed
+    if (task.project && task.project !== agent.project) {
+      console.log(`[Workflow] Switching "${agent.name}" to project "${task.project}" for transition`);
       if (agentManager._switchProjectContext) {
-        agentManager._switchProjectContext(agent, agent.project, todo.project);
+        agentManager._switchProjectContext(agent, agent.project, task.project);
       }
-      agent.project = todo.project;
+      agent.project = task.project;
     }
 
     let prompt;
     let messagePrefix;
     if (isExecution) {
       // Execution mode: mark in_progress (only if not already), execute the task
-      if (todo.status !== 'in_progress') {
-        agentManager.setTodoStatus(todo.agentId, todo.id, 'in_progress', { skipAutoRefine: true, by: agent.name });
+      if (task.status !== 'in_progress') {
+        agentManager.setTaskStatus(task.agentId, task.id, 'in_progress', { skipAutoRefine: true, by: agent.name });
       }
-      prompt = todo.text;
+      prompt = task.text;
       messagePrefix = '';
-      console.log(`[Workflow] Executing "${todo.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
+      console.log(`[Workflow] Executing "${task.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
     } else if (isDecide) {
       // Decide mode: agent evaluates based ONLY on configured instructions
       if (!instructions) {
         // No instructions → auto-proceed without LLM call
-        console.log(`[Workflow] Decide: no instructions configured — auto-proceeding "${todo.text.slice(0, 60)}"`);
-        todo.history = todo.history || [];
-        todo.history.push({
+        console.log(`[Workflow] Decide: no instructions configured — auto-proceeding "${task.text.slice(0, 60)}"`);
+        task.history = task.history || [];
+        task.history.push({
           status: targetStatus,
-          from: todo.status,
+          from: task.status,
           timestamp: new Date().toISOString(),
           agent: agent.name,
           type: 'decide',
           decision: 'proceed',
           reason: 'No decision instructions configured — auto-proceed'
         });
-        todo.status = targetStatus;
-        todo.assignee = null;
+        task.status = targetStatus;
+        task.assignee = null;
         // Update the actual agent's todoList and persist
-        const ownerAgent = agentManager.agents.get(todo.agentId);
-        const actualTodo = ownerAgent?.todoList?.find(t => t.id === todo.id);
-        if (actualTodo) {
-          actualTodo.status = targetStatus;
-          actualTodo.assignee = null;
-          actualTodo.history = todo.history;
-          if (targetStatus === 'done') actualTodo.completedAt = new Date().toISOString();
+        const ownerAgent = agentManager.agents.get(task.agentId);
+        const actualTask = ownerAgent?.todoList?.find(t => t.id === task.id);
+        if (actualTask) {
+          actualTask.status = targetStatus;
+          actualTask.assignee = null;
+          actualTask.history = task.history;
+          if (targetStatus === 'done') actualTask.completedAt = new Date().toISOString();
           saveAgent(ownerAgent);
         }
-        io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
+        io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task });
         _executionLocks.delete(lockKey);
         return;
       }
@@ -211,17 +211,17 @@ export async function processTransition(todo, agentManager, io) {
 Decision instructions:
 ${instructions}
 
-Task title: ${todo.text}
-${todo.error ? `Previous error: ${todo.error}` : ''}
+Task title: ${task.text}
+${task.error ? `Previous error: ${task.error}` : ''}
 
 Based STRICTLY on the decision instructions above, respond with JSON only: {"decision": "proceed"|"hold"|"revise", "reason": "brief explanation based on the instructions"}`;
       messagePrefix = '[Decide]';
-      console.log(`[Workflow] Deciding "${todo.text.slice(0, 80)}" via ${agent.name}`);
+      console.log(`[Workflow] Deciding "${task.text.slice(0, 80)}" via ${agent.name}`);
     } else {
       // Refinement mode: ask for an improved description
-      prompt = `Refine the following task:\n\nTask: ${todo.text}\n${todo.project ? `Project: ${todo.project}\n` : ''}\n${instructions}\n\nReply ONLY with the improved description.`;
+      prompt = `Refine the following task:\n\nTask: ${task.text}\n${task.project ? `Project: ${task.project}\n` : ''}\n${instructions}\n\nReply ONLY with the improved description.`;
       messagePrefix = '[Auto-Transition]';
-      console.log(`[Workflow] Refining "${todo.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
+      console.log(`[Workflow] Refining "${task.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
     }
 
     let fullResponse = '';
@@ -275,43 +275,43 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
         } catch (_) { /* use default: move immediately */ }
 
         if (workflowManagesInProgress) {
-          console.log(`[Workflow] Execution finished for "${todo.text.slice(0, 60)}" — stays in_progress for workflow transition`);
+          console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}" — stays in_progress for workflow transition`);
         } else if (targetStatus) {
-          agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
-          console.log(`[Workflow] Execution finished for "${todo.text.slice(0, 60)}" — moved to ${targetStatus}`);
+          agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+          console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}" — moved to ${targetStatus}`);
         }
       } else if (isDecide) {
         // Parse the agent's decision
         const { decision, reason } = parseDecision(response);
-        console.log(`[Workflow] Decision for "${todo.text.slice(0, 60)}": ${decision} — ${reason.slice(0, 100)}`);
+        console.log(`[Workflow] Decision for "${task.text.slice(0, 60)}": ${decision} — ${reason.slice(0, 100)}`);
 
         if (decision === 'proceed') {
           // Move to target status
           if (targetStatus) {
-            agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+            agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: agent.name });
           }
-          console.log(`[Workflow] Decide: proceeding "${todo.text.slice(0, 60)}" -> ${targetStatus}`);
+          console.log(`[Workflow] Decide: proceeding "${task.text.slice(0, 60)}" -> ${targetStatus}`);
         } else if (decision === 'revise') {
           // Append feedback but keep task in current status
           if (reason) {
-            agentManager.updateTodoText(todo.agentId, todo.id, `${todo.text}\n\n---\n**Review feedback:** ${reason}`);
+            agentManager.updateTaskText(task.agentId, task.id, `${task.text}\n\n---\n**Review feedback:** ${reason}`);
           }
-          console.log(`[Workflow] Decide: revision requested for "${todo.text.slice(0, 60)}" — stays in "${todo.status}"`);
+          console.log(`[Workflow] Decide: revision requested for "${task.text.slice(0, 60)}" — stays in "${task.status}"`);
         } else {
           // hold — task stays in current status, no changes
-          console.log(`[Workflow] Decide: holding "${todo.text.slice(0, 60)}" in "${todo.status}"`);
+          console.log(`[Workflow] Decide: holding "${task.text.slice(0, 60)}" in "${task.status}"`);
         }
       } else {
         // Refine mode
         if (response) {
-          agentManager.updateTodoText(todo.agentId, todo.id, `${todo.text}\n\n---\n${response}`);
+          agentManager.updateTaskText(task.agentId, task.id, `${task.text}\n\n---\n${response}`);
         }
         if (targetStatus) {
-          agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+          agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: agent.name });
         }
       }
 
-      console.log(`[Workflow] Done: "${todo.text.slice(0, 80)}" via ${agent.name}${targetStatus ? ` -> ${targetStatus}` : ''}`);
+      console.log(`[Workflow] Done: "${task.text.slice(0, 80)}" via ${agent.name}${targetStatus ? ` -> ${targetStatus}` : ''}`);
     } finally {
       io.emit('agent:stream:end', {
         agentId: agent.id,
@@ -322,13 +322,13 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
       io.emit('agent:updated', agentManager._sanitize(agent));
     }
   } catch (err) {
-    console.error(`[Workflow] Error processing "${todo.text}":`, err.message, err.stack);
+    console.error(`[Workflow] Error processing "${task.text}":`, err.message, err.stack);
     try {
       const isExec = mode === 'execute' || (!mode && (!instructions || instructions.includes('[EXECUTE]')));
       if (isExec) {
-        agentManager.setTodoStatus(todo.agentId, todo.id, 'error', { skipAutoRefine: true, by: 'workflow' });
+        agentManager.setTaskStatus(task.agentId, task.id, 'error', { skipAutoRefine: true, by: 'workflow' });
       } else if (targetStatus) {
-        agentManager.setTodoStatus(todo.agentId, todo.id, targetStatus, { skipAutoRefine: true, by: 'workflow' });
+        agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: 'workflow' });
       }
     } catch (e) {
       console.error(`[Workflow] Failed to set status after error:`, e.message);
