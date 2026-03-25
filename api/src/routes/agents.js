@@ -297,6 +297,17 @@ export function agentRoutes(agentManager) {
     res.status(201).json(todo);
   });
 
+  router.patch('/:id/todos/:todoId/assignee', (req, res) => {
+    const { assigneeId } = req.body;
+    // assigneeId can be null to unassign
+    if (assigneeId && !agentManager.agents.get(assigneeId)) {
+      return res.status(404).json({ error: 'Assignee agent not found' });
+    }
+    const todo = agentManager.setTodoAssignee(req.params.id, req.params.todoId, assigneeId || null);
+    if (!todo) return res.status(404).json({ error: 'Agent or todo not found' });
+    res.json(todo);
+  });
+
   // ── Todo commit association ────────────────────────────────────────
   router.post('/:id/todos/:todoId/commits', (req, res) => {
     const { hash, message } = req.body;

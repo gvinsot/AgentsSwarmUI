@@ -896,6 +896,8 @@ export class AgentManager {
     }
     agent.conversationHistory.push(historyEntry);
 
+    let fullResponse = '';
+
     try {
       const provider = createProvider({
         provider: agent.provider,
@@ -905,7 +907,7 @@ export class AgentManager {
         agentId: id
       });
 
-      let fullResponse = '';
+      fullResponse = '';
       let thinkingBuffer = '';
       let finishReason = null;
 
@@ -2862,7 +2864,8 @@ export class AgentManager {
     const assigneeAgent = todo.assignee ? this.agents.get(todo.assignee) : null;
     let fieldValue;
     switch (cond.field) {
-      // Legacy owner fields — map to assignee for backward compat
+      // Legacy owner fields — DEPRECATED, mapped to assignee for backward compat
+      // Use assignee_status / assignee_enabled instead
       case 'owner_status': fieldValue = assigneeAgent?.status || 'none'; break;
       case 'owner_enabled': fieldValue = assigneeAgent ? (assigneeAgent.enabled !== false ? 'true' : 'false') : 'false'; break;
       case 'assignee_status': fieldValue = assigneeAgent?.status || 'none'; break;
@@ -2887,7 +2890,7 @@ export class AgentManager {
     return result;
   }
 
-  /** Check if an agent currently has an in_progress task (as owner or assignee) */
+  /** Check if an agent currently has an in_progress task (as creator or assignee) */
   agentHasActiveTask(agentId) {
     for (const [ownerId, agent] of this.agents) {
       if (!agent.todoList) continue;
@@ -3052,6 +3055,9 @@ export class AgentManager {
   // ─── Todo Management ───────────────────────────────────────────────
   // IMPORTANT: Once a todo's `source` is set at creation, it MUST NOT be modified.
   // Source tracks the origin (user, api, mcp, agent) and is immutable after creation.
+  // Terminology:
+  //   - agentId (creator): the agent whose todoList stores this task
+  //   - assignee: the agent that actually executes this task (only assignee should work on it)
   addTodo(agentId, text, project, source, initialStatus) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
@@ -3188,6 +3194,27 @@ export class AgentManager {
     if (todo.commits.length === before) return null;
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
+    return todo;
+  }
+
+  setTodoAssignee(agentId, todoId, assigneeId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const todo = agent.todoList.find(t => t.id === todoId);
+    if (!todo) return null;
+    todo.assignee = assigneeId;
+    if (!todo.history) todo.history = [];
+    todo.history.push({
+      status: todo.status,
+      at: new Date().toISOString(),
+      by: 'user',
+      type: 'reassign',
+      assignee: assigneeId,
+    });
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    // Re-check workflow transitions since assignee changed
+    this._recheckConditionalTransitions();
     return todo;
   }
 
@@ -3950,21 +3977,40 @@ export class AgentManager {
       if (agent.status !== 'idle') continue;
       if (this._loopProcessing.has(agentId)) continue;
 
-      // Priority 1: resume in_progress tasks that are stalled (agent is idle but task is in_progress)
+      // Priority 1: resume in_progress tasks assigned to this agent (check own list + other lists)
       // Skip if workflow manages in_progress transitions (conditions will handle the move)
-      const inProgressTodo = agent.todoList?.find(t => t.status === 'in_progress');
+      let inProgressTodo = null;
+      let inProgressOwnerId = null;
+      // Check own list first
+      const ownInProgress = agent.todoList?.find(t =>
+        t.status === 'in_progress' && (!t.assignee || t.assignee === agentId)
+      );
+      if (ownInProgress) {
+        inProgressTodo = ownInProgress;
+        inProgressOwnerId = agentId;
+      } else {
+        // Check other agents' lists for tasks assigned to this agent
+        for (const [oid, oa] of this.agents) {
+          if (oid === agentId || !oa.todoList) continue;
+          const found = oa.todoList.find(t => t.status === 'in_progress' && t.assignee === agentId);
+          if (found) { inProgressTodo = found; inProgressOwnerId = oid; break; }
+        }
+      }
       if (inProgressTodo) {
         if (this._workflowManagedStatuses?.has('in_progress')) continue;
         this._loopProcessing.add(agentId);
         console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has in_progress task "${inProgressTodo.text.slice(0, 60)}" — resuming`);
-        this._resumeInProgressTask(agentId, agent, inProgressTodo).finally(() => {
+        this._resumeInProgressTask(inProgressOwnerId, this.agents.get(inProgressOwnerId), inProgressTodo).finally(() => {
           this._loopProcessing.delete(agentId);
         });
         continue;
       }
 
       // Priority 2: pick up the first pending todo — but skip tasks managed by workflow transitions
-      const todo = agent.todoList?.find(t => t.status === 'pending');
+      // Only pick up tasks where this agent is the assignee (or owner when no assignee is set)
+      const todo = agent.todoList?.find(t =>
+        t.status === 'pending' && (!t.assignee || t.assignee === agentId)
+      );
       if (!todo) continue;
 
       // Check if there's a workflow transition for this status — if so, let the workflow handle it
@@ -4006,19 +4052,24 @@ export class AgentManager {
   }
 
   /**
-   * Resume an in_progress task when the agent is idle.
-   * Sends the task text directly to the agent and moves to done on success.
+   * Resume an in_progress task when the assignee agent is idle.
+   * Sends the task text directly to the assignee and moves to done on success.
+   * The agentId parameter is the todoList owner (creator); execution uses the assignee.
    */
   async _resumeInProgressTask(agentId, agent, todo) {
+    // Use the assignee agent for execution (fall back to owner if no assignee set)
+    const executorId = todo.assignee || agentId;
+    const executor = this.agents.get(executorId) || agent;
+
     const streamCallback = (chunk) => {
-      this._emit('agent:stream:chunk', { agentId, chunk });
+      this._emit('agent:stream:chunk', { agentId: executorId, chunk });
       this._emit('agent:thinking', {
-        agentId,
-        thinking: agent.currentThinking || ''
+        agentId: executorId,
+        thinking: executor.currentThinking || ''
       });
     };
 
-    this._emit('agent:stream:start', { agentId });
+    this._emit('agent:stream:start', { agentId: executorId });
 
     try {
       // Check if there's a workflow transition from in_progress that defines a target status
@@ -4031,17 +4082,17 @@ export class AgentManager {
         if (transition?.to) targetStatus = transition.to;
       } catch (_) { /* use default */ }
 
-      // Auto-switch agent to the todo's project if needed
-      if (todo.project && todo.project !== agent.project) {
-        console.log(`🔄 [TaskLoop] Switching "${agent.name}" to project "${todo.project}" for resume`);
+      // Auto-switch executor to the todo's project if needed
+      if (todo.project && todo.project !== executor.project) {
+        console.log(`🔄 [TaskLoop] Switching "${executor.name}" to project "${todo.project}" for resume`);
         if (this._switchProjectContext) {
-          this._switchProjectContext(agent, agent.project, todo.project);
+          this._switchProjectContext(executor, executor.project, todo.project);
         }
-        agent.project = todo.project;
+        executor.project = todo.project;
       }
 
       const result = await this.sendMessage(
-        agentId,
+        executorId,
         todo.text,
         streamCallback
       );
@@ -4051,18 +4102,18 @@ export class AgentManager {
       if (this._workflowManagedStatuses?.has('in_progress')) {
         console.log(`🔄 [TaskLoop] Execution finished for "${todo.text.slice(0, 60)}" — stays in_progress for workflow`);
       } else {
-        this.setTodoStatus(agentId, todo.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+        this.setTodoStatus(agentId, todo.id, targetStatus, { skipAutoRefine: true, by: executor.name });
         console.log(`🔄 [TaskLoop] Resumed and completed "${todo.text.slice(0, 60)}" -> ${targetStatus}`);
       }
     } catch (err) {
-      console.error(`🔄 [TaskLoop] Error resuming task for ${agent.name}:`, err.message);
-      this._emit('agent:stream:error', { agentId, error: err.message });
-      if (agent.status === 'error') {
-        this.setStatus(agentId, 'idle', 'Auto-recovered after resume error');
+      console.error(`🔄 [TaskLoop] Error resuming task for ${executor.name}:`, err.message);
+      this._emit('agent:stream:error', { agentId: executorId, error: err.message });
+      if (executor.status === 'error') {
+        this.setStatus(executorId, 'idle', 'Auto-recovered after resume error');
       }
     } finally {
-      this._emit('agent:stream:end', { agentId });
-      this._emit('agent:updated', this._sanitize(agent));
+      this._emit('agent:stream:end', { agentId: executorId });
+      this._emit('agent:updated', this._sanitize(executor));
     }
   }
 

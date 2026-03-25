@@ -82,9 +82,13 @@ const SOURCE_META = {
 // ── CreateTaskModal ──────────────────────────────────────────────────────────
 
 function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOptions, defaultStatus }) {
+  const CREATE_STATUSES = statusOptions.filter(s => ['idea', 'backlog', 'pending'].includes(s.value));
+  const initialStatus = defaultStatus && CREATE_STATUSES.some(s => s.value === defaultStatus)
+    ? defaultStatus
+    : (CREATE_STATUSES[0]?.value || 'backlog');
   const [text, setText] = useState('');
   const [project, setProject] = useState('');
-  const [status, setStatus] = useState(defaultStatus || 'idea');
+  const [status, setStatus] = useState(initialStatus);
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef(null);
 
@@ -115,8 +119,7 @@ function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOption
     }
   };
 
-  const CREATE_STATUSES = statusOptions.filter(s => ['idea', 'backlog', 'pending'].includes(s.value));
-  const currentStatus = statusOptions.find(s => s.value === status);
+  const currentStatus = CREATE_STATUSES.find(s => s.value === status);
 
   return (
     <div
@@ -186,7 +189,7 @@ function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOption
                 className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm focus:outline-none focus:border-indigo-500 transition-colors"
                 style={{ color: currentStatus?.text?.replace('text-', '') || 'inherit' }}
               >
-                {statusOptions.map(opt => (
+                {CREATE_STATUSES.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
@@ -550,15 +553,14 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                 <div className="flex items-center gap-1.5">
                   <select
                     autoFocus
-                    defaultValue={task.agentId || ''}
+                    defaultValue={task.assignee || ''}
                     onChange={async e => {
-                      const targetId = e.target.value;
-                      if (!targetId || targetId === task.agentId) { setEditingAgent(false); return; }
+                      const targetId = e.target.value || null;
+                      if (targetId === (task.assignee || '')) { setEditingAgent(false); return; }
                       setTransferring(true);
                       try {
-                        await api.transferTodo(task.agentId, task.id, targetId);
+                        await api.setTodoAssignee(task.agentId, task.id, targetId);
                         onRefresh?.();
-                        onClose();
                       } finally {
                         setTransferring(false);
                         setEditingAgent(false);
@@ -568,6 +570,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                     className="px-2 py-0.5 w-36 bg-dark-800 border border-indigo-500/50 rounded text-xs text-dark-200
                       focus:outline-none focus:border-indigo-500 transition-colors"
                   >
+                    <option value="">Unassigned</option>
                     {agents.map(a => (
                       <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
                     ))}
