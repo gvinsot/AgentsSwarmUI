@@ -372,7 +372,8 @@ export class SandboxManager {
 
   async _execAsAgentUser(username, command, { cwd = null, timeout = 120000 } = {}) {
     const cwdArg = cwd ? `-w ${this._sh(cwd)}` : '';
-    const cmd = `docker exec ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
+    const homeArg = `-e HOME=/home/${username}`;
+    const cmd = `docker exec ${homeArg} ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
     try {
       return await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
     } catch (err) {
@@ -387,7 +388,7 @@ export class SandboxManager {
           if (entry.username === username) entry._userVerified = true;
         }
         // Retry the command once
-        const retryCmd = `docker exec ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
+        const retryCmd = `docker exec ${homeArg} ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
         return execAsync(retryCmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
       }
       throw err;
