@@ -1964,9 +1964,13 @@ export class AgentManager {
           results.push({ tool: 'update_todo', args: call.args, success: false, error: `Invalid status "${newStatus}". Valid: ${validStatuses.join(', ')}` });
           continue;
         }
-        const todo = agent.todoList?.find(t => t.id === todoId);
+        let todo = agent.todoList?.find(t => t.id === todoId);
+        if (!todo) todo = agent.todoList?.find(t => t.id.startsWith(todoId));
         if (!todo) {
-          results.push({ tool: 'update_todo', args: call.args, success: false, error: `Todo not found: ${todoId}` });
+          // Look for partial match to give a helpful hint
+          const partial = agent.todoList?.find(t => t.id.startsWith(todoId.slice(0, 8)));
+          const hint = partial ? ` Maybe you meant ${partial.id.slice(0, 8)} which is currently "${partial.status}"?` : '';
+          results.push({ tool: 'update_todo', args: call.args, success: false, error: `Todo not found: ${todoId}.${hint}` });
           continue;
         }
         todo.status = newStatus;
@@ -1986,12 +1990,15 @@ export class AgentManager {
           results.push({ tool: 'link_commit', args: call.args, success: false, error: 'Usage: @link_commit(todoId, commitHash, optionalMessage)' });
           continue;
         }
-        const todo = agent.todoList?.find(t => t.id === todoId);
+        let todo = agent.todoList?.find(t => t.id === todoId);
+        if (!todo) todo = agent.todoList?.find(t => t.id.startsWith(todoId));
         if (!todo) {
-          results.push({ tool: 'link_commit', args: call.args, success: false, error: `Todo not found: ${todoId}` });
+          const partial = agent.todoList?.find(t => t.id.startsWith(todoId.slice(0, 8)));
+          const hint = partial ? ` Maybe you meant ${partial.id.slice(0, 8)} which is currently "${partial.status}"?` : '';
+          results.push({ tool: 'link_commit', args: call.args, success: false, error: `Todo not found: ${todoId}.${hint}` });
           continue;
         }
-        this.addTodoCommit(agentId, todoId, commitHash, commitMsg || '');
+        this.addTodoCommit(agentId, todo.id, commitHash, commitMsg || '');
         console.log(`🔗 [Commit] Agent "${agent.name}" linked ${commitHash.slice(0, 7)} to task "${todo.text.slice(0, 50)}"`);
         results.push({ tool: 'link_commit', args: call.args, success: true, result: `Commit ${commitHash.slice(0, 7)} linked to task "${todo.text.slice(0, 60)}"` });
         continue;
