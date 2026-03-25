@@ -114,14 +114,6 @@ export class AgentManager {
     }
   }
 
-  async create(config) {
-    const id = uuidv4();
-    const agent = {
-      id,
-      name: config.name || 'Unnamed Agent',
-      role: config.role || 'general',
-      description: config.description || '',
-
   _recordUsage(agent, inputTokens, outputTokens) {
     try {
       const budgetConfig = getSetting("budget_config") || { tokenCosts: {} };
@@ -134,6 +126,13 @@ export class AgentManager {
     }
   }
 
+  async create(config) {
+    const id = uuidv4();
+    const agent = {
+      id,
+      name: config.name || 'Unnamed Agent',
+      role: config.role || 'general',
+      description: config.description || '',
       provider: config.provider,
       model: config.model,
       endpoint: config.endpoint || '',
