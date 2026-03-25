@@ -283,6 +283,10 @@ export class AgentManager {
     };
   }
 
+
+      // Ensure home directory exists for global git config
+      await this._execInSandbox(agentId, `mkdir -p /home/${agentId}`, { user: 'root' });
+      await this._execInSandbox(agentId, `chown ${agentId}:${agentId} /home/${agentId}`, { user: 'root' });
   /**
    * Get lightweight status for ALL agents (including project info).
    * Unlike getAll() which returns full agent data (heavy), this returns
@@ -299,6 +303,12 @@ export class AgentManager {
   /**
    * Get lightweight statuses for agents assigned to a specific project.
    * Used by REST API for project-filtered queries.
+
+      // Set repo-level git config as fallback (in case global config is not found)
+      await this._execInSandbox(agentId, `cd ${cloneDir} && git config user.name "${gitName}" && git config user.email "${gitEmail}"`);
+      if (gitToken) {
+        await this._execInSandbox(agentId, `cd ${cloneDir} && git config url."https://${gitToken}@github.com/".insteadOf "https://github.com/"`);
+      }
    */
   getAgentsByProject(projectName) {
     if (!projectName) return [];
