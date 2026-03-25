@@ -4,6 +4,8 @@ import { getPool } from './database.js';
 
 const DEFAULTS = {
   ideasAgent: '',
+  jiraEnabled: 'true',
+  currency: '$',
 };
 
 // ── Data directory configuration ────────────────────────────────────────────

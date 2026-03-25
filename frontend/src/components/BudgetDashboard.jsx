@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   fetchBudgetSummary, fetchBudgetByAgent, fetchBudgetTimeline,
-  fetchBudgetDaily, fetchBudgetConfig, updateBudgetConfig, fetchBudgetAlerts
+  fetchBudgetDaily, fetchBudgetConfig, updateBudgetConfig, fetchBudgetAlerts, api
 } from '../api';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement,
@@ -25,16 +25,19 @@ export default function BudgetDashboard({ agents = [] }) {
   const [showSettings, setShowSettings] = useState(false);
   const [editConfig, setEditConfig] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [currency, setCurrency] = useState('$');
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, a, t, d, c, al] = await Promise.all([
+      const [s, a, t, d, c, al, settings] = await Promise.all([
         fetchBudgetSummary(1), fetchBudgetByAgent(timeRange),
         fetchBudgetTimeline(timeRange, timeRange <= 2 ? 'hour' : 'day'),
         fetchBudgetDaily(30), fetchBudgetConfig(), fetchBudgetAlerts(),
+        api.getSettings(),
       ]);
       setSummary(s); setByAgent(a); setTimeline(t); setDaily(d); setConfig(c); setAlerts(al);
+      if (settings?.currency) setCurrency(settings.currency);
     } catch (err) { console.error('Budget load error:', err); }
     finally { setLoading(false); }
   }, [timeRange]);
@@ -57,7 +60,7 @@ export default function BudgetDashboard({ agents = [] }) {
   const dailyChartData = {
     labels: daily.map(d => d.day?.slice(5) || ''),
     datasets: [
-      { label: 'Cost ($)', data: daily.map(d => d.cost || 0), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)', fill: true, tension: 0.3 },
+      { label: `Cost (${currency})`, data: daily.map(d => d.cost || 0), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)', fill: true, tension: 0.3 },
       ...(dailyBudget > 0 ? [{ label: 'Budget', data: daily.map(() => dailyBudget), borderColor: '#ef4444', borderDash: [5,5], pointRadius: 0, fill: false }] : []),
     ],
   };
@@ -119,10 +122,10 @@ export default function BudgetDashboard({ agents = [] }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-dark-900 border border-dark-700/50 rounded-lg p-4">
           <div className="text-xs text-dark-400 uppercase tracking-wider mb-1">Today's Cost</div>
-          <div className="text-2xl font-bold text-dark-100">${todayCost.toFixed(4)}</div>
+          <div className="text-2xl font-bold text-dark-100">{currency}{todayCost.toFixed(4)}</div>
           {dailyBudget > 0 && (
             <div className="mt-2">
-              <div className="flex justify-between text-xs text-dark-400 mb-1"><span>{budgetPct.toFixed(0)}% of budget</span><span>${dailyBudget.toFixed(2)}</span></div>
+              <div className="flex justify-between text-xs text-dark-400 mb-1"><span>{budgetPct.toFixed(0)}% of budget</span><span>{currency}{dailyBudget.toFixed(2)}</span></div>
               <div className="h-2 bg-dark-700 rounded-full overflow-hidden"><div className={`h-full ${budgetColor} rounded-full transition-all`} style={{ width: `${budgetPct}%` }} /></div>
             </div>
           )}
@@ -135,7 +138,7 @@ export default function BudgetDashboard({ agents = [] }) {
         <div className="bg-dark-900 border border-dark-700/50 rounded-lg p-4">
           <div className="text-xs text-dark-400 uppercase tracking-wider mb-1">API Calls Today</div>
           <div className="text-2xl font-bold text-dark-100">{(summary?.total_calls || 0).toLocaleString()}</div>
-          <div className="text-xs text-dark-400 mt-1">Avg: ${summary?.total_calls ? (todayCost / summary.total_calls).toFixed(6) : '0'}/call</div>
+          <div className="text-xs text-dark-400 mt-1">Avg: {currency}{summary?.total_calls ? (todayCost / summary.total_calls).toFixed(6) : '0'}/call</div>
         </div>
         <div className="bg-dark-900 border border-dark-700/50 rounded-lg p-4">
           <div className="text-xs text-dark-400 uppercase tracking-wider mb-1">Active Agents</div>
@@ -176,7 +179,7 @@ export default function BudgetDashboard({ agents = [] }) {
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Output Tokens</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Total Cost</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Calls</th>
-                <th className="text-right px-4 py-2 text-dark-400 font-medium">Avg $/call</th>
+                <th className="text-right px-4 py-2 text-dark-400 font-medium">Avg/call</th>
               </tr>
             </thead>
             <tbody>
@@ -192,14 +195,14 @@ export default function BudgetDashboard({ agents = [] }) {
                   <td className="text-right px-4 py-2 text-dark-400 font-mono text-xs">{a.model || '-'}</td>
                   <td className="text-right px-4 py-2 text-dark-400 font-mono text-xs">
                     {hasCustomRate
-                      ? <span className="text-indigo-400" title="Custom per-agent rate">${agentObj.costPerInputToken}/${agentObj.costPerOutputToken}</span>
+                      ? <span className="text-indigo-400" title="Custom per-agent rate">{currency}{agentObj.costPerInputToken}/{agentObj.costPerOutputToken}</span>
                       : <span className="text-dark-500" title="Using global provider default">default</span>}
                   </td>
                   <td className="text-right px-4 py-2 text-dark-300">{(a.total_input || 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-dark-300">{(a.total_output || 0).toLocaleString()}</td>
-                  <td className="text-right px-4 py-2 text-green-400 font-medium">${(a.total_cost || 0).toFixed(4)}</td>
+                  <td className="text-right px-4 py-2 text-green-400 font-medium">{currency}{(a.total_cost || 0).toFixed(4)}</td>
                   <td className="text-right px-4 py-2 text-dark-300">{a.call_count || 0}</td>
-                  <td className="text-right px-4 py-2 text-dark-400">${a.call_count ? (a.total_cost / a.call_count).toFixed(6) : '0'}</td>
+                  <td className="text-right px-4 py-2 text-dark-400">{currency}{a.call_count ? (a.total_cost / a.call_count).toFixed(6) : '0'}</td>
                 </tr>
                 );
               })}
@@ -208,7 +211,7 @@ export default function BudgetDashboard({ agents = [] }) {
                   <td className="px-4 py-2 text-dark-200">Total</td><td /><td /><td />
                   <td className="text-right px-4 py-2 text-dark-200">{byAgent.reduce((s,a) => s + (a.total_input||0), 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-dark-200">{byAgent.reduce((s,a) => s + (a.total_output||0), 0).toLocaleString()}</td>
-                  <td className="text-right px-4 py-2 text-green-400">${byAgent.reduce((s,a) => s + (a.total_cost||0), 0).toFixed(4)}</td>
+                  <td className="text-right px-4 py-2 text-green-400">{currency}{byAgent.reduce((s,a) => s + (a.total_cost||0), 0).toFixed(4)}</td>
                   <td className="text-right px-4 py-2 text-dark-200">{byAgent.reduce((s,a) => s + (a.call_count||0), 0)}</td>
                   <td />
                 </tr>
@@ -227,7 +230,7 @@ export default function BudgetDashboard({ agents = [] }) {
               <button onClick={() => setShowSettings(false)} className="text-dark-400 hover:text-dark-200">✕</button>
             </div>
             <div>
-              <label className="block text-sm text-dark-400 mb-1">Daily Budget ($)</label>
+              <label className="block text-sm text-dark-400 mb-1">Daily Budget ({currency})</label>
               <input type="number" step="0.01" value={editConfig.dailyBudget || 0} onChange={e => setEditConfig({ ...editConfig, dailyBudget: parseFloat(e.target.value) || 0 })} className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm text-dark-200" />
             </div>
             <div>
@@ -236,7 +239,7 @@ export default function BudgetDashboard({ agents = [] }) {
               <p className="text-xs text-dark-500 mt-1">Alert when daily spend exceeds this % of budget</p>
             </div>
             <div>
-              <label className="block text-sm text-dark-400 mb-2">Token Costs ($ per 1M tokens)</label>
+              <label className="block text-sm text-dark-400 mb-2">Token Costs ({currency} per 1M tokens)</label>
               {Object.entries(editConfig.tokenCosts || {}).map(([provider, costs]) => (
                 <div key={provider} className="flex items-center gap-2 mb-2">
                   <span className="w-20 text-xs text-dark-300 capitalize">{provider}</span>

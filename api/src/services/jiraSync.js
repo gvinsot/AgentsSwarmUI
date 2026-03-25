@@ -15,7 +15,7 @@
  *  JIRA_USER_EMAIL  – Atlassian account email
  */
 
-import { getWorkflow } from './configManager.js';
+import { getWorkflow, getSettings } from './configManager.js';
 import { saveAgent } from './database.js';
 import { processTransition } from './transitionProcessor.js';
 
@@ -158,6 +158,10 @@ async function executeTransitionActions(trigger, task, agentId, agentManager) {
 export async function pollJira(agentManager) {
   const cfg = getConfig();
   if (!cfg) return;
+
+  // Check if Jira is disabled via settings
+  const settings = await getSettings();
+  if (settings.jiraEnabled === 'false') return;
 
   const workflow = await getWorkflow('_default');
   if (!workflow?.transitions) return;
@@ -571,10 +575,14 @@ export function startJiraSync(agentManager, io, intervalMs = 30000) {
   }, intervalMs);
 }
 
-export function getJiraSyncStatus() {
+export async function getJiraSyncStatus() {
   const cfg = getConfig();
+  const settings = await getSettings();
+  const settingEnabled = settings.jiraEnabled !== 'false';
   return {
-    enabled: !!cfg,
+    enabled: !!cfg && settingEnabled,
+    configured: !!cfg,
+    settingEnabled,
     boardUrl: process.env.JIRA_BOARD_URL || '',
     domain: cfg?.domain || '',
     projectKey: cfg?.projectKey || '',
@@ -619,6 +627,10 @@ export function verifyWebhook(req) {
 export async function handleWebhook(payload, agentManager) {
   const cfg = getConfig();
   if (!cfg) return;
+
+  // Check if Jira is disabled via settings
+  const settingsWH = await getSettings();
+  if (settingsWH.jiraEnabled === 'false') return;
 
   const event = payload.webhookEvent;
   const issue = payload.issue;

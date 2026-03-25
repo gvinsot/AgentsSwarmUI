@@ -5,8 +5,8 @@ export function jiraRoutes(agentManager) {
   const router = express.Router();
 
   // GET /jira/status — sync status for UI
-  router.get('/status', (req, res) => {
-    res.json(getJiraSyncStatus());
+  router.get('/status', async (req, res) => {
+    res.json(await getJiraSyncStatus());
   });
 
   // GET /jira/columns — Jira board columns (for workflow config dropdowns)
