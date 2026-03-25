@@ -1,21 +1,22 @@
 /**
- * Jira Sync Service
+ * Jira Sync Service — Single-column subprocess mode
  *
- * Synchronises a Jira board with PulsarTeam workflow columns and tasks.
+ * PulsarTeam acts as a subprocess for ONE Jira column:
+ *  - When a ticket enters a watched Jira column → create a task in PulsarTeam
+ *  - When a task reaches a configured PulsarTeam column → move the Jira ticket forward
  *
- * Sync rules:
- *  - Columns: Jira → PulsarTeam (one-way)
- *  - Task creation: Jira → PulsarTeam (new issues appear as todos)
- *  - Status updates: bidirectional
+ * Configuration is done via Workflow transitions:
+ *  - Trigger: "jira_ticket" — fires when a new Jira issue appears in the watched column
+ *  - Action: "move_jira_status" — transitions the Jira issue to the next status
  *
  * Env vars:
  *  JIRA_BOARD_URL   – full board URL (empty = feature disabled)
- *  JIRA_ORG_ID      – Atlassian org id (informational)
- *  JIRA_API_KEY     – PAT (Bearer) or API token (Basic with JIRA_USER_EMAIL)
- *  JIRA_USER_EMAIL  – required only when using classic API tokens
+ *  JIRA_API_KEY     – API token (Basic auth with JIRA_USER_EMAIL)
+ *  JIRA_USER_EMAIL  – Atlassian account email
  */
 
-import { getWorkflow, updateWorkflow } from './workflowManager.js';
+import { getWorkflow } from './workflowManager.js';
+import { saveAgent } from './database.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -23,7 +24,6 @@ function getConfig() {
   const boardUrl = (process.env.JIRA_BOARD_URL || '').trim();
   if (!boardUrl) return null;
 
-  // Parse: https://<domain>/jira/software/projects/<KEY>/boards/<id>
   const m = boardUrl.match(
     /https?:\/\/([^/]+)\/.*\/projects\/([^/]+)\/boards\/(\d+)/
   );
@@ -33,8 +33,9 @@ function getConfig() {
   }
 
   const apiKey = (process.env.JIRA_API_KEY || '').trim();
-  if (!apiKey) {
-    console.error('[Jira] JIRA_API_KEY is required');
+  const userEmail = (process.env.JIRA_USER_EMAIL || '').trim();
+  if (!apiKey || !userEmail) {
+    console.error('[Jira] JIRA_API_KEY and JIRA_USER_EMAIL are required');
     return null;
   }
 
@@ -43,7 +44,7 @@ function getConfig() {
     projectKey: m[2],
     boardId: parseInt(m[3], 10),
     apiKey,
-    userEmail: (process.env.JIRA_USER_EMAIL || '').trim(),
+    userEmail,
     baseUrl: `https://${m[1]}`,
   };
 }
@@ -51,11 +52,6 @@ function getConfig() {
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 function authHeaders(cfg) {
-  // Jira Cloud REST API requires Basic auth: email:api_token
-  if (!cfg.userEmail) {
-    console.error('[Jira] JIRA_USER_EMAIL is required (Basic auth with email:api_token)');
-    return {};
-  }
   const encoded = Buffer.from(`${cfg.userEmail}:${cfg.apiKey}`).toString('base64');
   return { Authorization: `Basic ${encoded}` };
 }
@@ -79,97 +75,64 @@ async function jiraFetch(cfg, path, options = {}) {
   return res.json();
 }
 
-// ── Column colours (Jira doesn't expose column colors, so we pick defaults) ─
+// ── Fetch Jira board columns (for UI dropdown) ──────────────────────────────
 
-const COLUMN_COLORS = [
-  '#6b7280', '#3b82f6', '#eab308', '#22c55e', '#ef4444',
-  '#8b5cf6', '#06b6d4', '#f97316', '#ec4899', '#a855f7',
-];
+let _jiraColumnsCache = null;
+let _jiraColumnsCacheTime = 0;
 
-// ── Slug helper: turn a Jira column name into a valid PulsarTeam column id ───
+export async function getJiraColumns() {
+  const cfg = getConfig();
+  if (!cfg) return [];
 
-function slugify(name) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '') || 'column';
-}
-
-// ── Core sync logic ───────────────────────────────────────────────────────────
-
-/**
- * Fetch board columns from Jira and update PulsarTeam workflow columns.
- * Returns the column mapping { jiraStatusName → pulsarColumnId }.
- */
-export async function syncColumns(cfg) {
-  if (!cfg) cfg = getConfig();
-  if (!cfg) return null;
-
-  // Get board configuration (columns + status mappings)
-  const boardConfig = await jiraFetch(cfg, `/rest/agile/1.0/board/${cfg.boardId}/configuration`);
-  const jiraColumns = boardConfig.columnConfig?.columns || [];
-
-  if (jiraColumns.length === 0) {
-    console.warn('[Jira] No columns found on board');
-    return null;
+  // Cache for 5 minutes
+  if (_jiraColumnsCache && Date.now() - _jiraColumnsCacheTime < 300000) {
+    return _jiraColumnsCache;
   }
 
-  // Build column mapping: Jira status id → PulsarTeam column id
-  // Each Jira column has statuses[] — we map all statuses in a column to the same pulsar column
-  const statusToColumn = {};
-  const columns = jiraColumns.map((col, i) => {
-    const id = slugify(col.name);
-    for (const st of col.statuses || []) {
-      statusToColumn[st.id] = id;
-      statusToColumn[st.name?.toLowerCase()] = id;
+  try {
+    const boardConfig = await jiraFetch(cfg, `/rest/agile/1.0/board/${cfg.boardId}/configuration`);
+    const jiraColumns = boardConfig.columnConfig?.columns || [];
+
+    // Resolve status names (board config only has IDs)
+    const columns = [];
+    for (const col of jiraColumns) {
+      const statusIds = (col.statuses || []).map(s => s.id);
+      columns.push({
+        name: col.name,
+        statusIds,
+      });
     }
-    return {
-      id,
-      label: col.name,
-      color: COLUMN_COLORS[i % COLUMN_COLORS.length],
-    };
-  });
 
-  // Load current workflow and update columns (preserve transitions that still reference valid columns)
-  const workflow = await getWorkflow('_default');
-  const oldColumnIds = new Set(workflow.columns.map(c => c.id));
-  const newColumnIds = new Set(columns.map(c => c.id));
-
-  // Preserve transitions where both from/to still exist
-  const transitions = workflow.transitions.filter(
-    t => newColumnIds.has(t.from) && (newColumnIds.has(t.to) || t.to === 'error')
-  );
-
-  await updateWorkflow('_default', {
-    ...workflow,
-    columns,
-    transitions,
-  });
-
-  console.log(`[Jira] Synced ${columns.length} columns: ${columns.map(c => c.label).join(', ')}`);
-  return statusToColumn;
+    _jiraColumnsCache = columns;
+    _jiraColumnsCacheTime = Date.now();
+    return columns;
+  } catch (err) {
+    console.error('[Jira] Failed to fetch board columns:', err.message);
+    return _jiraColumnsCache || [];
+  }
 }
 
+// ── Core: poll Jira for issues matching watched columns ─────────────────────
+
 /**
- * Fetch issues from the Jira board and create missing todos in PulsarTeam.
- * Returns { created: number, total: number }.
+ * Poll Jira and process workflow triggers.
+ * Scans workflow transitions for "jira_ticket" triggers, fetches matching
+ * issues from Jira, and creates tasks in the configured PulsarTeam column.
  */
-export async function syncIssues(cfg, agentManager, statusToColumn) {
-  if (!cfg) cfg = getConfig();
-  if (!cfg) return { created: 0, total: 0 };
+export async function pollJira(agentManager) {
+  const cfg = getConfig();
+  if (!cfg) return;
 
-  if (!statusToColumn) {
-    statusToColumn = await syncColumns(cfg);
-  }
-  if (!statusToColumn) return { created: 0, total: 0 };
+  const workflow = await getWorkflow('_default');
+  if (!workflow?.transitions) return;
 
-  // Fetch all issues on the board (paginated)
-  let startAt = 0;
-  const maxResults = 50;
-  let created = 0;
-  let total = 0;
+  // Find transitions with jira_ticket trigger
+  const jiraTriggers = workflow.transitions.filter(
+    t => t.trigger === 'jira_ticket' && t.jiraStatusIds?.length > 0
+  );
+  if (jiraTriggers.length === 0) return;
 
-  // Build a set of existing Jira keys to avoid duplicates
+  // Build set of existing Jira keys
   const existingJiraKeys = new Set();
   for (const [, agent] of agentManager.agents) {
     for (const todo of agent.todoList || []) {
@@ -177,130 +140,91 @@ export async function syncIssues(cfg, agentManager, statusToColumn) {
     }
   }
 
+  // Fetch all board issues
+  let startAt = 0;
+  const maxResults = 50;
+  const allIssues = [];
   while (true) {
     const data = await jiraFetch(
       cfg,
-      `/rest/agile/1.0/board/${cfg.boardId}/issue?startAt=${startAt}&maxResults=${maxResults}&fields=summary,status,assignee,priority,issuetype`
+      `/rest/agile/1.0/board/${cfg.boardId}/issue?startAt=${startAt}&maxResults=${maxResults}&fields=summary,status`
     );
-
     const issues = data.issues || [];
-    total += issues.length;
+    allIssues.push(...issues);
+    if (startAt + issues.length >= (data.total || issues.length)) break;
+    startAt += maxResults;
+  }
 
-    for (const issue of issues) {
+  let created = 0;
+
+  for (const trigger of jiraTriggers) {
+    const watchedStatusIds = new Set(trigger.jiraStatusIds);
+    const targetColumn = trigger.from; // the PulsarTeam column to create the task in
+
+    for (const issue of allIssues) {
+      const statusId = issue.fields?.status?.id;
+      if (!statusId || !watchedStatusIds.has(statusId)) continue;
       if (existingJiraKeys.has(issue.key)) continue;
 
-      const statusName = issue.fields?.status?.name?.toLowerCase() || '';
-      const statusId = issue.fields?.status?.id || '';
-      const columnId = statusToColumn[statusId] || statusToColumn[statusName] || 'backlog';
-      const summary = issue.fields?.summary || issue.key;
-
-      // Find the first enabled agent to own this task (prefer leader, fallback to any)
+      // Find owner agent (prefer leader)
       let ownerAgent = null;
       for (const [, a] of agentManager.agents) {
         if (a.enabled === false) continue;
         if (a.isLeader) { ownerAgent = a; break; }
         if (!ownerAgent) ownerAgent = a;
       }
+      if (!ownerAgent) continue;
 
-      if (!ownerAgent) {
-        console.warn(`[Jira] No enabled agent to own issue ${issue.key}`);
-        continue;
-      }
-
+      const summary = issue.fields?.summary || issue.key;
       const todo = agentManager.addTodo(
         ownerAgent.id,
         `[${issue.key}] ${summary}`,
         null,
         { type: 'jira', name: 'Jira', key: issue.key },
-        columnId
+        targetColumn
       );
 
       if (todo) {
-        // Store Jira metadata on the todo
         const actualTodo = ownerAgent.todoList.find(t => t.id === todo.id);
         if (actualTodo) {
           actualTodo.jiraKey = issue.key;
           actualTodo.jiraStatusId = statusId;
+          saveAgent(ownerAgent);
         }
+        existingJiraKeys.add(issue.key);
         created++;
+        console.log(`[Jira] Imported ${issue.key} "${summary}" → column "${targetColumn}"`);
       }
     }
-// ── Create Jira issue from PulsarTeam task ──────────────────────────────────
-export function isJiraEnabled() {
-  return !!getJiraConfig();
-}
+  }
 
-export async function createJiraIssue(title, description) {
-  const cfg = getJiraConfig();
-  if (!cfg) return null;
-
-  try {
-    const body = {
-      fields: {
-        project: { key: cfg.projectKey },
-        summary: title,
-        issuetype: { name: 'Task' },
-      },
-    };
-    if (description) {
-      body.fields.description = {
-        type: 'doc',
-        version: 1,
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: description }] }],
-      };
-    }
-
-    const issue = await jiraFetch(cfg, '/rest/api/3/issue', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-
-    console.log(`[Jira] Created issue ${issue.key} for "${title}"`);
-    return { key: issue.key, id: issue.id };
-  } catch (err) {
-    console.error(`[Jira] Failed to create issue for "${title}":`, err.message);
-    return null;
+  if (created > 0) {
+    console.log(`[Jira] Poll: imported ${created} new issue(s)`);
+    if (_io) _io.emit('workflow:updated');
   }
 }
 
-
-    if (startAt + issues.length >= (data.total || issues.length)) break;
-    startAt += maxResults;
-  }
-
-  console.log(`[Jira] Issues sync: ${created} created, ${total - created} already existed (${total} total on board)`);
-  return { created, total };
-}
+// ── Action: move Jira issue to next status ─────────────────────────────────
 
 /**
- * Push a PulsarTeam status change to Jira.
- * Called when a todo with a jiraKey changes status.
+ * Transition a Jira issue to one of the target status IDs.
+ * Called when a PulsarTeam task with a jiraKey reaches a column with a
+ * "move_jira_status" action.
  */
-export async function pushStatusToJira(jiraKey, newPulsarStatus) {
+export async function moveJiraIssue(jiraKey, targetStatusIds) {
   const cfg = getConfig();
-  if (!cfg) return;
+  if (!cfg || !jiraKey || !targetStatusIds?.length) return false;
 
   try {
-    // Get available transitions for this issue
     const data = await jiraFetch(cfg, `/rest/api/3/issue/${jiraKey}/transitions`);
     const transitions = data.transitions || [];
 
-    // Find a transition whose target status name matches our column label
-    // We need the workflow columns to map pulsar status → display name
-    const workflow = await getWorkflow('_default');
-    const column = workflow.columns.find(c => c.id === newPulsarStatus);
-    const targetLabel = column?.label?.toLowerCase() || newPulsarStatus;
-
-    const match = transitions.find(t =>
-      t.name?.toLowerCase() === targetLabel ||
-      t.to?.name?.toLowerCase() === targetLabel ||
-      slugify(t.name || '') === newPulsarStatus ||
-      slugify(t.to?.name || '') === newPulsarStatus
-    );
+    const targetSet = new Set(targetStatusIds);
+    const match = transitions.find(t => targetSet.has(t.to?.id));
 
     if (!match) {
-      console.log(`[Jira] No matching transition for ${jiraKey} → "${targetLabel}" (available: ${transitions.map(t => t.name).join(', ')})`);
-      return;
+      console.log(`[Jira] No transition for ${jiraKey} to status IDs [${targetStatusIds.join(',')}] (available: ${transitions.map(t => `${t.name}→${t.to?.id}`).join(', ')})`);
+      return false;
     }
 
     await jiraFetch(cfg, `/rest/api/3/issue/${jiraKey}/transitions`, {
@@ -308,93 +232,49 @@ export async function pushStatusToJira(jiraKey, newPulsarStatus) {
       body: JSON.stringify({ transition: { id: match.id } }),
     });
 
-    console.log(`[Jira] Pushed status ${jiraKey} → ${match.to?.name || match.name}`);
+    console.log(`[Jira] Moved ${jiraKey} → ${match.to?.name} (${match.to?.id})`);
+    return true;
   } catch (err) {
-    console.error(`[Jira] Failed to push status for ${jiraKey}:`, err.message);
+    console.error(`[Jira] Failed to move ${jiraKey}:`, err.message);
+    return false;
   }
 }
+
+// ── Hook: called from agentManager.setTodoStatus ────────────────────────────
 
 /**
- * Pull status updates from Jira for known tasks.
- * Checks if any tracked issue changed status and updates PulsarTeam accordingly.
+ * When a todo with a jiraKey changes status, check if the new column has a
+ * "move_jira_status" action and execute it.
  */
-export async function pullStatusUpdates(cfg, agentManager, statusToColumn) {
-  if (!cfg) cfg = getConfig();
-  if (!cfg) return 0;
+export async function onTodoStatusChanged(todo, newStatus) {
+  if (!todo.jiraKey) return;
 
-  if (!statusToColumn) {
-    statusToColumn = await syncColumns(cfg);
-  }
-  if (!statusToColumn) return 0;
-
-  let updated = 0;
-
-  for (const [agentId, agent] of agentManager.agents) {
-    for (const todo of agent.todoList || []) {
-      if (!todo.jiraKey) continue;
-
-      try {
-        const issue = await jiraFetch(cfg, `/rest/api/3/issue/${todo.jiraKey}?fields=status`);
-        const statusName = issue.fields?.status?.name?.toLowerCase() || '';
-        const statusId = issue.fields?.status?.id || '';
-        const expectedColumn = statusToColumn[statusId] || statusToColumn[statusName];
-
-        if (expectedColumn && expectedColumn !== todo.status) {
-          console.log(`[Jira] Status changed for ${todo.jiraKey}: "${todo.status}" → "${expectedColumn}"`);
-          agentManager.setTodoStatus(agentId, todo.id, expectedColumn, {
-            skipAutoRefine: false,
-            by: 'jira-sync',
-          });
-          // Update stored Jira status
-          todo.jiraStatusId = statusId;
-          updated++;
-        }
-      } catch (err) {
-        console.error(`[Jira] Failed to pull status for ${todo.jiraKey}:`, err.message);
-      }
-    }
-  }
-
-  if (updated > 0) console.log(`[Jira] Pulled ${updated} status updates from Jira`);
-  return updated;
-}
-
-// ── Full sync (called periodically) ──────────────────────────────────────────
-
-let _statusToColumn = null;
-
-let _io = null;
-
-export async function fullSync(agentManager) {
   const cfg = getConfig();
   if (!cfg) return;
 
   try {
-    _statusToColumn = await syncColumns(cfg);
-    if (!_statusToColumn) return;
+    const workflow = await getWorkflow('_default');
+    // Find transitions FROM this new status that have a move_jira_status action
+    const matching = (workflow.transitions || []).filter(t => t.from === newStatus);
 
-    const { created } = await syncIssues(cfg, agentManager, _statusToColumn);
-    await pullStatusUpdates(cfg, agentManager, _statusToColumn);
-
-    // Notify frontend to reload workflow + agents
-    if (_io) {
-      _io.emit('workflow:updated');
-      // Emit agent:updated for all agents that have Jira tasks
-      for (const [, agent] of agentManager.agents) {
-        if (agent.todoList?.some(t => t.jiraKey)) {
-          _io.emit('agent:updated', agentManager._sanitize(agent));
+    for (const transition of matching) {
+      for (const action of transition.actions || []) {
+        if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
+          await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
+          return;
         }
       }
     }
   } catch (err) {
-    console.error('[Jira] Full sync failed:', err.message);
+    console.error(`[Jira] onTodoStatusChanged error for ${todo.jiraKey}:`, err.message);
   }
 }
 
-/**
- * Start periodic Jira sync. Runs immediately on start, then every intervalMs.
- */
-export function startJiraSync(agentManager, io, intervalMs = 60000) {
+// ── Lifecycle ───────────────────────────────────────────────────────────────
+
+let _io = null;
+
+export function startJiraSync(agentManager, io, intervalMs = 30000) {
   const cfg = getConfig();
   if (!cfg) {
     console.log('[Jira] JIRA_BOARD_URL not set — sync disabled');
@@ -402,26 +282,20 @@ export function startJiraSync(agentManager, io, intervalMs = 60000) {
   }
 
   _io = io;
-  console.log(`[Jira] Sync enabled for board ${cfg.boardId} on ${cfg.domain} (every ${intervalMs / 1000}s)`);
+  console.log(`[Jira] Sync enabled for ${cfg.domain} board ${cfg.boardId} (poll every ${intervalMs / 1000}s)`);
 
-  // Initial sync
-  fullSync(agentManager).catch(err =>
-    console.error('[Jira] Initial sync error:', err.message)
+  // Initial poll
+  pollJira(agentManager).catch(err =>
+    console.error('[Jira] Initial poll error:', err.message)
   );
 
-  // Periodic sync
-  const interval = setInterval(() => {
-    fullSync(agentManager).catch(err =>
-      console.error('[Jira] Periodic sync error:', err.message)
+  return setInterval(() => {
+    pollJira(agentManager).catch(err =>
+      console.error('[Jira] Poll error:', err.message)
     );
   }, intervalMs);
-
-  return interval;
 }
 
-/**
- * Get current Jira sync status (for UI).
- */
 export function getJiraSyncStatus() {
   const cfg = getConfig();
   return {
@@ -433,14 +307,6 @@ export function getJiraSyncStatus() {
   };
 }
 
-/**
- * Notify Jira when a PulsarTeam todo status changes.
- * Called from agentManager.setTodoStatus.
- */
-export function onTodoStatusChanged(todo, newStatus) {
-  if (!todo.jiraKey) return;
-  if (todo._jiraSyncInProgress) return; // prevent loop
-  pushStatusToJira(todo.jiraKey, newStatus).catch(err =>
-    console.error(`[Jira] Push error for ${todo.jiraKey}:`, err.message)
-  );
+export async function fullSync(agentManager) {
+  await pollJira(agentManager);
 }

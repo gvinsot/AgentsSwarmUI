@@ -5,7 +5,7 @@ import { TOOL_DEFINITIONS, parseToolCalls, executeTool } from './agentTools.js';
 import { listStarredRepos, getProjectGitUrl } from './githubProjects.js';
 import { processTransition } from './transitionProcessor.js';
 import { getWorkflow } from './configManager.js';
-import { onTodoStatusChanged, isJiraEnabled, createJiraIssue } from './jiraSync.js';
+import { onTodoStatusChanged } from './jiraSync.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -283,10 +283,6 @@ export class AgentManager {
     };
   }
 
-
-      // Ensure home directory exists for global git config
-      await this._execInSandbox(agentId, `mkdir -p /home/${agentId}`, { user: 'root' });
-      await this._execInSandbox(agentId, `chown ${agentId}:${agentId} /home/${agentId}`, { user: 'root' });
   /**
    * Get lightweight status for ALL agents (including project info).
    * Unlike getAll() which returns full agent data (heavy), this returns
@@ -2865,17 +2861,9 @@ export class AgentManager {
   }
 
   /** Migrate old transition format to new trigger+actions format */
-  _migrateTransition(t) {
-    if (t.actions) return t;
-    const triggerType = t.triggerType || (t.autoRefine ? 'agent' : 'none');
-    if (triggerType === 'none') return null;
-    const newT = { from: t.from, trigger: triggerType === 'agent' ? 'on_enter' : 'condition', conditions: t.conditions || [], actions: [] };
-    if (triggerType === 'agent') {
-      newT.actions.push({ type: 'run_agent', mode: t.mode || 'refine', role: t.agent || '', instructions: t.instructions || '', targetStatus: t.to || '' });
-    } else {
-      newT.actions.push({ type: 'change_status', target: t.to || '' });
-    }
-    return newT;
+  /** Validate a transition has the required new format fields */
+  _validTransition(t) {
+    return t && t.from && t.trigger && Array.isArray(t.actions);
   }
 
   _checkAutoRefine(todo) {
@@ -2925,10 +2913,13 @@ export class AgentManager {
 
       // Migrate and filter transitions
       const matchingTransitions = workflow.transitions
-        .map(t => this._migrateTransition(t))
+        .filter(t => this._validTransition(t))
         .filter(t => t && t.from === todo.status);
 
       for (const transition of matchingTransitions) {
+        // ── Skip Jira-managed triggers (handled by jiraSync polling) ──
+        if (transition.trigger === 'jira_ticket') continue;
+
         // ── Evaluate trigger ──
         if (transition.trigger === 'condition') {
           const conditions = transition.conditions || [];
@@ -3735,7 +3726,7 @@ export class AgentManager {
   _recheckConditionalTransitions() {
     getWorkflow('_default').then(async (workflow) => {
       const condTransitions = workflow.transitions
-        .map(t => this._migrateTransition(t))
+        .filter(t => this._validTransition(t))
         .filter(t => {
           if (!t) return false;
           // Include condition-based transitions with conditions defined
@@ -3857,8 +3848,8 @@ export class AgentManager {
     getWorkflow('_default').then(workflow => {
       const managed = new Set();
       for (const t of workflow.transitions) {
-        const migrated = this._migrateTransition(t);
-        if (!migrated) continue;
+        if (!this._validTransition(t)) continue;
+        const migrated = t;
         // A status is "managed" if it has a non-empty transition (on_enter with agent actions, or condition-based)
         const hasAgentAction = (migrated.actions || []).some(a => a.type === 'run_agent');
         const isConditional = migrated.trigger === 'condition' && (migrated.conditions || []).length > 0;

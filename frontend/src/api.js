@@ -416,6 +416,9 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
     }).then(handleResponse),
+
+  getJiraColumns: () =>
+    fetch(`${API_BASE}/jira/columns`, { headers: getHeaders() }).then(handleResponse),
 };
 
 export default api;

@@ -939,12 +939,8 @@ const ACTION_OPTIONS = [
   { value: 'run_agent:refine', label: 'Refine description (agent)' },
   { value: 'run_agent:decide', label: 'Evaluate / Decide (agent)' },
   { value: 'change_status', label: 'Move to status' },
+  { value: 'move_jira_status', label: '🔗 Move Jira ticket to status', jira: true },
 ];
-
-function getActionKey(action) {
-  if (action.type === 'run_agent') return `run_agent:${action.mode}`;
-  return action.type;
-}
 
 function createAction(key, cols) {
   if (key === 'assign_agent') return { type: 'assign_agent', role: '' };
@@ -952,7 +948,13 @@ function createAction(key, cols) {
   if (key === 'run_agent:refine') return { type: 'run_agent', mode: 'refine', role: '', instructions: '', targetStatus: cols[1]?.id || '' };
   if (key === 'run_agent:decide') return { type: 'run_agent', mode: 'decide', role: '', instructions: '', targetStatus: cols[1]?.id || '' };
   if (key === 'change_status') return { type: 'change_status', target: cols[1]?.id || '' };
+  if (key === 'move_jira_status') return { type: 'move_jira_status', jiraStatusIds: [] };
   return { type: 'change_status', target: '' };
+}
+
+function getActionKey(action) {
+  if (action.type === 'run_agent') return `run_agent:${action.mode}`;
+  return action.type;
 }
 
 /** Migrate old transition format (triggerType/to/agent/mode) to new trigger+actions format */
@@ -1019,13 +1021,23 @@ function ConditionValueWidget({ cond, onChange, agents = [] }) {
 
 // ── WorkflowEditor ──────────────────────────────────────────────────────────
 
-function WorkflowEditor({ workflow, agents, onClose, onSave }) {
+function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
   const [cols, setCols] = useState(() => JSON.parse(JSON.stringify(workflow.columns)));
   const [transitions, setTransitions] = useState(() => {
     const raw = JSON.parse(JSON.stringify(workflow.transitions));
     return raw.map(migrateTransition).filter(Boolean);
   });
   const [saving, setSaving] = useState(false);
+  const [jiraColumns, setJiraColumns] = useState([]);
+
+  const jiraEnabled = jiraStatus?.enabled || false;
+
+  // Fetch Jira columns for dropdowns
+  useEffect(() => {
+    if (jiraEnabled) {
+      api.getJiraColumns().then(setJiraColumns).catch(() => {});
+    }
+  }, [jiraEnabled]);
 
   const enabledAgents = agents.filter(a => a.enabled !== false);
   const availableRoles = [...new Set(enabledAgents.map(a => a.role).filter(Boolean))].sort();
@@ -1219,11 +1231,37 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                       <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Trigger</span>
                     </div>
                     <select value={t.trigger || 'on_enter'}
-                      onChange={e => updateTransition(idx, { trigger: e.target.value })}
+                      onChange={e => {
+                        const patch = { trigger: e.target.value };
+                        if (e.target.value === 'jira_ticket') patch.jiraStatusIds = [];
+                        updateTransition(idx, patch);
+                      }}
                       className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
                       <option value="on_enter">On enter — fires immediately when a task enters this column</option>
                       <option value="condition">When conditions met — fires when all conditions become true (checked periodically)</option>
+                      {jiraEnabled && <option value="jira_ticket">🔗 Jira ticket — when a ticket enters a Jira column</option>}
                     </select>
+                    {t.trigger === 'jira_ticket' && (
+                      <div className="mt-2 pl-3 border-l-2 border-blue-500/30 space-y-1.5">
+                        <div className="text-[10px] text-dark-400">Import tickets from Jira column(s):</div>
+                        {jiraColumns.map(jc => (
+                          <label key={jc.name} className="flex items-center gap-2 text-xs text-dark-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={(t.jiraStatusIds || []).some(id => jc.statusIds.includes(id))}
+                              onChange={e => {
+                                const current = new Set(t.jiraStatusIds || []);
+                                jc.statusIds.forEach(id => e.target.checked ? current.add(id) : current.delete(id));
+                                updateTransition(idx, { jiraStatusIds: [...current] });
+                              }}
+                              className="rounded border-dark-600"
+                            />
+                            {jc.name}
+                          </label>
+                        ))}
+                        {jiraColumns.length === 0 && <div className="text-[10px] text-dark-500 italic">Loading Jira columns...</div>}
+                      </div>
+                    )}
                     {t.trigger === 'condition' && (
                       <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-amber-500/30">
                         <div className="text-[10px] text-dark-400">All conditions must be true:</div>
@@ -1281,7 +1319,7 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                             <select value={getActionKey(action)}
                               onChange={e => changeActionType(idx, ai, e.target.value)}
                               className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
-                              {ACTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              {ACTION_OPTIONS.filter(o => !o.jira || jiraEnabled).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
 
                             {/* Role selector for assign_agent and run_agent (except execute — uses task's assigned agent) */}
@@ -1314,6 +1352,22 @@ function WorkflowEditor({ workflow, agents, onClose, onSave }) {
                                 className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
                                 <option value="">Select status...</option>
                                 {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                              </select>
+                            )}
+
+                            {/* Jira target status for move_jira_status */}
+                            {action.type === 'move_jira_status' && (
+                              <select
+                                value={(action.jiraStatusIds || [])[0] || ''}
+                                onChange={e => {
+                                  const jc = jiraColumns.find(c => c.statusIds.includes(e.target.value));
+                                  updateAction(idx, ai, { jiraStatusIds: jc ? jc.statusIds : [e.target.value] });
+                                }}
+                                className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                                <option value="">Jira column...</option>
+                                {jiraColumns.map(jc => (
+                                  <option key={jc.name} value={jc.statusIds[0]}>{jc.name}</option>
+                                ))}
                               </select>
                             )}
 
@@ -1635,6 +1689,7 @@ export default function TasksBoard({ agents, onRefresh }) {
         <WorkflowEditor
           workflow={workflow}
           agents={agents}
+          jiraStatus={jiraStatus}
           onClose={() => setShowWorkflowEditor(false)}
           onSave={async (updated) => {
             const saved = await api.updateWorkflow(updated);
