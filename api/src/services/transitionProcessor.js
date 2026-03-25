@@ -89,15 +89,11 @@ export async function processTransition(todo, agentManager, io) {
     const isExecution = mode === 'execute' || (!mode && (!instructions || instructions.includes('[EXECUTE]')));
     const isDecide = mode === 'decide';
 
-    // Find agent by role
+    // Find the agent to run this transition
     let agent = null;
-    if (transitionRole) {
-      agent = findAgentByRole(agentManager, transitionRole);
-      if (agent) console.log(`[Workflow] Found agent by role "${transitionRole}": ${agent.name} (${agent.id})`);
-    }
 
-    // In execute mode, use the task's assignee or owner (not ideasAgent)
-    if (!agent && isExecution) {
+    if (isExecution) {
+      // Execute mode: always use the task's assignee first, then owner
       const assignee = todo.assignee ? agentManager.agents.get(todo.assignee) : null;
       if (assignee && assignee.enabled !== false && assignee.status === 'idle') {
         agent = assignee;
@@ -108,6 +104,12 @@ export async function processTransition(todo, agentManager, io) {
           agent = owner;
           console.log(`[Workflow] Execute mode: using idle task owner "${agent.name}" (${agent.id})`);
         }
+      }
+    } else {
+      // Non-execute modes: find agent by role
+      if (transitionRole) {
+        agent = findAgentByRole(agentManager, transitionRole);
+        if (agent) console.log(`[Workflow] Found agent by role "${transitionRole}": ${agent.name} (${agent.id})`);
       }
     }
 

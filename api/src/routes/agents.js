@@ -310,7 +310,7 @@ export function agentRoutes(agentManager) {
     res.json(todo);
   });
 
-  // ── On-demand AI refinement ─────────────────────────────────────────
+  // ── On-demand AI refinement (synchronous — waits for result) ────────
   router.post('/:id/todos/:todoId/refine', async (req, res) => {
     const { refineAgentId } = req.body;
     if (!refineAgentId) return res.status(400).json({ error: 'refineAgentId required' });
@@ -322,19 +322,20 @@ export function agentRoutes(agentManager) {
 
     const refineAgent = agentManager.agents.get(refineAgentId);
     if (!refineAgent) return res.status(404).json({ error: 'Refine agent not found' });
+    if (refineAgent.status !== 'idle') return res.status(409).json({ error: 'Agent is busy' });
 
-    // Fire-and-forget: refine via the agent's chat (visible in UI via stream events)
-    const { processTransition } = await import('../services/transitionProcessor.js');
-    const enrichedTodo = {
-      ...todo,
-      agentId: req.params.id,
-      _transition: { agent: refineAgent.name, to: null, instructions: '' },
-    };
-    processTransition(enrichedTodo, agentManager, req.app.get('io')).catch(err => {
+    try {
+      const prompt = `Refine the following task description. Make it clearer, more actionable, and add acceptance criteria if missing.\n\nTask: ${todo.text}\n\nReply ONLY with the improved description (no preamble, no explanation).`;
+      const result = await agentManager.sendMessage(refineAgentId, prompt, () => {});
+      const refined = (result?.content || result || '').trim();
+      if (refined) {
+        agentManager.updateTodoText(req.params.id, req.params.todoId, refined);
+      }
+      res.json({ success: true, text: refined });
+    } catch (err) {
       console.error(`[Refine] Error:`, err.message);
-    });
-
-    res.json({ success: true, message: `Refinement started via ${refineAgent.name}` });
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // ── RAG Document endpoints ─────────────────────────────────────────

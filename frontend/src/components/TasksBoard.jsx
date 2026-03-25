@@ -705,27 +705,40 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
               <button
                 onClick={() => setRefineOpen(o => !o)}
                 disabled={refining}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400
-                  hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40
-                  rounded-lg transition-colors disabled:opacity-50"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs
+                  border rounded-lg transition-colors disabled:opacity-50
+                  ${refining
+                    ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                    : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/20 hover:border-amber-500/40'
+                  }`}
               >
-                <Zap className="w-3.5 h-3.5" />
-                {refining ? 'Refining...' : 'Refine with AI'}
+                {refining
+                  ? <><svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 12a9 9 0 11-6.219-8.56" strokeLinecap="round" />
+                    </svg>Refining...</>
+                  : <><Zap className="w-3.5 h-3.5" />Refine with AI</>
+                }
               </button>
-              {refineOpen && (
+              {refineOpen && !refining && (
                 <div className="absolute right-0 bottom-9 z-50 bg-dark-800 border border-dark-600
                   rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[180px]">
                   <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
-                    Choose agent
+                    Choose idle agent
                   </div>
-                  {agents.filter(a => a.enabled !== false).map(a => (
+                  {agents.filter(a => a.enabled !== false && a.status === 'idle').length === 0 && (
+                    <div className="px-3 py-2 text-xs text-dark-500 italic">No idle agents available</div>
+                  )}
+                  {agents.filter(a => a.enabled !== false && a.status === 'idle').map(a => (
                     <button
                       key={a.id}
                       onClick={async () => {
                         setRefineOpen(false);
                         setRefining(true);
                         try {
-                          await api.refineTodo(task.agentId, task.id, a.id);
+                          const result = await api.refineTodo(task.agentId, task.id, a.id);
+                          if (result?.text) onRefresh?.();
+                        } catch (err) {
+                          console.error('Refine failed:', err);
                         } finally {
                           setRefining(false);
                         }
@@ -733,10 +746,8 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                       className="w-full text-left px-3 py-1.5 text-xs text-dark-200
                         hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
                     >
-                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                        style={{ background: a.status === 'busy' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#22c55e' }} />
-                      {a.name}
-                      <span className="text-dark-500 ml-auto">{a.model}</span>
+                      {a.icon} {a.name}
+                      <span className="text-dark-500 ml-auto text-[10px]">{a.role}</span>
                     </button>
                   ))}
                 </div>
@@ -1149,7 +1160,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
       className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-6xl max-h-[90vh] bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col">
+      <div className="w-[90vw] max-h-[90vh] bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-dark-700">
           <div className="flex items-center gap-2">
@@ -1163,14 +1174,14 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
 
         <div className="flex-1 overflow-auto px-5 py-4">
           {/* ── Columns as horizontal cards with transitions below each ── */}
-          <div className="flex gap-4 min-w-max pb-2">
+          <div className="flex gap-3 pb-2">
             {cols.map((col, idx) => {
               const colTransitions = transitions
                 .map((t, ti) => ({ ...t, _idx: ti }))
                 .filter(t => t.from === col.id);
 
               return (
-                <div key={col.id} className="flex flex-col w-[280px] flex-shrink-0">
+                <div key={col.id} className="flex flex-col min-w-[240px] flex-1">
                   {/* Column header card */}
                   <div className="bg-dark-800 rounded-lg px-3 py-2.5 space-y-2">
                     <div className="flex items-center gap-2">
@@ -1233,9 +1244,9 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                         updateTransition(idx, patch);
                       }}
                       className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                      <option value="on_enter">On enter — fires immediately when a task enters this column</option>
-                      <option value="condition">When conditions met — fires when all conditions become true (checked periodically)</option>
-                      {jiraEnabled && <option value="jira_ticket">🔗 Jira ticket — when a ticket enters a Jira column</option>}
+                      <option value="on_enter">On enter (immediate)</option>
+                      <option value="condition">When conditions met (periodic)</option>
+                      {jiraEnabled && <option value="jira_ticket">🔗 Jira ticket arrives</option>}
                     </select>
                     {t.trigger === 'jira_ticket' && (
                       <div className="mt-2 pl-3 border-l-2 border-blue-500/30 space-y-1.5">
@@ -1262,7 +1273,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                       <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-amber-500/30">
                         <div className="text-[10px] text-dark-400">All conditions must be true:</div>
                         {(t.conditions || []).map((cond, ci) => (
-                          <div key={ci} className="flex items-center gap-1.5">
+                          <div key={ci} className="flex flex-wrap items-center gap-1.5">
                             <select value={cond.field || 'assignee_status'}
                               onChange={e => {
                                 const f = e.target.value;
@@ -1310,7 +1321,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                     <div className="space-y-2 pl-3 border-l-2 border-indigo-500/30">
                       {(t.actions || []).map((action, ai) => (
                         <div key={ai} className="space-y-1.5">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span className="text-[10px] text-dark-500 w-3">{ai + 1}.</span>
                             <select value={getActionKey(action)}
                               onChange={e => changeActionType(idx, ai, e.target.value)}
@@ -1382,8 +1393,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                                 : action.mode === 'refine'
                                 ? "Refinement instructions... (e.g., 'Add acceptance criteria and break into sub-tasks')"
                                 : "Extra instructions (optional)... (e.g., 'Focus on unit tests')"}
-                              className="w-full ml-4 bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
-                              style={{ width: 'calc(100% - 1rem)' }}
+                              className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
                             />
                           )}
                         </div>
@@ -1412,7 +1422,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                 </div>
               );
             })}
-            <div className="flex flex-col justify-start w-[280px] flex-shrink-0">
+            <div className="flex flex-col justify-start min-w-[120px] w-[120px] flex-shrink-0">
               <button onClick={addCol}
                 className="flex items-center justify-center gap-1.5 h-[72px] border-2 border-dashed border-dark-700
                   rounded-lg text-xs text-dark-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-colors">
