@@ -1054,6 +1054,15 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
     const id = `step_${Date.now()}`;
     setCols(prev => [...prev, { id, label: 'New Step', color: '#6b7280' }]);
   };
+  const moveCol = (idx, dir) => {
+    const target = idx + dir;
+    if (target < 0 || target >= cols.length) return;
+    setCols(prev => {
+      const arr = [...prev];
+      [arr[idx], arr[target]] = [arr[target], arr[idx]];
+      return arr;
+    });
+  };
 
   // ── Transition helpers ──
   const updateTransition = (idx, patch) => setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
@@ -1178,6 +1187,16 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                       <option key={r} value={r}>Auto: {r}</option>
                     ))}
                   </select>
+                  <button onClick={() => moveCol(idx, -1)} disabled={idx === 0}
+                    className={`p-0.5 transition-colors ${idx === 0 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`}
+                    title="Move up">
+                    <ChevronDown className="w-3 h-3 rotate-180" />
+                  </button>
+                  <button onClick={() => moveCol(idx, 1)} disabled={idx === cols.length - 1}
+                    className={`p-0.5 transition-colors ${idx === cols.length - 1 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`}
+                    title="Move down">
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
                   <button
                     onClick={() => removeCol(idx)}
                     className="p-1 text-dark-500 hover:text-red-400 transition-colors"
