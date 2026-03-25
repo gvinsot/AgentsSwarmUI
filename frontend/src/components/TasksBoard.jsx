@@ -1093,14 +1093,6 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
   // ── Transition helpers ──
   const updateTransition = (idx, patch) => setTransitions(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
   const removeTransition = (idx) => setTransitions(prev => prev.filter((_, i) => i !== idx));
-  const addTransition = () => {
-    setTransitions(prev => [...prev, {
-      from: cols[0]?.id || '',
-      trigger: 'on_enter',
-      conditions: [],
-      actions: [{ type: 'change_status', target: cols[1]?.id || '' }],
-    }]);
-  };
 
   // ── Action helpers ──
   const updateAction = (tIdx, aIdx, patch) => {
@@ -1157,7 +1149,7 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
       className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-2xl max-h-[85vh] bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col">
+      <div className="w-full max-w-6xl max-h-[90vh] bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-dark-700">
           <div className="flex items-center gap-2">
@@ -1169,103 +1161,71 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto px-5 py-4 space-y-6">
-          {/* ── Columns ── */}
-          <section>
-            <h3 className="text-xs font-semibold text-dark-300 uppercase tracking-wider mb-3">Columns</h3>
-            <div className="space-y-2">
-              {cols.map((col, idx) => (
-                <div key={col.id} className="flex items-center gap-2 bg-dark-800 rounded-lg px-3 py-2">
-                  <select
-                    value={col.color}
-                    onChange={e => updateCol(idx, { color: e.target.value })}
-                    className="w-8 h-6 bg-dark-700 border-0 rounded cursor-pointer text-xs"
-                    style={{ color: col.color }}
-                  >
-                    {AVAILABLE_COLORS.map(c => (
-                      <option key={c.hex} value={c.hex} style={{ color: c.hex }}>{c.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    value={col.label}
-                    onChange={e => updateCol(idx, { label: e.target.value })}
-                    className="flex-1 bg-transparent text-sm text-dark-200 outline-none"
-                    placeholder="Column name"
-                  />
-                  <span className="text-[10px] text-dark-500 font-mono">{col.id}</span>
-                  <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer" title="Show assigned agent on task cards">
-                    <input
-                      type="checkbox"
-                      checked={col.showAgent || false}
-                      onChange={e => updateCol(idx, { showAgent: e.target.checked })}
-                      className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3"
-                    />
-                    <User className="w-3 h-3" />
-                  </label>
-                  <select
-                    value={col.autoAssignRole || ''}
-                    onChange={e => updateCol(idx, { autoAssignRole: e.target.value || null })}
-                    className="bg-dark-700 border border-dark-600 rounded px-1.5 py-0.5 text-[10px] text-dark-300"
-                    title="Auto-assign tasks in this column to an agent with this role"
-                  >
-                    <option value="">No auto-assign</option>
-                    {availableRoles.map(r => (
-                      <option key={r} value={r}>Auto: {r}</option>
-                    ))}
-                  </select>
-                  <button onClick={() => moveCol(idx, -1)} disabled={idx === 0}
-                    className={`p-0.5 transition-colors ${idx === 0 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`}
-                    title="Move up">
-                    <ChevronDown className="w-3 h-3 rotate-180" />
-                  </button>
-                  <button onClick={() => moveCol(idx, 1)} disabled={idx === cols.length - 1}
-                    className={`p-0.5 transition-colors ${idx === cols.length - 1 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`}
-                    title="Move down">
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => removeCol(idx)}
-                    className="p-1 text-dark-500 hover:text-red-400 transition-colors"
-                    title="Remove column"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={addCol}
-              className="mt-2 flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              <Plus className="w-3 h-3" /> Add column
-            </button>
-          </section>
+        <div className="flex-1 overflow-auto px-5 py-4">
+          {/* ── Columns as horizontal cards with transitions below each ── */}
+          <div className="flex gap-4 min-w-max pb-2">
+            {cols.map((col, idx) => {
+              const colTransitions = transitions
+                .map((t, ti) => ({ ...t, _idx: ti }))
+                .filter(t => t.from === col.id);
 
-          {/* ── Transitions ── */}
-          <section>
-            <h3 className="text-xs font-semibold text-dark-300 uppercase tracking-wider mb-3">Transitions</h3>
-            <div className="space-y-3">
-              {transitions.map((t, idx) => (
-                <div key={idx} className="bg-dark-800 rounded-lg px-3 py-3 space-y-3">
-                  {/* From column + delete */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-dark-500 w-14">Column:</span>
-                    <select value={t.from} onChange={e => updateTransition(idx, { from: e.target.value })}
-                      className="px-2 py-1 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200">
-                      {cols.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                    <button onClick={() => removeTransition(idx)}
-                      className="ml-auto p-1 text-dark-500 hover:text-red-400 transition-colors" title="Remove transition">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+              return (
+                <div key={col.id} className="flex flex-col w-[280px] flex-shrink-0">
+                  {/* Column header card */}
+                  <div className="bg-dark-800 rounded-lg px-3 py-2.5 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <select value={col.color} onChange={e => updateCol(idx, { color: e.target.value })}
+                        className="w-6 h-5 bg-dark-700 border-0 rounded cursor-pointer text-[10px]" style={{ color: col.color }}>
+                        {AVAILABLE_COLORS.map(c => <option key={c.hex} value={c.hex} style={{ color: c.hex }}>{c.label}</option>)}
+                      </select>
+                      <input value={col.label} onChange={e => updateCol(idx, { label: e.target.value })}
+                        className="flex-1 bg-transparent text-sm font-medium text-dark-200 outline-none min-w-0" placeholder="Column name" />
+                      <button onClick={() => moveCol(idx, -1)} disabled={idx === 0}
+                        className={`p-0.5 ${idx === 0 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`} title="Move left">
+                        <ChevronDown className="w-3 h-3 rotate-90" />
+                      </button>
+                      <button onClick={() => moveCol(idx, 1)} disabled={idx === cols.length - 1}
+                        className={`p-0.5 ${idx === cols.length - 1 ? 'text-dark-700 cursor-not-allowed' : 'text-dark-500 hover:text-dark-200'}`} title="Move right">
+                        <ChevronDown className="w-3 h-3 -rotate-90" />
+                      </button>
+                      <button onClick={() => removeCol(idx)} className="p-0.5 text-dark-500 hover:text-red-400" title="Remove column">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer" title="Show agent on cards">
+                        <input type="checkbox" checked={col.showAgent || false}
+                          onChange={e => updateCol(idx, { showAgent: e.target.checked })}
+                          className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3" />
+                        <User className="w-3 h-3" />
+                      </label>
+                      <select value={col.autoAssignRole || ''} onChange={e => updateCol(idx, { autoAssignRole: e.target.value || null })}
+                        className="flex-1 bg-dark-700 border border-dark-600 rounded px-1.5 py-0.5 text-[10px] text-dark-300"
+                        title="Auto-assign role">
+                        <option value="">No auto-assign</option>
+                        {availableRoles.map(r => <option key={r} value={r}>Auto: {r}</option>)}
+                      </select>
+                    </div>
                   </div>
 
-                  {/* Trigger */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Zap className="w-3 h-3 text-amber-400" />
-                      <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Trigger</span>
-                    </div>
+                  {/* Transitions for this column */}
+                  <div className="mt-2 space-y-2 flex-1">
+                    {colTransitions.map(t => {
+                      const idx = t._idx;
+                      return (
+                        <div key={idx} className="bg-dark-800/60 border border-dark-700/50 rounded-lg px-3 py-2.5 space-y-2">
+                          {/* Trigger */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <Zap className="w-3 h-3 text-amber-400" />
+                                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Trigger</span>
+                              </div>
+                              <button onClick={() => removeTransition(idx)}
+                                className="p-0.5 text-dark-500 hover:text-red-400" title="Remove transition">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                     <select value={t.trigger || 'on_enter'}
                       onChange={e => {
                         const patch = { trigger: e.target.value };
@@ -1435,13 +1395,31 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                     </div>
                   </div>
                 </div>
-              ))}
+                      );
+                    })}
+                    <button onClick={() => {
+                      setTransitions(prev => [...prev, {
+                        from: col.id,
+                        trigger: 'on_enter',
+                        conditions: [],
+                        actions: [createAction('change_status', cols)],
+                      }]);
+                    }}
+                      className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300">
+                      <Plus className="w-2.5 h-2.5" /> Add transition
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex flex-col justify-start w-[280px] flex-shrink-0">
+              <button onClick={addCol}
+                className="flex items-center justify-center gap-1.5 h-[72px] border-2 border-dashed border-dark-700
+                  rounded-lg text-xs text-dark-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-colors">
+                <Plus className="w-3.5 h-3.5" /> Add column
+              </button>
             </div>
-            <button onClick={addTransition}
-              className="mt-2 flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
-              <Plus className="w-3 h-3" /> Add transition
-            </button>
-          </section>
+          </div>
         </div>
 
         {/* Footer */}

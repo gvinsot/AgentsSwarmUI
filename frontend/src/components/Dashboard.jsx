@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
-  Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu, Info, ExternalLink
+  Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu
 } from 'lucide-react';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
@@ -107,7 +107,6 @@ export default function Dashboard({
                     { key: 'agents', label: 'Agents', icon: Users },
                     { key: 'tasks', label: 'Tasks', icon: KanbanSquare },
                     { key: 'projects', label: 'Projects', icon: Tag },
-                    { key: 'about', label: 'About', icon: Info },
                   ].map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
@@ -126,7 +125,7 @@ export default function Dashboard({
               )}
             </div>
             <div>
-              <h1 className="text-lg font-bold text-dark-100">Pulsar Team</h1>
+              <h1 className="text-lg font-bold text-dark-100" title={`v${import.meta.env.VITE_APP_VERSION || 'dev'}`}>Pulsar Team</h1>
               <p className="text-xs text-dark-400 -mt-0.5">{sortedAgents.length} agents active</p>
             </div>
             <div className="hidden sm:flex items-center border border-dark-700 rounded-lg overflow-hidden ml-2">
@@ -159,16 +158,6 @@ export default function Dashboard({
               >
                 <Tag className="w-4 h-4" />
                 <span className="hidden md:inline">Projects</span>
-              </button>
-              <button
-                onClick={() => setActiveView('about')}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
-                  activeView === 'about' ? 'bg-dark-700 text-indigo-400' : 'text-dark-400 hover:text-dark-200'
-                }`}
-                title="About"
-              >
-                <Info className="w-4 h-4" />
-                <span className="hidden md:inline">About</span>
               </button>
             </div>
           </div>
@@ -228,45 +217,6 @@ export default function Dashboard({
           {activeView === 'tasks' && (
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <TasksBoard agents={sortedAgents} onRefresh={onRefresh} />
-            </div>
-          )}
-          {activeView === 'about' && (
-            <div className="flex-1 p-4 sm:p-6 overflow-auto">
-              <div className="max-w-lg mx-auto mt-8">
-                <div className="bg-dark-800 border border-dark-700 rounded-xl p-6 space-y-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                      <Zap className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-dark-100">Pulsar Team</h2>
-                      <p className="text-xs text-dark-400">AI Agent Swarm Platform</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between py-3 border-t border-dark-700">
-                      <span className="text-sm text-dark-400">Version</span>
-                      <span className="text-sm font-mono text-dark-200">
-                        {import.meta.env.VITE_APP_VERSION || 'dev'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between py-3 border-t border-dark-700">
-                      <span className="text-sm text-dark-400">Source code</span>
-                      <a
-                        href="https://github.com/gvinsot/PulsarTeam"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
-                      >
-                        github.com/gvinsot/PulsarTeam
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
           {activeView === 'projects' && (

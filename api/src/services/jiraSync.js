@@ -17,6 +17,7 @@
 
 import { getWorkflow } from './configManager.js';
 import { saveAgent } from './database.js';
+import { processTransition } from './transitionProcessor.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,37 @@ export async function getJiraColumns() {
   }
 }
 
+// ── Execute transition actions after Jira import ────────────────────────────
+
+async function executeTransitionActions(trigger, todo, agentId, agentManager) {
+  const actions = trigger.actions || [];
+  if (actions.length === 0) return;
+
+  for (const action of actions) {
+    if (action.type === 'change_status' && action.target) {
+      agentManager.setTodoStatus(agentId, todo.id, action.target, { skipAutoRefine: false, by: 'jira-sync' });
+      console.log(`[Jira] Action: moved "${todo.text?.slice(0, 50)}" → ${action.target}`);
+    } else if (action.type === 'assign_agent' && action.role) {
+      // Handled by _checkAutoRefine via autoAssignRole on the target column
+    } else if (action.type === 'run_agent') {
+      const enrichedTodo = {
+        ...todo, agentId,
+        _transition: {
+          agent: action.role || '',
+          mode: action.mode || 'execute',
+          instructions: action.instructions || '',
+          to: action.targetStatus || null,
+        }
+      };
+      processTransition(enrichedTodo, agentManager, _io).catch(err =>
+        console.error(`[Jira] Action run_agent error:`, err.message)
+      );
+    } else if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
+      await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
+    }
+  }
+}
+
 // ── Core: poll Jira for issues matching watched columns ─────────────────────
 
 /**
@@ -194,6 +226,8 @@ export async function pollJira(agentManager) {
         existingJiraKeys.add(issue.key);
         created++;
         console.log(`[Jira] Imported ${issue.key} "${summary}" → column "${targetColumn}"`);
+        // Execute transition actions (change_status, run_agent, etc.)
+        await executeTransitionActions(trigger, actualTodo || todo, ownerAgent.id, agentManager);
       }
     }
   }
@@ -409,6 +443,8 @@ export async function handleWebhook(payload, agentManager) {
           saveAgent(ownerAgent);
         }
         console.log(`[Jira] Webhook: imported ${issue.key} → column "${trigger.from}"`);
+        // Execute transition actions (change_status, run_agent, etc.)
+        await executeTransitionActions(trigger, actualTodo || todo, ownerAgent.id, agentManager);
         if (_io) {
           _io.emit('agent:updated', agentManager._sanitize(ownerAgent));
         }
