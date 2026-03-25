@@ -964,6 +964,7 @@ const ACTION_OPTIONS = [
   { value: 'run_agent:decide', label: 'Evaluate / Decide (agent)' },
   { value: 'change_status', label: 'Move to status' },
   { value: 'move_jira_status', label: '🔗 Move Jira ticket to status', jira: true },
+  { value: 'jira_ai_comment', label: '🤖 AI analyze & comment on Jira ticket', jira: true },
 ];
 
 function createAction(key, cols) {
@@ -973,6 +974,7 @@ function createAction(key, cols) {
   if (key === 'run_agent:decide') return { type: 'run_agent', mode: 'decide', role: '', instructions: '', targetStatus: cols[1]?.id || '' };
   if (key === 'change_status') return { type: 'change_status', target: cols[1]?.id || '' };
   if (key === 'move_jira_status') return { type: 'move_jira_status', jiraStatusIds: [] };
+  if (key === 'jira_ai_comment') return { type: 'jira_ai_comment', role: '', instructions: '' };
   return { type: 'change_status', target: '' };
 }
 
@@ -1379,6 +1381,18 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                               </select>
                             )}
 
+                            {/* Agent role for jira_ai_comment */}
+                            {action.type === 'jira_ai_comment' && (
+                              <select value={action.role || ''}
+                                onChange={e => updateAction(idx, ai, { role: e.target.value })}
+                                className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
+                                <option value="">Any agent...</option>
+                                {[...new Set(agents.map(a => a.role).filter(Boolean))].map(r => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                            )}
+
                             <button onClick={() => removeAction(idx, ai)}
                               className="ml-auto p-0.5 text-dark-500 hover:text-red-400">
                               <Trash2 className="w-2.5 h-2.5" />
@@ -1394,6 +1408,15 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                                 : action.mode === 'refine'
                                 ? "Refinement instructions... (e.g., 'Add acceptance criteria and break into sub-tasks')"
                                 : "Extra instructions (optional)... (e.g., 'Focus on unit tests')"}
+                              className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
+                            />
+                          )}
+
+                          {/* Instructions for jira_ai_comment */}
+                          {action.type === 'jira_ai_comment' && (
+                            <textarea value={action.instructions || ''}
+                              onChange={e => updateAction(idx, ai, { instructions: e.target.value })}
+                              placeholder="Custom analysis instructions... (e.g., 'Focus on security risks and testing requirements' or leave empty for default analysis)"
                               className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none h-14"
                             />
                           )}

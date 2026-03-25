@@ -26,6 +26,8 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     isVoice: false,
     isReasoning: false,
     voice: 'alloy',
+    costPerInputToken: '',
+    costPerOutputToken: '',
   });
   const [creating, setCreating] = useState(false);
 
@@ -63,6 +65,8 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     try {
       const { temperatureEnabled, ...payload } = form;
       payload.temperature = temperatureEnabled ? payload.temperature : null;
+      payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
+      payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       const agent = await api.createAgent({
         ...payload,
         template: selectedTemplate?.id || null,
@@ -340,6 +344,8 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                             temperatureEnabled: source.temperature != null,
                             maxTokens: source.maxTokens ?? prev.maxTokens,
                             contextLength: source.contextLength ?? prev.contextLength,
+                            costPerInputToken: source.costPerInputToken ?? '',
+                            costPerOutputToken: source.costPerOutputToken ?? '',
                           }));
                         }
                         e.target.value = '';
@@ -354,7 +360,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                         </option>
                       ))}
                     </select>
-                    <p className="text-[11px] text-dark-500 mt-1">Copies provider, model, endpoint, API key, temperature, max tokens and context length</p>
+                    <p className="text-[11px] text-dark-500 mt-1">Copies provider, model, endpoint, API key, temperature, max tokens, context length and token costs</p>
                     {form.copyApiKeyFromAgent && !form.apiKey && (
                       <p className="text-[11px] text-green-400 mt-1">API key will be copied from the selected agent</p>
                     )}
@@ -556,6 +562,34 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                     placeholder="128000"
                     className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                   />
+                </div>
+
+                {/* Token cost per agent */}
+                <div className="col-span-2 border-t border-dark-700 pt-3 mt-1">
+                  <h4 className="text-xs font-medium text-dark-300 mb-2">Token Costs ($ per 1M tokens)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-dark-400 mb-1">Input cost</label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={form.costPerInputToken}
+                        onChange={(e) => updateField('costPerInputToken', e.target.value)}
+                        placeholder="Global default"
+                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-dark-400 mb-1">Output cost</label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={form.costPerOutputToken}
+                        onChange={(e) => updateField('costPerOutputToken', e.target.value)}
+                        placeholder="Global default"
+                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-dark-500 mt-1.5">Leave empty to use global provider default from Budget settings</p>
                 </div>
 
                 <div>

@@ -2035,6 +2035,8 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
     project: agent.project || '',
     enabled: agent.enabled !== false,
     isReasoning: agent.isReasoning || false,
+    costPerInputToken: agent.costPerInputToken ?? '',
+    costPerOutputToken: agent.costPerOutputToken ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -2060,6 +2062,8 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       project: agent.project || '',
       enabled: agent.enabled !== false,
       isReasoning: agent.isReasoning || false,
+      costPerInputToken: agent.costPerInputToken ?? '',
+      costPerOutputToken: agent.costPerOutputToken ?? '',
     });
     setSaved(false);
   }, [agent.id]);
@@ -2076,6 +2080,8 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
     try {
       const { temperatureEnabled, ...payload } = form;
       payload.temperature = temperatureEnabled ? payload.temperature : null;
+      payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
+      payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -2278,6 +2284,34 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
             </div>
           </>
         )}
+        {/* Token cost per agent */}
+        <div className="col-span-2 border-t border-dark-700/50 pt-3 mt-1">
+          <h4 className="text-xs font-medium text-dark-300 mb-2">Token Costs ($ per 1M tokens)</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-dark-400 mb-1">Input cost</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={form.costPerInputToken}
+                onChange={(e) => updateField('costPerInputToken', e.target.value)}
+                placeholder="Global default"
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-dark-400 mb-1">Output cost</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={form.costPerOutputToken}
+                onChange={(e) => updateField('costPerOutputToken', e.target.value)}
+                placeholder="Global default"
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-dark-500 mt-1.5">Leave empty to use global provider default from Budget settings</p>
+        </div>
+
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <input

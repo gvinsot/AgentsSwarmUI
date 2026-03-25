@@ -140,6 +140,10 @@ async function executeTransitionActions(trigger, todo, agentId, agentManager) {
       );
     } else if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
       await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
+    } else if (action.type === 'jira_ai_comment' && todo.jiraKey) {
+      analyzeAndCommentJira(todo.jiraKey, todo, agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
+        console.error(`[Jira] AI comment action error:`, err.message)
+      );
     }
   }
 }
@@ -280,13 +284,241 @@ export async function moveJiraIssue(jiraKey, targetStatusIds) {
   }
 }
 
+// ── Fetch full Jira issue details (for AI analysis) ─────────────────────────
+
+/**
+ * Fetch detailed information about a Jira issue including description,
+ * comments, priority, labels, assignee, etc.
+ */
+export async function getJiraIssueDetails(jiraKey) {
+  const cfg = getConfig();
+  if (!cfg || !jiraKey) return null;
+
+  try {
+    const issue = await jiraFetch(
+      cfg,
+      `/rest/api/3/issue/${encodeURIComponent(jiraKey)}?fields=summary,description,status,priority,labels,assignee,reporter,issuetype,created,updated,comment`
+    );
+
+    // Convert ADF description to plain text (simplified)
+    const descText = extractAdfText(issue.fields?.description);
+
+    // Extract existing comments
+    const comments = (issue.fields?.comment?.comments || []).map(c => ({
+      author: c.author?.displayName || 'Unknown',
+      body: extractAdfText(c.body),
+      created: c.created,
+    }));
+
+    return {
+      key: issue.key,
+      summary: issue.fields?.summary || '',
+      description: descText,
+      status: issue.fields?.status?.name || '',
+      priority: issue.fields?.priority?.name || '',
+      type: issue.fields?.issuetype?.name || '',
+      labels: issue.fields?.labels || [],
+      assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+      reporter: issue.fields?.reporter?.displayName || 'Unknown',
+      created: issue.fields?.created || '',
+      updated: issue.fields?.updated || '',
+      comments,
+    };
+  } catch (err) {
+    console.error(`[Jira] Failed to fetch issue details for ${jiraKey}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Recursively extract plain text from an Atlassian Document Format (ADF) node.
+ */
+function extractAdfText(node) {
+  if (!node) return '';
+  if (typeof node === 'string') return node;
+  if (node.type === 'text') return node.text || '';
+  if (Array.isArray(node.content)) {
+    return node.content.map(extractAdfText).join(node.type === 'paragraph' ? '\n' : '');
+  }
+  return '';
+}
+
+// ── Action: add a comment to a Jira issue ───────────────────────────────────
+
+/**
+ * Post a comment on a Jira issue using ADF format (Jira Cloud v3 API).
+ */
+export async function addCommentToJira(jiraKey, commentText) {
+  const cfg = getConfig();
+  if (!cfg || !jiraKey || !commentText) return false;
+
+  try {
+    // Build ADF document from plain text (split paragraphs on double newline)
+    const paragraphs = commentText.split(/\n{2,}/).filter(Boolean);
+    const adfContent = paragraphs.map(p => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text: p.trim() }],
+    }));
+
+    await jiraFetch(cfg, `/rest/api/3/issue/${encodeURIComponent(jiraKey)}/comment`, {
+      method: 'POST',
+      body: JSON.stringify({
+        body: {
+          type: 'doc',
+          version: 1,
+          content: adfContent.length > 0 ? adfContent : [{ type: 'paragraph', content: [{ type: 'text', text: commentText }] }],
+        },
+      }),
+    });
+
+    console.log(`[Jira] Comment added to ${jiraKey} (${commentText.length} chars)`);
+    return true;
+  } catch (err) {
+    console.error(`[Jira] Failed to add comment to ${jiraKey}:`, err.message);
+    return false;
+  }
+}
+
+// ── Action: AI-analyze a task and post comment to Jira ──────────────────────
+
+/**
+ * Use an AI agent to analyze a Jira task and post the analysis as a comment.
+ * Called as a workflow action when a task enters a column.
+ *
+ * @param {string} jiraKey - The Jira issue key (e.g. KAN-7)
+ * @param {object} todo - The PulsarTeam task object
+ * @param {string} agentId - The owner agent ID
+ * @param {object} agentManager - The AgentManager instance
+ * @param {string} instructions - Custom analysis instructions from workflow config
+ * @param {string} role - Agent role to use for the analysis
+ */
+export async function analyzeAndCommentJira(jiraKey, todo, agentId, agentManager, instructions, role) {
+  if (!jiraKey) return;
+
+  // Fetch full issue details from Jira
+  const issueDetails = await getJiraIssueDetails(jiraKey);
+  if (!issueDetails) {
+    console.error(`[Jira] Cannot analyze ${jiraKey}: failed to fetch issue details`);
+    return;
+  }
+
+  // Find an appropriate agent
+  let agent = null;
+  if (role) {
+    const agents = Array.from(agentManager.agents.values());
+    agent = agents.find(
+      a => a.enabled !== false && a.status === 'idle' && (a.role || '').toLowerCase() === role.toLowerCase()
+    );
+  }
+  if (!agent) {
+    // Fallback: use any idle enabled agent (prefer leader)
+    const agents = Array.from(agentManager.agents.values());
+    agent = agents.find(a => a.enabled !== false && a.status === 'idle' && a.isLeader)
+      || agents.find(a => a.enabled !== false && a.status === 'idle');
+  }
+
+  if (!agent) {
+    console.log(`[Jira] No idle agent available for AI analysis of ${jiraKey} — skipping`);
+    return;
+  }
+
+  // Build the analysis prompt
+  const existingComments = issueDetails.comments.length > 0
+    ? issueDetails.comments.map(c => `- ${c.author} (${c.created}): ${c.body}`).join('\n')
+    : 'None';
+
+  const defaultInstructions = `Analyze this Jira ticket and provide a structured assessment covering:
+1. Clarity: Is the ticket well-defined? Are requirements clear?
+2. Scope: Estimated complexity and effort
+3. Dependencies: Any obvious dependencies or blockers?
+4. Acceptance criteria: Are they defined? If not, suggest some
+5. Risks: Any potential risks or concerns?
+6. Recommendations: Actionable next steps`;
+
+  const prompt = `You are analyzing a Jira ticket that just entered a new workflow column. Analyze it and provide a concise, actionable comment.
+
+--- JIRA TICKET ---
+Key: ${issueDetails.key}
+Type: ${issueDetails.type}
+Priority: ${issueDetails.priority}
+Status: ${issueDetails.status}
+Summary: ${issueDetails.summary}
+Description:
+${issueDetails.description || '(no description)'}
+Labels: ${issueDetails.labels.join(', ') || 'none'}
+Assignee: ${issueDetails.assignee}
+Reporter: ${issueDetails.reporter}
+Created: ${issueDetails.created}
+Existing comments:
+${existingComments}
+--- END TICKET ---
+
+${instructions || defaultInstructions}
+
+IMPORTANT: Reply with ONLY the comment text to post on the Jira ticket. Do not include any JSON, markdown fences, or meta-instructions. Write as if you are posting directly on the ticket. Start with a brief header like "[AI Analysis]" or "[PulsarTeam Review]".`;
+
+  console.log(`[Jira] AI analyzing ${jiraKey} via agent "${agent.name}"...`);
+
+  try {
+    let fullResponse = '';
+
+    if (_io) {
+      _io.emit('agent:stream:start', {
+        agentId: agent.id,
+        agentName: agent.name,
+        project: agent.project || null,
+      });
+    }
+
+    try {
+      const result = await agentManager.sendMessage(
+        agent.id,
+        `[Jira AI Analysis] ${prompt}`,
+        (chunk) => {
+          fullResponse += chunk;
+          if (_io) {
+            _io.emit('agent:stream:chunk', {
+              agentId: agent.id,
+              agentName: agent.name,
+              project: agent.project || null,
+              chunk,
+            });
+          }
+        }
+      );
+
+      const response = (result?.content || fullResponse).trim();
+
+      if (response) {
+        const success = await addCommentToJira(jiraKey, response);
+        if (success) {
+          console.log(`[Jira] AI comment posted to ${jiraKey} via "${agent.name}"`);
+        }
+      } else {
+        console.log(`[Jira] AI analysis returned empty response for ${jiraKey}`);
+      }
+    } finally {
+      if (_io) {
+        _io.emit('agent:stream:end', {
+          agentId: agent.id,
+          agentName: agent.name,
+          project: agent.project || null,
+        });
+        _io.emit('agent:updated', agentManager._sanitize(agent));
+      }
+    }
+  } catch (err) {
+    console.error(`[Jira] AI analysis failed for ${jiraKey}:`, err.message);
+  }
+}
+
 // ── Hook: called from agentManager.setTodoStatus ────────────────────────────
 
 /**
  * When a todo with a jiraKey changes status, check if the new column has a
  * "move_jira_status" action and execute it.
  */
-export async function onTodoStatusChanged(todo, newStatus) {
+export async function onTodoStatusChanged(todo, newStatus, agentManager) {
   if (!todo.jiraKey) return;
 
   const cfg = getConfig();
@@ -294,14 +526,17 @@ export async function onTodoStatusChanged(todo, newStatus) {
 
   try {
     const workflow = await getWorkflow('_default');
-    // Find transitions FROM this new status that have a move_jira_status action
+    // Find transitions FROM this new status that have a move_jira_status or jira_ai_comment action
     const matching = (workflow.transitions || []).filter(t => t.from === newStatus);
 
     for (const transition of matching) {
       for (const action of transition.actions || []) {
         if (action.type === 'move_jira_status' && action.jiraStatusIds?.length) {
           await moveJiraIssue(todo.jiraKey, action.jiraStatusIds);
-          return;
+        } else if (action.type === 'jira_ai_comment' && agentManager) {
+          analyzeAndCommentJira(todo.jiraKey, todo, todo.agentId, agentManager, action.instructions || '', action.role || '').catch(err =>
+            console.error(`[Jira] AI comment error on status change:`, err.message)
+          );
         }
       }
     }

@@ -116,10 +116,20 @@ export class AgentManager {
 
   _recordUsage(agent, inputTokens, outputTokens) {
     try {
-      const budgetConfig = getSetting("budget_config") || { tokenCosts: {} };
-      const costs = budgetConfig.tokenCosts || {};
-      const providerCosts = costs[agent.provider] || costs["default"] || { input: 2.0, output: 10.0 };
-      const cost = (inputTokens * providerCosts.input / 1000000) + (outputTokens * providerCosts.output / 1000000);
+      // Per-agent costs take priority over global provider costs
+      let inputRate, outputRate;
+      if (agent.costPerInputToken != null && agent.costPerOutputToken != null) {
+        // Agent-level costs are stored as $ per 1M tokens
+        inputRate = agent.costPerInputToken;
+        outputRate = agent.costPerOutputToken;
+      } else {
+        const budgetConfig = getSetting("budget_config") || { tokenCosts: {} };
+        const costs = budgetConfig.tokenCosts || {};
+        const providerCosts = costs[agent.provider] || costs["default"] || { input: 2.0, output: 10.0 };
+        inputRate = providerCosts.input;
+        outputRate = providerCosts.output;
+      }
+      const cost = (inputTokens * inputRate / 1000000) + (outputTokens * outputRate / 1000000);
       recordTokenUsage(agent.id, agent.name, agent.provider, agent.model, inputTokens, outputTokens, cost);
     } catch (err) {
       console.warn("Failed to record token usage:", err.message);
@@ -167,6 +177,8 @@ export class AgentManager {
       isReasoning: config.isReasoning || false,
       voice: config.voice || 'alloy',
       template: config.template || null,
+      costPerInputToken: config.costPerInputToken ?? null,
+      costPerOutputToken: config.costPerOutputToken ?? null,
       color: config.color || this._randomColor(),
       icon: config.icon || '🤖',
       createdAt: new Date().toISOString(),
@@ -442,7 +454,8 @@ export class AgentManager {
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'handoffTargets',
-      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled'
+      'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
+      'costPerInputToken', 'costPerOutputToken'
     ];
 
     for (const key of allowed) {
@@ -3116,7 +3129,7 @@ export class AgentManager {
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     // Push status change to Jira (fire-and-forget, skips if no jiraKey or if triggered by jira-sync)
-    if (by !== 'jira-sync') onTodoStatusChanged(todo, status);
+    if (by !== 'jira-sync') onTodoStatusChanged(todo, status, this);
     if (!skipAutoRefine) this._checkAutoRefine({ ...todo, agentId });
     return todo;
   }

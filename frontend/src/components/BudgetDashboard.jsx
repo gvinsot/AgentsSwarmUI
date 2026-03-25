@@ -13,7 +13,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 
 const COLORS = ['#6366f1','#22d3ee','#f59e0b','#ef4444','#10b981','#8b5cf6','#f97316','#ec4899','#14b8a6','#a855f7'];
 
-export default function BudgetDashboard({ agents }) {
+export default function BudgetDashboard({ agents = [] }) {
   const [summary, setSummary] = useState(null);
   const [byAgent, setByAgent] = useState([]);
   const [timeline, setTimeline] = useState([]);
@@ -171,6 +171,7 @@ export default function BudgetDashboard({ agents }) {
                 <th className="text-left px-4 py-2 text-dark-400 font-medium">Agent</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Provider</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Model</th>
+                <th className="text-right px-4 py-2 text-dark-400 font-medium">Rate (in/out)</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Input Tokens</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Output Tokens</th>
                 <th className="text-right px-4 py-2 text-dark-400 font-medium">Total Cost</th>
@@ -180,22 +181,31 @@ export default function BudgetDashboard({ agents }) {
             </thead>
             <tbody>
               {byAgent.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-dark-500">No usage data yet</td></tr>
-              ) : byAgent.map((a, i) => (
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-dark-500">No usage data yet</td></tr>
+              ) : byAgent.map((a, i) => {
+                const agentObj = agents.find(ag => ag.id === a.agent_id);
+                const hasCustomRate = agentObj?.costPerInputToken != null && agentObj?.costPerOutputToken != null;
+                return (
                 <tr key={a.agent_id} className="border-t border-dark-800 hover:bg-dark-800/50">
                   <td className="px-4 py-2 text-dark-200 font-medium"><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: COLORS[i % COLORS.length] }} />{a.agent_name || 'Unknown'}</td>
                   <td className="text-right px-4 py-2 text-dark-400">{a.provider || '-'}</td>
                   <td className="text-right px-4 py-2 text-dark-400 font-mono text-xs">{a.model || '-'}</td>
+                  <td className="text-right px-4 py-2 text-dark-400 font-mono text-xs">
+                    {hasCustomRate
+                      ? <span className="text-indigo-400" title="Custom per-agent rate">${agentObj.costPerInputToken}/${agentObj.costPerOutputToken}</span>
+                      : <span className="text-dark-500" title="Using global provider default">default</span>}
+                  </td>
                   <td className="text-right px-4 py-2 text-dark-300">{(a.total_input || 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-dark-300">{(a.total_output || 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-green-400 font-medium">${(a.total_cost || 0).toFixed(4)}</td>
                   <td className="text-right px-4 py-2 text-dark-300">{a.call_count || 0}</td>
                   <td className="text-right px-4 py-2 text-dark-400">${a.call_count ? (a.total_cost / a.call_count).toFixed(6) : '0'}</td>
                 </tr>
-              ))}
+                );
+              })}
               {byAgent.length > 0 && (
                 <tr className="border-t-2 border-dark-600 bg-dark-800/30 font-medium">
-                  <td className="px-4 py-2 text-dark-200">Total</td><td /><td />
+                  <td className="px-4 py-2 text-dark-200">Total</td><td /><td /><td />
                   <td className="text-right px-4 py-2 text-dark-200">{byAgent.reduce((s,a) => s + (a.total_input||0), 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-dark-200">{byAgent.reduce((s,a) => s + (a.total_output||0), 0).toLocaleString()}</td>
                   <td className="text-right px-4 py-2 text-green-400">${byAgent.reduce((s,a) => s + (a.total_cost||0), 0).toFixed(4)}</td>

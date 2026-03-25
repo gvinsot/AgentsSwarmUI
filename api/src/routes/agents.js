@@ -28,6 +28,8 @@ const createAgentSchema = z.object({
   template: z.string().max(200).nullable().optional(),
   color: z.string().max(50).optional(),
   icon: z.string().max(50).optional(),
+  costPerInputToken: z.number().min(0).nullable().optional(),
+  costPerOutputToken: z.number().min(0).nullable().optional(),
   copyApiKeyFromAgent: z.string().uuid().optional(),
 });
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { getJiraSyncStatus, fullSync, getJiraColumns, handleWebhook, verifyWebhook } from '../services/jiraSync.js';
+import { getJiraSyncStatus, fullSync, getJiraColumns, handleWebhook, verifyWebhook, getJiraIssueDetails, addCommentToJira, analyzeAndCommentJira } from '../services/jiraSync.js';
 
 export function jiraRoutes(agentManager) {
   const router = express.Router();
@@ -23,6 +23,54 @@ export function jiraRoutes(agentManager) {
   router.post('/sync', async (req, res) => {
     try {
       await fullSync(agentManager);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /jira/issue/:jiraKey — fetch full issue details
+  router.get('/issue/:jiraKey', async (req, res) => {
+    try {
+      const details = await getJiraIssueDetails(req.params.jiraKey);
+      if (!details) return res.status(404).json({ error: 'Issue not found or Jira not configured' });
+      res.json(details);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /jira/comment/:jiraKey — post a comment to a Jira issue
+  router.post('/comment/:jiraKey', async (req, res) => {
+    const { comment } = req.body;
+    if (!comment) return res.status(400).json({ error: 'comment is required' });
+    try {
+      const success = await addCommentToJira(req.params.jiraKey, comment);
+      res.json({ success });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /jira/ai-comment/:jiraKey — trigger AI analysis and post as comment
+  router.post('/ai-comment/:jiraKey', async (req, res) => {
+    const { instructions, role } = req.body || {};
+    const jiraKey = req.params.jiraKey;
+
+    // Find the task linked to this Jira key
+    let todo = null;
+    let agentId = null;
+    for (const [id, agent] of agentManager.agents) {
+      const found = (agent.todoList || []).find(t => t.jiraKey === jiraKey);
+      if (found) {
+        todo = found;
+        agentId = id;
+        break;
+      }
+    }
+
+    try {
+      await analyzeAndCommentJira(jiraKey, todo || { text: jiraKey }, agentId, agentManager, instructions || '', role || '');
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
