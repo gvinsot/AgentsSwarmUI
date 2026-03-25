@@ -756,10 +756,10 @@ export class AgentManager {
 
       // Append todo list context
       if (agent.todoList.length > 0) {
-        systemContent += '\n\n--- Current Todo List ---\n';
+        systemContent += '\n\n--- Current Task List ---\n';
         for (const todo of agent.todoList) {
           const mark = todo.status === 'done' ? 'x' : todo.status === 'in_progress' ? '~' : todo.status === 'error' ? '!' : ' ';
-          systemContent += `- [${mark}] ${todo.text}\n`;
+          systemContent += `- [${mark}] (${todo.id.slice(0, 8)}) ${todo.text}\n`;
         }
       }
       
@@ -3768,8 +3768,15 @@ export class AgentManager {
           const matching = condTransitions.filter(t => t.from === todo.status);
           if (matching.length === 0) continue;
 
+          // Skip tasks where the assignee is already busy (execution in progress)
+          if (todo.assignee) {
+            const assigneeAgent = this.agents.get(todo.assignee);
+            if (assigneeAgent && assigneeAgent.status !== 'idle') continue;
+          }
+
           for (const transition of matching) {
-            const allMet = transition.conditions.every(cond =>
+            const conditions = transition.conditions || [];
+            const allMet = conditions.length === 0 || conditions.every(cond =>
               this._evaluateCondition(cond, { ...todo, agentId })
             );
             if (!allMet) continue;
