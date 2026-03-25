@@ -2884,8 +2884,10 @@ export class AgentManager {
     getWorkflow('_default').then(async (workflow) => {
       // ── Auto-assign by column role (independent of transitions) ──
       const currentColumn = workflow.columns?.find(c => c.id === todo.status);
-      if (currentColumn?.autoAssignRole) {
-        // Find all matching agents, then pick the one with the fewest tasks in this column
+      const colIndex = workflow.columns?.findIndex(c => c.id === todo.status) ?? -1;
+      const isFirstOrLast = colIndex === 0 || colIndex === (workflow.columns?.length || 0) - 1;
+      if (currentColumn?.autoAssignRole && !isFirstOrLast) {
+        // Find all matching agents, then pick the one with the fewest tasks across the entire board
         const candidates = Array.from(this.agents.values()).filter(a =>
           a.enabled !== false &&
           a.role === currentColumn.autoAssignRole
@@ -2893,11 +2895,11 @@ export class AgentManager {
         let autoAgent = null;
         let minTasks = Infinity;
         for (const candidate of candidates) {
-          // Count tasks assigned to this agent in the current column (across all agents' todoLists)
           let count = 0;
           for (const [, owner] of this.agents) {
             for (const t of owner.todoList || []) {
-              if (t.status === todo.status && (t.assignee === candidate.id || (!t.assignee && owner.id === candidate.id))) {
+              if (t.id === todo.id) continue; // don't count the task being assigned
+              if (t.assignee === candidate.id || (!t.assignee && owner.id === candidate.id)) {
                 count++;
               }
             }
@@ -2957,7 +2959,8 @@ export class AgentManager {
               let count = 0;
               for (const [, owner] of this.agents) {
                 for (const t of owner.todoList || []) {
-                  if (t.status === todo.status && (t.assignee === c.id || (!t.assignee && owner.id === c.id))) count++;
+                  if (t.id === todo.id) continue;
+                  if (t.assignee === c.id || (!t.assignee && owner.id === c.id)) count++;
                 }
               }
               if (count < minTasks) { minTasks = count; agent = c; }
@@ -2971,7 +2974,7 @@ export class AgentManager {
                 saveAgent(ownerAgent);
               }
               this.io?.to(`agent:${todo.agentId}`)?.emit('todo:updated', { agentId: todo.agentId, todo });
-              console.log(`[Workflow] Action: assigned "${(todo.text || '').slice(0, 60)}" to "${agent.name}" (${minTasks} tasks in column, role: ${action.role})`);
+              console.log(`[Workflow] Action: assigned "${(todo.text || '').slice(0, 60)}" to "${agent.name}" (${minTasks} total tasks, role: ${action.role})`);
             } else {
               console.log(`[Workflow] Action: no idle agent with role "${action.role}" — skipping assign`);
             }
@@ -3782,7 +3785,8 @@ export class AgentManager {
                   let count = 0;
                   for (const [, ow] of this.agents) {
                     for (const t of ow.todoList || []) {
-                      if (t.status === todo.status && (t.assignee === c.id || (!t.assignee && ow.id === c.id))) count++;
+                      if (t.id === todo.id) continue;
+                      if (t.assignee === c.id || (!t.assignee && ow.id === c.id)) count++;
                     }
                   }
                   if (count < minTasks) { minTasks = count; foundAgent = c; }
