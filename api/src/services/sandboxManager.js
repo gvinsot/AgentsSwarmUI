@@ -304,6 +304,18 @@ export class SandboxManager {
     await this._execAsRoot(
       `mkdir -p ${sshDir} && cp /root/.ssh/* ${sshDir}/ 2>/dev/null; chown -R ${userEsc}:${userEsc} ${sshDir} && chmod 700 ${sshDir} && chmod 600 ${sshDir}/* 2>/dev/null; true`
     );
+
+    // Ensure GitHub host key is in known_hosts (volume mount may shadow the Dockerfile version)
+    const knownHosts = `${home}/.ssh/known_hosts`;
+    await this._execAsRoot(
+      `grep -q 'github.com' ${this._sh(knownHosts)} 2>/dev/null || ssh-keyscan -t ed25519,rsa github.com >> ${this._sh(knownHosts)} 2>/dev/null; chown ${userEsc}:${userEsc} ${this._sh(knownHosts)}; true`
+    );
+
+    // Disable strict host key checking for agent users to prevent interactive prompts
+    const sshConfig = `${home}/.ssh/config`;
+    await this._execAsRoot(
+      `if [ ! -f ${this._sh(sshConfig)} ] || ! grep -q StrictHostKeyChecking ${this._sh(sshConfig)} 2>/dev/null; then echo -e "Host github.com\\n  StrictHostKeyChecking accept-new\\n  UserKnownHostsFile ${knownHosts}" >> ${this._sh(sshConfig)} && chown ${userEsc}:${userEsc} ${this._sh(sshConfig)} && chmod 600 ${this._sh(sshConfig)}; fi`
+    );
   }
 
   async _ensureAgentWorkspace(username) {
@@ -320,18 +332,24 @@ export class SandboxManager {
     await this._execAsRoot(`rm -rf ${this._sh(target)}`);
     await this._execAsRoot(`mkdir -p ${this._sh(workspace)} && chown -R ${userEsc}:${userEsc} ${this._sh(workspace)}`);
 
+    // Ensure GitHub host key exists for root before cloning.
+    // /root/.ssh may be read-only (volume mount), so fall back to system-wide known_hosts.
+    await this._execAsRoot(
+      `grep -q 'github.com' /root/.ssh/known_hosts 2>/dev/null || grep -q 'github.com' /etc/ssh/ssh_known_hosts 2>/dev/null || ssh-keyscan -t ed25519,rsa github.com >> /etc/ssh/ssh_known_hosts 2>/dev/null; true`
+    );
+
     // Clone as root (guaranteed SSH key access), then chown to agent user
     await this._execAsRoot(
-      `git clone ${this._sh(gitUrl)} ${this._sh(target)}`,
+      `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/etc/ssh/ssh_known_hosts" git clone ${this._sh(gitUrl)} ${this._sh(target)}`,
       { timeout: 120000 }
     );
     await this._execAsRoot(`chown -R ${userEsc}:${userEsc} ${this._sh(target)}`);
 
     // Git config per-repo (not --global) so each agent can have distinct identity
-    const gitName = process.env.GIT_USER_NAME;
-    const gitEmail = process.env.GIT_USER_EMAIL;
-    if (gitName) await this._execAsAgentUser(username, `git config user.name ${this._sh(gitName)}`, { cwd: target });
-    if (gitEmail) await this._execAsAgentUser(username, `git config user.email ${this._sh(gitEmail)}`, { cwd: target });
+    const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
+    const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
+    await this._execAsAgentUser(username, `git config user.name ${this._sh(gitName)}`, { cwd: target });
+    await this._execAsAgentUser(username, `git config user.email ${this._sh(gitEmail)}`, { cwd: target });
   }
 
   /**

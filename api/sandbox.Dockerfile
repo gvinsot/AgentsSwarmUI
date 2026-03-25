@@ -59,9 +59,11 @@ RUN RTK_ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/aarch64/aarch64/') && 
     chmod +x /usr/local/bin/rtk && \
     rtk --version
 
-# GitHub SSH host keys
-RUN mkdir -p /root/.ssh && \
-    ssh-keyscan github.com >> /root/.ssh/known_hosts
+# GitHub SSH host keys — stored in /etc/ssh/ssh_known_hosts (system-wide)
+# so they survive the /root/.ssh volume mount that shadows build-time files
+RUN mkdir -p /root/.ssh /etc/ssh && \
+    ssh-keyscan -t ed25519,rsa github.com >> /etc/ssh/ssh_known_hosts 2>/dev/null && \
+    ssh-keyscan -t ed25519,rsa github.com >> /root/.ssh/known_hosts 2>/dev/null
 
 WORKDIR /workspace
 

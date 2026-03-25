@@ -377,12 +377,49 @@ function sanitizeCommitMessage(msg) {
 async function toolGitCommitPush(sandboxMgr, agentId, message) {
   const safeMsg = sanitizeCommitMessage(message);
   try {
-    const { stdout, stderr } = await sandboxMgr.exec(
+    // Step 1: Stage all changes
+    await sandboxMgr.exec(agentId, `git add -A`, { timeout: 15000 });
+
+    // Step 2: Check if there are staged changes to commit
+    let hasStagedChanges = false;
+    try {
+      await sandboxMgr.exec(agentId, `git diff --cached --quiet`, { timeout: 10000 });
+      // Exit code 0 = no staged changes
+      hasStagedChanges = false;
+    } catch {
+      // Exit code 1 = there ARE staged changes (this is the normal case)
+      hasStagedChanges = true;
+    }
+
+    if (!hasStagedChanges) {
+      return { success: true, result: 'Nothing to commit — working tree clean.' };
+    }
+
+    // Step 3: Ensure git config is set (may be lost after container restart)
+    const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
+    const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
+    await sandboxMgr.exec(
       agentId,
-      `git add -A && git commit -m '${safeMsg}' && git push`,
+      `git config user.name >/dev/null 2>&1 || git config user.name '${gitName.replace(/'/g, "'\\''")}'; git config user.email >/dev/null 2>&1 || git config user.email '${gitEmail.replace(/'/g, "'\\''")}'`,
+      { timeout: 10000 }
+    );
+
+    // Step 4: Commit
+    const { stdout: commitOut, stderr: commitErr } = await sandboxMgr.exec(
+      agentId,
+      `git commit -m '${safeMsg}'`,
+      { timeout: 30000 }
+    );
+
+    // Step 5: Push (with SSH options to prevent host key verification hangs)
+    const { stdout: pushOut, stderr: pushErr } = await sandboxMgr.exec(
+      agentId,
+      `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" git push`,
       { timeout: 60000 }
     );
-    return { success: true, result: (stdout + '\n' + stderr).trim().slice(0, 10000) };
+
+    const output = [commitOut, commitErr, pushOut, pushErr].filter(Boolean).join('\n').trim();
+    return { success: true, result: output.slice(0, 10000) };
   } catch (err) {
     return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 5000) };
   }
