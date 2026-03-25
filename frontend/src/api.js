@@ -414,6 +414,13 @@ export const api = {
       body: JSON.stringify(workflow)
     }).then(handleResponse),
 
+  // Project task stats
+  getProjectTaskStats: (project) =>
+    fetch(`${API_BASE}/agents/tasks/stats?project=${encodeURIComponent(project)}`, { headers: getHeaders() }).then(handleResponse),
+
+  getProjectTimeSeries: (project, days = 30) =>
+    fetch(`${API_BASE}/agents/tasks/stats/timeseries?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
+
   // Jira
   getJiraStatus: () =>
     fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),

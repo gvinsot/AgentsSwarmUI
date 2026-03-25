@@ -232,7 +232,7 @@ export default function Dashboard({
             </div>
           )}
           {activeView === 'projects' && (
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col overflow-auto p-4 sm:p-6">
               <ProjectsView
                 agents={sortedAgents}
                 projectContexts={projectContexts || []}

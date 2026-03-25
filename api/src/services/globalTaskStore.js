@@ -190,6 +190,89 @@ class GlobalTaskStore {
       avgStateDurations,
     };
   }
+
+  getTimeSeries(projectFilter = null, days = 30) {
+    let tasks = Array.from(this.tasks.values());
+    if (projectFilter) {
+      tasks = tasks.filter(t => t.project === projectFilter);
+    }
+
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const toDay = (iso) => iso ? new Date(iso).toISOString().slice(0, 10) : null;
+
+    // Build day-by-day maps
+    const createdByDay = {};
+    const resolvedByDay = {};
+    const resolutionTimesByDay = {};
+
+    for (const t of tasks) {
+      // Count created per day
+      const createdDay = toDay(t.createdAt);
+      if (createdDay && new Date(t.createdAt) >= cutoff) {
+        createdByDay[createdDay] = (createdByDay[createdDay] || 0) + 1;
+      }
+
+      // Count resolved per day + track resolution times
+      if (t.history?.length) {
+        for (const h of t.history) {
+          if (h.to === 'done' && h.at && new Date(h.at) >= cutoff) {
+            const resolvedDay = toDay(h.at);
+            resolvedByDay[resolvedDay] = (resolvedByDay[resolvedDay] || 0) + 1;
+
+            // Resolution time for this task
+            const created = new Date(t.createdAt).getTime();
+            const resolved = new Date(h.at).getTime();
+            const resMs = resolved - created;
+            if (resMs > 0) {
+              if (!resolutionTimesByDay[resolvedDay]) resolutionTimesByDay[resolvedDay] = [];
+              resolutionTimesByDay[resolvedDay].push(resMs);
+            }
+            break; // only count first done transition per task in this window
+          }
+        }
+      }
+    }
+
+    // Generate all days in range
+    const allDays = [];
+    for (let d = new Date(cutoff); d <= now; d.setDate(d.getDate() + 1)) {
+      allDays.push(d.toISOString().slice(0, 10));
+    }
+
+    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+    const createdVsResolved = allDays.map(day => ({
+      date: day,
+      created: createdByDay[day] || 0,
+      resolved: resolvedByDay[day] || 0,
+    }));
+
+    const resolutionTimeEvolution = allDays
+      .filter(day => resolutionTimesByDay[day]?.length > 0)
+      .map(day => ({
+        date: day,
+        avgMs: Math.round(avg(resolutionTimesByDay[day])),
+        count: resolutionTimesByDay[day].length,
+      }));
+
+    // Cumulative open count (created - resolved running total)
+    let cumOpen = 0;
+    // Count tasks created before the window that are still not done
+    for (const t of tasks) {
+      if (new Date(t.createdAt) < cutoff && t.status !== 'done') cumOpen++;
+      if (new Date(t.createdAt) < cutoff && t.status === 'done') {
+        const doneEntry = t.history?.find(h => h.to === 'done');
+        if (doneEntry && new Date(doneEntry.at) >= cutoff) cumOpen++; // was open at cutoff
+      }
+    }
+    const openOverTime = createdVsResolved.map(d => {
+      cumOpen += d.created - d.resolved;
+      return { date: d.date, open: Math.max(0, cumOpen) };
+    });
+
+    return { createdVsResolved, resolutionTimeEvolution, openOverTime };
+  }
 }
 
 export const globalTaskStore = new GlobalTaskStore();

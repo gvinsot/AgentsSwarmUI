@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { FolderGit2, Users, ListTodo, Clock, ArrowRight, Search, ChevronDown, Activity, BarChart3, Bug, Sparkles } from 'lucide-react';
+import ProjectStats from './ProjectStats';
 
 function formatDuration(ms) {
   if (!ms || ms <= 0) return '—';
@@ -102,59 +103,12 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
       </div>
 
       {/* Stats Panel */}
-      {selectedProject && (() => {
-        const pt = tasks.filter(t => t.project === selectedProject);
-        const total = pt.length;
-        if (!total) return null;
-        const done = pt.filter(t => t.status === 'done').length;
-        const inProgress = pt.filter(t => t.status === 'in_progress').length;
-        const pending = pt.filter(t => t.status === 'pending').length;
-        const backlog = pt.filter(t => t.status === 'backlog').length;
-        return (
-          <div className="bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <BarChart3 size={16} className="text-purple-400" />
-                Statistics: {selectedProject}
-              </h3>
-              <button onClick={() => setSelectedProject(null)} className="text-xs text-dark-400 hover:text-white">Close</button>
-            </div>
-            <div className="grid grid-cols-4 gap-3">
-              <div className="bg-dark-700/50 rounded-lg p-3">
-                <div className="text-xs text-dark-400 mb-1">Total</div>
-                <div className="text-sm text-white font-medium">{total}</div>
-              </div>
-              <div className="bg-dark-700/50 rounded-lg p-3">
-                <div className="text-xs text-dark-400 mb-1">Done</div>
-                <div className="text-sm text-emerald-400 font-medium">{done}</div>
-              </div>
-              <div className="bg-dark-700/50 rounded-lg p-3">
-                <div className="text-xs text-dark-400 mb-1">In Progress</div>
-                <div className="text-sm text-amber-400 font-medium">{inProgress}</div>
-              </div>
-              <div className="bg-dark-700/50 rounded-lg p-3">
-                <div className="text-xs text-dark-400 mb-1">Pending</div>
-                <div className="text-sm text-blue-400 font-medium">{pending + backlog}</div>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-dark-400 mb-2">Status Distribution</div>
-              <div className="flex h-4 rounded-full overflow-hidden bg-dark-700">
-                {done > 0 && <div className="bg-green-500" style={{ width: `${(done / total) * 100}%` }} title={`Done: ${done}`} />}
-                {inProgress > 0 && <div className="bg-yellow-500" style={{ width: `${(inProgress / total) * 100}%` }} title={`In Progress: ${inProgress}`} />}
-                {pending > 0 && <div className="bg-blue-500" style={{ width: `${(pending / total) * 100}%` }} title={`Pending: ${pending}`} />}
-                {backlog > 0 && <div className="bg-gray-500" style={{ width: `${(backlog / total) * 100}%` }} title={`Backlog: ${backlog}`} />}
-              </div>
-              <div className="flex gap-3 mt-1 text-xs text-dark-400">
-                {done > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Done: {done}</span>}
-                {inProgress > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Active: {inProgress}</span>}
-                {pending > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Pending: {pending}</span>}
-                {backlog > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />Backlog: {backlog}</span>}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {selectedProject && (
+        <ProjectStats
+          projectName={selectedProject}
+          onClose={() => setSelectedProject(null)}
+        />
+      )}
 
       {/* Project Cards */}
       {projects.length === 0 && (
@@ -169,17 +123,17 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
         {projects.map(p => (
           <div
             key={p.name}
-            className="bg-dark-800 border border-dark-700 rounded-xl p-4 hover:border-purple-500/50 transition-colors cursor-pointer"
+            className={`bg-dark-800 border rounded-xl p-4 hover:border-purple-500/50 transition-colors cursor-pointer ${selectedProject === p.name ? 'border-purple-500/50' : 'border-dark-700'}`}
+            onClick={() => setSelectedProject(selectedProject === p.name ? null : p.name)}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-white truncate" onClick={() => onSelectProject?.(p.name)}>{p.name}</h3>
-              <button
-                onClick={(e) => { e.stopPropagation(); setSelectedProject(selectedProject === p.name ? null : p.name); }}
+              <h3 className="text-sm font-semibold text-white truncate">{p.name}</h3>
+              <div
                 className={`p-1 rounded hover:bg-dark-600 ${selectedProject === p.name ? 'text-purple-400' : 'text-dark-400'}`}
                 title="View statistics"
               >
                 <BarChart3 size={14} />
-              </button>
+              </div>
             </div>
 
             {/* Progress bar */}
