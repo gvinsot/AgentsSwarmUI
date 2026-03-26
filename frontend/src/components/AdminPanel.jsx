@@ -153,7 +153,7 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
               <Crown className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-dark-100">Control Panel</h2>
+              <h2 className="text-lg font-bold text-dark-100">Admin Settings</h2>
               <p className="text-xs text-dark-400">Administration & Configuration</p>
             </div>
           </div>

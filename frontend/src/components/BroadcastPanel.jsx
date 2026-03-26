@@ -323,7 +323,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-dark-700 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-amber-400" />
-            <h3 className="font-semibold text-dark-100 text-sm">Control Panel</h3>
+            <h3 className="font-semibold text-dark-100 text-sm">Admin Settings</h3>
             <span className="text-xs text-dark-400">({agents.length} agents)</span>
           </div>
           <button onClick={onClose} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
-  Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu, DollarSign, Eye
+  Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu, DollarSign, Eye, ChevronDown
 } from 'lucide-react';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
@@ -37,7 +37,9 @@ export default function Dashboard({
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const mobileMenuRef = useRef(null);
+  const userMenuRef = useRef(null);
   const isAdmin = user?.role === 'admin';
   const isBasic = user?.role === 'basic';
 
@@ -60,6 +62,17 @@ export default function Dashboard({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen]);
 
   const handleNavigateToVoiceAgent = useCallback((agentId) => {
     setSelectedAgent(agentId);
@@ -113,16 +126,6 @@ export default function Dashboard({
       <header className="glass border-b border-dark-700 sticky top-0 z-50">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Admin button */}
-            {isAdmin && (
-              <button
-                onClick={() => setShowAdminPanel(true)}
-                className="w-9 h-9 rounded-lg bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-lg shadow-red-500/20 hover:shadow-red-500/40 transition-shadow"
-                title="Admin Control Panel"
-              >
-                <Crown className="w-5 h-5 text-white" />
-              </button>
-            )}
             <div className="relative sm:static" ref={mobileMenuRef}>
               <button
                 onClick={() => setMobileMenuOpen(prev => !prev)}
@@ -222,17 +225,36 @@ export default function Dashboard({
             >
               <Key className="w-4 h-4" />
             </button>
-            <div className="ml-2 pl-2 border-l border-dark-700 flex items-center gap-2">
-              <span className="text-sm text-dark-400 hidden sm:inline">{user.displayName || user.username}</span>
-              {isAdmin && <Crown className="w-3.5 h-3.5 text-red-400" title="Admin" />}
-              {user?.role === 'advanced' && <UserCheck className="w-3.5 h-3.5 text-amber-400" title="Advanced" />}
+            <div className="ml-2 pl-2 border-l border-dark-700 relative" ref={userMenuRef}>
               <button
-                onClick={onLogout}
-                className="p-2 text-dark-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition-colors"
-                title="Logout"
+                onClick={() => setUserMenuOpen(prev => !prev)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-dark-700 transition-colors"
               >
-                <LogOut className="w-4 h-4" />
+                <span className="text-sm text-dark-300 hidden sm:inline">{user.displayName || user.username}</span>
+                {isAdmin && <Crown className="w-3.5 h-3.5 text-red-400" />}
+                {user?.role === 'advanced' && <UserCheck className="w-3.5 h-3.5 text-amber-400" />}
+                <ChevronDown className={`w-3.5 h-3.5 text-dark-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
               </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-dark-800 border border-dark-700 rounded-lg shadow-xl z-50 py-1">
+                  {isAdmin && (
+                    <button
+                      onClick={() => { setShowAdminPanel(true); setUserMenuOpen(false); }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-dark-300 hover:bg-dark-700 hover:text-dark-100 transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Admin Settings
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { onLogout(); setUserMenuOpen(false); }}
+                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-dark-300 hover:bg-dark-700 hover:text-red-400 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
