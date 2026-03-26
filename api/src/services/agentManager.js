@@ -3149,7 +3149,7 @@ export class AgentManager {
   // Terminology:
   //   - agentId (creator): the agent whose todoList stores this task (Task Creator)
   //   - assignee: the agent that actually executes this task (Task Assignee)
-  addTask(agentId, text, project, source, initialStatus, { boardId } = {}) {
+  addTask(agentId, text, project, source, initialStatus, { boardId, skipAutoRefine = false } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const defaultStatus = source?.type === 'api' ? 'backlog' : 'pending';
@@ -3168,7 +3168,7 @@ export class AgentManager {
     agent.todoList.push(newTask);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
-    this._checkAutoRefine({ ...newTask, agentId });
+    if (!skipAutoRefine) this._checkAutoRefine({ ...newTask, agentId });
     return newTask;
   }
 

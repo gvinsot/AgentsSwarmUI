@@ -221,7 +221,8 @@ export async function pollJira(agentManager) {
         `[${issue.key}] ${summary}`,
         null,
         { type: 'jira', name: 'Jira', key: issue.key },
-        targetColumn
+        targetColumn,
+        { skipAutoRefine: true }
       );
 
       if (task) {
@@ -680,7 +681,8 @@ export async function handleWebhook(payload, agentManager) {
         `[${issue.key}] ${summary}`,
         null,
         { type: 'jira', name: 'Jira', key: issue.key },
-        trigger.from
+        trigger.from,
+        { skipAutoRefine: true }
       );
       if (task) {
         const actualTask = creatorAgent.todoList.find(t => t.id === task.id);
