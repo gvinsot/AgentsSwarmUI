@@ -1291,9 +1291,9 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
   const allTasks = (() => {
     const seen = new Set();
     const merged = [];
-    // 1. Tasks from THIS agent's todoList where this agent is the assignee (or no assignee set)
+    // 1. Tasks from THIS agent's todoList where this agent is the assignee
     for (const it of (agent.todoList || [])) {
-      if (!seen.has(it.id) && (!it.assignee || it.assignee === agent.id)) {
+      if (!seen.has(it.id) && it.assignee === agent.id) {
         seen.add(it.id);
         merged.push({ ...it, _source: 'internal' });
       }

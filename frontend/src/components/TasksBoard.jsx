@@ -1753,13 +1753,15 @@ export default function TasksBoard({ agents, onRefresh, user }) {
   const statusOptions = useMemo(() => workflow ? buildStatusOptions(workflow.columns) : [], [workflow]);
 
   // Aggregate all tasks from all agents, filtered by active board
+  const firstBoardId = boards.length > 0 ? boards[0].id : null;
   const allTasks = useMemo(() =>
     agents.flatMap(a =>
       (a.todoList || [])
         .filter(t => {
-          // Show task if it belongs to this board, or has no board assigned (legacy tasks)
           if (!activeBoardId) return true;
-          return !t.boardId || t.boardId === activeBoardId;
+          // Tasks without a boardId belong to the first board only
+          if (!t.boardId) return activeBoardId === firstBoardId;
+          return t.boardId === activeBoardId;
         })
         .map(t => {
           const assigneeAgent = t.assignee ? agents.find(ag => ag.id === t.assignee) : null;
@@ -1772,7 +1774,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
           };
         })
     ),
-    [agents, activeBoardId]
+    [agents, activeBoardId, firstBoardId]
   );
 
   // Keep modal task in sync with live data
