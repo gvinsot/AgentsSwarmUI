@@ -1203,21 +1203,26 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
 
   // Fetch board tasks where this agent is assignee
   useEffect(() => {
+    setBoardTasks([]); // Reset immediately on agent change
     let cancelled = false;
     const load = async () => {
       try {
         const data = await api.getTasksByAssignee(agent.id);
         if (!cancelled) setBoardTasks(data || []);
-      } catch { if (!cancelled) setBoardTasks([]); }
+      } catch (err) {
+        console.error('[TaskTab] Failed to load board tasks:', err);
+        if (!cancelled) setBoardTasks([]);
+      }
     };
     load();
     return () => { cancelled = true; };
   }, [agent.id, agent.todoList]);
 
-  // Merge board tasks (primary) + internal tasks, deduplicate by ID
+  // Merge board tasks + internal tasks where this agent is assignee, deduplicate by ID
   const allTasks = (() => {
     const seen = new Set();
     const merged = [];
+    // 1. Board tasks (already filtered by assignee on the backend)
     for (const bt of boardTasks) {
       if (!seen.has(bt.id)) {
         seen.add(bt.id);
@@ -1229,10 +1234,21 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
         });
       }
     }
+    // 2. Tasks from THIS agent's todoList where this agent is the assignee (or no assignee set)
     for (const it of (agent.todoList || [])) {
-      if (!seen.has(it.id)) {
+      if (!seen.has(it.id) && (!it.assignee || it.assignee === agent.id)) {
         seen.add(it.id);
         merged.push({ ...it, _source: 'internal' });
+      }
+    }
+    // 3. Tasks from OTHER agents' todoLists that are assigned to THIS agent
+    for (const other of (agents || [])) {
+      if (other.id === agent.id) continue;
+      for (const it of (other.todoList || [])) {
+        if (!seen.has(it.id) && it.assignee === agent.id) {
+          seen.add(it.id);
+          merged.push({ ...it, _source: 'internal', _creatorId: other.id, _creatorName: other.name });
+        }
       }
     }
     return merged;
@@ -1265,7 +1281,8 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
       } catch { /* ignore */ }
       return;
     }
-    await api.toggleTask(agent.id, taskId);
+    const ownerId = task?._creatorId || agent.id;
+    await api.toggleTask(ownerId, taskId);
     onRefresh();
   };
 
@@ -1284,7 +1301,8 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
       } catch { /* ignore */ }
       return;
     }
-    await api.deleteTask(agent.id, taskId);
+    const ownerId = task?._creatorId || agent.id;
+    await api.deleteTask(ownerId, taskId);
     onRefresh();
   };
 
@@ -1304,7 +1322,8 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
       } catch { /* ignore */ }
       return;
     }
-    await api.transferTask(agent.id, taskId, targetAgentId);
+    const ownerId = task?._creatorId || agent.id;
+    await api.transferTask(ownerId, taskId, targetAgentId);
     onRefresh();
   };
 
@@ -1323,7 +1342,9 @@ function TaskTab({ agent, agents, socket, onRefresh }) {
   const handleExecute = (taskId) => {
     if (!socket || executing) return;
     setExecuting(taskId);
-    socket.emit('agent:task:execute', { agentId: agent.id, taskId });
+    const task = allTasks.find(t => t.id === taskId);
+    const ownerId = task?._creatorId || agent.id;
+    socket.emit('agent:task:execute', { agentId: ownerId, taskId });
   };
 
   const handleExecuteAll = () => {
