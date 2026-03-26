@@ -632,7 +632,7 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
               LLM Configurations ({llmConfigs.length})
             </h3>
             <button
-              onClick={() => setLlmForm({ name: '', provider: 'anthropic', model: '', endpoint: '', apiKey: '', isReasoning: false, contextSize: null, maxOutputTokens: null, costPerInputToken: null, costPerOutputToken: null })}
+              onClick={() => setLlmForm({ name: '', provider: 'anthropic', model: '', endpoint: '', apiKey: '', isReasoning: false, temperature: null, contextSize: null, maxOutputTokens: null, costPerInputToken: null, costPerOutputToken: null })}
               className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -706,6 +706,25 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      type="checkbox" checked={llmForm.temperature != null}
+                      onChange={e => setLlmForm(f => ({ ...f, temperature: e.target.checked ? 0.7 : null }))}
+                      className="rounded border-dark-600 bg-dark-900 text-indigo-500 focus:ring-indigo-500"
+                    />
+                    <label className="text-xs text-dark-400">
+                      Temperature{llmForm.temperature != null ? `: ${llmForm.temperature}` : ' (disabled — model default)'}
+                    </label>
+                  </div>
+                  {llmForm.temperature != null && (
+                    <input type="range" min="0" max="1" step="0.1" value={llmForm.temperature}
+                      onChange={e => setLlmForm(f => ({ ...f, temperature: parseFloat(e.target.value) }))}
+                      className="w-full accent-indigo-500" />
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                   <label className="block text-xs text-dark-400 mb-1">Cost / 1M input tokens ($)</label>
                   <input type="number" step="0.01" min="0" value={llmForm.costPerInputToken ?? ''} onChange={e => setLlmForm(f => ({ ...f, costPerInputToken: e.target.value ? Number(e.target.value) : null }))}
                     className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
@@ -757,6 +776,7 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                       {config.endpoint && <span className="text-xs text-dark-600 truncate max-w-[200px]">{config.endpoint}</span>}
                       {config.contextSize && <span className="text-xs text-dark-500">{(config.contextSize / 1000).toFixed(0)}k ctx</span>}
                       {config.maxOutputTokens && <span className="text-xs text-dark-500">{(config.maxOutputTokens / 1000).toFixed(0)}k out</span>}
+                      {config.temperature != null && <span className="text-xs text-dark-500">temp {config.temperature}</span>}
                       {config.costPerInputToken != null && (
                         <span className="text-xs text-dark-500">${config.costPerInputToken}/{config.costPerOutputToken} per 1M</span>
                       )}

@@ -140,6 +140,9 @@ export class AgentManager {
           endpoint: config.endpoint || agent.endpoint || '',
           apiKey: config.apiKey || agent.apiKey || '',
           isReasoning: config.isReasoning || false,
+          temperature: config.temperature ?? null,
+          maxTokens: config.maxOutputTokens || agent.maxTokens || 4096,
+          contextLength: config.contextSize || agent.contextLength || 0,
           costPerInputToken: config.costPerInputToken ?? agent.costPerInputToken ?? null,
           costPerOutputToken: config.costPerOutputToken ?? agent.costPerOutputToken ?? null,
           configName: config.name,
@@ -154,6 +157,9 @@ export class AgentManager {
       endpoint: agent.endpoint || '',
       apiKey: agent.apiKey || '',
       isReasoning: agent.isReasoning || false,
+      temperature: agent.temperature ?? null,
+      maxTokens: agent.maxTokens || 4096,
+      contextLength: agent.contextLength || 0,
       costPerInputToken: agent.costPerInputToken ?? null,
       costPerOutputToken: agent.costPerOutputToken ?? null,
       configName: null,
@@ -991,15 +997,15 @@ export class AgentManager {
       const isLeaderStreaming = agent.isLeader && delegationDepth < MAX_DELEGATION_DEPTH;
 
       // Stream response (check for abort on each chunk)
-      const safeMaxTokens = this._safeMaxTokens(messages, agent);
+      const safeMaxTokens = this._safeMaxTokens(messages, agent, llmConfig);
 
       // Final safety net: truncate individual large messages if total still exceeds context
-      this._truncateMessagesToFit(messages, agent.contextLength || 131072, safeMaxTokens);
+      this._truncateMessagesToFit(messages, llmConfig.contextLength || 131072, safeMaxTokens);
 
       for await (const chunk of provider.chatStream(messages, {
-        temperature: agent.temperature,
+        temperature: llmConfig.temperature,
         maxTokens: safeMaxTokens,
-        contextLength: agent.contextLength || 0,
+        contextLength: llmConfig.contextLength || 0,
         isReasoning: llmConfig.isReasoning || agent.isReasoning || false,
         signal: abortController.signal
       })) {
@@ -1162,12 +1168,12 @@ export class AgentManager {
         messages.push({ role: 'user', content: 'Your previous response was cut off because it exceeded the maximum output length. Continue EXACTLY from where you stopped. Do not repeat anything you already wrote — just output the remaining content.' });
 
         finishReason = null;
-        const contMaxTokens = this._safeMaxTokens(messages, agent);
-        this._truncateMessagesToFit(messages, agent.contextLength || 131072, contMaxTokens);
+        const contMaxTokens = this._safeMaxTokens(messages, agent, llmConfig);
+        this._truncateMessagesToFit(messages, llmConfig.contextLength || 131072, contMaxTokens);
         for await (const chunk of provider.chatStream(messages, {
-          temperature: agent.temperature,
+          temperature: llmConfig.temperature,
           maxTokens: contMaxTokens,
-          contextLength: agent.contextLength || 0,
+          contextLength: llmConfig.contextLength || 0,
           isReasoning: llmConfig.isReasoning || agent.isReasoning || false,
           signal: abortController.signal
         })) {
@@ -3616,9 +3622,9 @@ export class AgentManager {
    * This method estimates input size and caps max_tokens so the total stays within
    * the context window, with a 5% safety margin for estimation errors.
    */
-  _safeMaxTokens(messages, agent) {
-    const contextLength = agent.contextLength || 131072;
-    const desiredMaxTokens = agent.maxTokens || 4096;
+  _safeMaxTokens(messages, agent, llmConfig = null) {
+    const contextLength = (llmConfig?.contextLength) || agent.contextLength || 131072;
+    const desiredMaxTokens = (llmConfig?.maxTokens) || agent.maxTokens || 4096;
     const estimatedInput = this._estimateTokens(messages);
     // Leave 15% headroom for token estimation inaccuracy
     const safetyMargin = Math.ceil(contextLength * 0.15);

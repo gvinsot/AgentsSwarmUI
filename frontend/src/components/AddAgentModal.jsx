@@ -13,10 +13,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     description: '',
     instructions: 'You are a helpful AI assistant.',
     llmConfigId: '',
-    temperature: 0.7,
-    temperatureEnabled: true,
-    maxTokens: 128000,
-    contextLength: 0,
     icon: '🤖',
     color: '#6366f1',
     project: '',
@@ -43,9 +39,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
       role: template.role,
       description: template.description,
       instructions: template.instructions,
-      temperature: template.temperature,
-      temperatureEnabled: template.temperature != null,
-      maxTokens: template.maxTokens,
       icon: template.icon,
       color: template.color,
       isLeader: template.isLeader || template.isVoice || false,
@@ -60,8 +53,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     if (!form.name.trim()) return;
     setCreating(true);
     try {
-      const { temperatureEnabled, ...payload } = form;
-      payload.temperature = temperatureEnabled ? payload.temperature : null;
+      const payload = { ...form };
       payload.llmConfigId = payload.llmConfigId || null;
       const agent = await api.createAgent({
         ...payload,
@@ -344,50 +336,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                     ) : null;
                   })()}
                   <p className="text-[11px] text-dark-500 mt-1">LLM configurations are managed in Admin Settings</p>
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <input
-                      type="checkbox" checked={form.temperatureEnabled}
-                      onChange={(e) => {
-                        updateField('temperatureEnabled', e.target.checked);
-                        if (e.target.checked && form.temperature == null) updateField('temperature', 0.7);
-                      }}
-                      className="accent-indigo-500"
-                    />
-                    <label className="text-xs text-dark-400">
-                      Temperature{form.temperatureEnabled ? `: ${form.temperature}` : ' (disabled — using model default)'}
-                    </label>
-                  </div>
-                  {form.temperatureEnabled && (
-                    <input
-                      type="range" min="0" max="1" step="0.1" value={form.temperature ?? 0.7}
-                      onChange={(e) => updateField('temperature', parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500"
-                    />
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
-                  <input
-                    type="number" value={form.maxTokens}
-                    onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 128000)}
-                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1.5">
-                    Context Length <span className="text-dark-500">0 = default</span>
-                  </label>
-                  <input
-                    type="number" value={form.contextLength}
-                    onChange={(e) => updateField('contextLength', parseInt(e.target.value) || 0)}
-                    placeholder="128000"
-                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                  />
                 </div>
 
                 <div>

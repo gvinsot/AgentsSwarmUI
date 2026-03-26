@@ -2137,10 +2137,6 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
     role: agent.role,
     description: agent.description,
     instructions: agent.instructions,
-    temperature: agent.temperature,
-    temperatureEnabled: agent.temperature != null,
-    maxTokens: agent.maxTokens,
-    contextLength: agent.contextLength || 0,
     llmConfigId: agent.llmConfigId || '',
     icon: agent.icon,
     color: agent.color,
@@ -2165,10 +2161,6 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       role: agent.role,
       description: agent.description,
       instructions: agent.instructions,
-      temperature: agent.temperature,
-      temperatureEnabled: agent.temperature != null,
-      maxTokens: agent.maxTokens,
-      contextLength: agent.contextLength || 0,
       llmConfigId: agent.llmConfigId || '',
       icon: agent.icon,
       color: agent.color,
@@ -2190,8 +2182,7 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { temperatureEnabled, ...payload } = form;
-      payload.temperature = temperatureEnabled ? payload.temperature : null;
+      const payload = { ...form };
       payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       payload.llmConfigId = payload.llmConfigId || null;
@@ -2313,53 +2304,15 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
                 <p><span className="text-dark-300">Model:</span> <span className="font-mono">{sel.model}</span></p>
                 {sel.endpoint && <p><span className="text-dark-300">Endpoint:</span> <span className="font-mono">{sel.endpoint}</span></p>}
                 {sel.isReasoning && <p><span className="text-dark-300">Reasoning:</span> Yes</p>}
+                {sel.contextSize && <p><span className="text-dark-300">Context:</span> {(sel.contextSize / 1000).toFixed(0)}k tokens</p>}
+                {sel.maxOutputTokens && <p><span className="text-dark-300">Max Output:</span> {(sel.maxOutputTokens / 1000).toFixed(0)}k tokens</p>}
+                {sel.temperature != null && <p><span className="text-dark-300">Temperature:</span> {sel.temperature}</p>}
               </div>
             ) : null;
           })()}
           <p className="text-[11px] text-dark-500 mt-1">LLM configurations are managed in Admin Settings</p>
         </div>
 
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <input
-              type="checkbox" checked={form.temperatureEnabled}
-              onChange={(e) => {
-                updateField('temperatureEnabled', e.target.checked);
-                if (e.target.checked && form.temperature == null) updateField('temperature', 0.7);
-              }}
-              className="accent-indigo-500"
-            />
-            <label className="text-xs text-dark-400">
-              Temperature{form.temperatureEnabled ? `: ${form.temperature}` : ' (disabled — using model default)'}
-            </label>
-          </div>
-          {form.temperatureEnabled && (
-            <input
-              type="range" min="0" max="1" step="0.1" value={form.temperature ?? 0.7}
-              onChange={(e) => updateField('temperature', parseFloat(e.target.value))}
-              className="w-full accent-indigo-500"
-            />
-          )}
-        </div>
-        <div>
-          <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
-          <input
-            type="number" value={form.maxTokens}
-            onChange={(e) => updateField('maxTokens', parseInt(e.target.value) || 128000)}
-            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-dark-400 mb-1.5">
-            Context Length (Ollama) <span className="text-dark-500">0 = 8192 par défaut</span>
-          </label>
-          <input
-            type="number" value={form.contextLength}
-            onChange={(e) => updateField('contextLength', parseInt(e.target.value) || 0)}
-            placeholder="8192"
-            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-          />
-        </div>
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Color</label>
           <input
