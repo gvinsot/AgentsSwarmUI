@@ -414,6 +414,40 @@ export const api = {
       body: JSON.stringify(workflow)
     }).then(handleResponse),
 
+  // Boards (per-user multi-board)
+  getBoards: () =>
+    fetch(`${API_BASE}/boards`, { headers: getHeaders() }).then(handleResponse),
+
+  getBoard: (id) =>
+    fetch(`${API_BASE}/boards/${id}`, { headers: getHeaders() }).then(handleResponse),
+
+  createBoard: (name, workflow, filters) =>
+    fetch(`${API_BASE}/boards`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name, workflow, filters })
+    }).then(handleResponse),
+
+  updateBoard: (id, updates) =>
+    fetch(`${API_BASE}/boards/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    }).then(handleResponse),
+
+  updateBoardWorkflow: (id, workflow) =>
+    fetch(`${API_BASE}/boards/${id}/workflow`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(workflow)
+    }).then(handleResponse),
+
+  deleteBoard: (id) =>
+    fetch(`${API_BASE}/boards/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // Project task stats
   getProjectTaskStats: (project) =>
     fetch(`${API_BASE}/agents/tasks/stats?project=${encodeURIComponent(project)}`, { headers: getHeaders() }).then(handleResponse),

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, Plus, Settings,
-  ArrowRight, Zap, User, GitCommit
+  ArrowRight, Zap, User, GitCommit, KanbanSquare
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -1485,9 +1485,118 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
   );
 }
 
-// ── TasksBoard ──────────────────────────────────────────────────────────────
+// ── BoardTabs ──────────────────────────────────────────────────────────────
 
-export default function TasksBoard({ agents, onRefresh }) {
+function BoardTabs({ boards, activeBoardId, onSelect, onCreate, onRename, onDelete }) {
+  const [renaming, setRenaming] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [contextMenu, setContextMenu] = useState(null);
+  const renameRef = useRef(null);
+  const contextRef = useRef(null);
+
+  useEffect(() => {
+    if (renaming && renameRef.current) {
+      renameRef.current.focus();
+      renameRef.current.select();
+    }
+  }, [renaming]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e) => {
+      if (contextRef.current && !contextRef.current.contains(e.target)) setContextMenu(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [contextMenu]);
+
+  const handleRenameSubmit = (boardId) => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== boards.find(b => b.id === boardId)?.name) {
+      onRename(boardId, trimmed);
+    }
+    setRenaming(null);
+  };
+
+  return (
+    <div className="flex items-center gap-1 px-4 py-1.5 border-b border-dark-700/50 bg-dark-900/50 overflow-x-auto scrollbar-hide">
+      {boards.map(board => (
+        <div key={board.id} className="relative flex-shrink-0">
+          {renaming === board.id ? (
+            <input
+              ref={renameRef}
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onBlur={() => handleRenameSubmit(board.id)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleRenameSubmit(board.id);
+                if (e.key === 'Escape') setRenaming(null);
+              }}
+              className="px-3 py-1.5 bg-dark-800 border border-indigo-500/50 rounded-lg text-xs text-dark-200
+                focus:outline-none focus:border-indigo-500 w-32"
+            />
+          ) : (
+            <button
+              onClick={() => onSelect(board.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu(board.id);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
+                ${activeBoardId === board.id
+                  ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
+                  : 'text-dark-400 hover:text-dark-200 hover:bg-dark-800 border border-transparent'
+                }`}
+            >
+              <KanbanSquare className="w-3 h-3" />
+              {board.name}
+              <ChevronDown
+                className="w-3 h-3 opacity-50 hover:opacity-100"
+                onClick={(e) => { e.stopPropagation(); setContextMenu(contextMenu === board.id ? null : board.id); }}
+              />
+            </button>
+          )}
+          {contextMenu === board.id && (
+            <div ref={contextRef}
+              className="absolute left-0 top-full mt-1 z-50 bg-dark-800 border border-dark-600 rounded-lg shadow-xl py-1 min-w-[140px]">
+              <button
+                onClick={() => {
+                  setRenameValue(board.name);
+                  setRenaming(board.id);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 text-xs text-dark-200 hover:bg-dark-700 flex items-center gap-2"
+              >
+                <Edit3 className="w-3 h-3" /> Rename
+              </button>
+              {boards.length > 1 && (
+                <button
+                  onClick={() => { onDelete(board.id); setContextMenu(null); }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-dark-700 flex items-center gap-2"
+                >
+                  <Trash2 className="w-3 h-3" /> Delete
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      <button
+        onClick={onCreate}
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-dark-500
+          hover:text-indigo-400 hover:bg-dark-800 transition-colors flex-shrink-0"
+        title="Create new board"
+      >
+        <Plus className="w-3 h-3" />
+        New Board
+      </button>
+    </div>
+  );
+}
+
+// ── TasksBoard (multi-board) ────────────────────────────────────────────────
+
+export default function TasksBoard({ agents, onRefresh, user }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [agentFilter, setAgentFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -1497,13 +1606,63 @@ export default function TasksBoard({ agents, onRefresh }) {
   const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
   const [jiraStatus, setJiraStatus] = useState(null);
 
-  // Workflow config (columns + transitions from DB)
-  const [workflow, setWorkflow] = useState(null);
+  // Multi-board state
+  const [boards, setBoards] = useState([]);
+  const [activeBoardId, setActiveBoardId] = useState(null);
+  const [boardsLoaded, setBoardsLoaded] = useState(false);
 
+  // Fallback workflow for when no board exists yet (legacy compat)
+  const [fallbackWorkflow, setFallbackWorkflow] = useState(null);
+
+  // Load boards on mount
   useEffect(() => {
-    api.getWorkflow().then(setWorkflow).catch(() => {});
+    let cancelled = false;
+    async function loadBoards() {
+      try {
+        const boardList = await api.getBoards();
+        if (cancelled) return;
+        if (boardList.length > 0) {
+          setBoards(boardList);
+          // Restore last active board from localStorage or use first
+          const lastBoardId = localStorage.getItem('activeBoardId');
+          const validBoard = boardList.find(b => b.id === lastBoardId);
+          setActiveBoardId(validBoard ? validBoard.id : boardList[0].id);
+        } else {
+          // No boards yet — create default board
+          const defaultWf = await api.getWorkflow();
+          const board = await api.createBoard('My Board', defaultWf);
+          if (cancelled) return;
+          setBoards([board]);
+          setActiveBoardId(board.id);
+        }
+      } catch {
+        // Fallback to legacy single workflow
+        try {
+          const wf = await api.getWorkflow();
+          if (!cancelled) setFallbackWorkflow(wf);
+        } catch { /* no-op */ }
+      } finally {
+        if (!cancelled) setBoardsLoaded(true);
+      }
+    }
+    loadBoards();
     api.getJiraStatus().then(setJiraStatus).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
+
+  // Persist active board selection
+  useEffect(() => {
+    if (activeBoardId) localStorage.setItem('activeBoardId', activeBoardId);
+  }, [activeBoardId]);
+
+  // Active board data
+  const activeBoard = useMemo(() => boards.find(b => b.id === activeBoardId) || null, [boards, activeBoardId]);
+
+  // Get workflow: from active board, or fallback
+  const workflow = useMemo(() => {
+    if (activeBoard?.workflow?.columns) return activeBoard.workflow;
+    return fallbackWorkflow;
+  }, [activeBoard, fallbackWorkflow]);
 
   const columns = useMemo(() => workflow ? buildColumns(workflow.columns) : [], [workflow]);
   const statusOptions = useMemo(() => workflow ? buildStatusOptions(workflow.columns) : [], [workflow]);
@@ -1572,7 +1731,7 @@ export default function TasksBoard({ agents, onRefresh }) {
     let agentId, taskId;
     try {
       ({ agentId, taskId } = JSON.parse(e.dataTransfer.getData('application/json')));
-    } catch { return; /* invalid drag data */ }
+    } catch { return; }
     try {
       const task = allTasks.find(t => t.id === taskId && t.agentId === agentId);
       if (!task || col.statuses.includes(task.status || 'pending')) return;
@@ -1592,8 +1751,76 @@ export default function TasksBoard({ agents, onRefresh }) {
 
   const activeFilters = [agentFilter, projectFilter, search].filter(Boolean).length;
 
+  // ── Board management handlers ──
+  const handleCreateBoard = useCallback(async () => {
+    try {
+      const defaultWf = await api.getWorkflow();
+      const board = await api.createBoard(`Board ${boards.length + 1}`, defaultWf);
+      setBoards(prev => [...prev, board]);
+      setActiveBoardId(board.id);
+    } catch (err) {
+      console.error('Failed to create board:', err.message);
+    }
+  }, [boards.length]);
+
+  const handleRenameBoard = useCallback(async (boardId, newName) => {
+    try {
+      const updated = await api.updateBoard(boardId, { name: newName });
+      setBoards(prev => prev.map(b => b.id === boardId ? updated : b));
+    } catch (err) {
+      console.error('Failed to rename board:', err.message);
+    }
+  }, []);
+
+  const handleDeleteBoard = useCallback(async (boardId) => {
+    if (boards.length <= 1) return;
+    try {
+      await api.deleteBoard(boardId);
+      setBoards(prev => {
+        const remaining = prev.filter(b => b.id !== boardId);
+        if (activeBoardId === boardId && remaining.length > 0) {
+          setActiveBoardId(remaining[0].id);
+        }
+        return remaining;
+      });
+    } catch (err) {
+      console.error('Failed to delete board:', err.message);
+    }
+  }, [boards.length, activeBoardId]);
+
+  const handleSaveWorkflow = useCallback(async (updated) => {
+    if (!activeBoardId) {
+      // Fallback: save to legacy workflow
+      const saved = await api.updateWorkflow(updated);
+      setFallbackWorkflow(saved);
+      return;
+    }
+    const updatedBoard = await api.updateBoardWorkflow(activeBoardId, updated);
+    setBoards(prev => prev.map(b => b.id === activeBoardId ? updatedBoard : b));
+  }, [activeBoardId]);
+
+  if (!boardsLoaded) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Board Tabs */}
+      {boards.length > 0 && (
+        <BoardTabs
+          boards={boards}
+          activeBoardId={activeBoardId}
+          onSelect={setActiveBoardId}
+          onCreate={handleCreateBoard}
+          onRename={handleRenameBoard}
+          onDelete={handleDeleteBoard}
+        />
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 px-6 py-3 border-b border-dark-700 bg-dark-900/30">
         {/* Search */}
@@ -1667,7 +1894,7 @@ export default function TasksBoard({ agents, onRefresh }) {
         <button
           onClick={() => setShowWorkflowEditor(true)}
           className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors"
-          title="Workflow settings"
+          title="Board workflow settings"
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
@@ -1735,13 +1962,9 @@ export default function TasksBoard({ agents, onRefresh }) {
           agents={agents}
           jiraStatus={jiraStatus}
           onClose={() => setShowWorkflowEditor(false)}
-          onSave={async (updated) => {
-            const saved = await api.updateWorkflow(updated);
-            setWorkflow(saved);
-          }}
+          onSave={handleSaveWorkflow}
         />
       )}
     </div>
   );
 }
-// Ideas column v1.0.216

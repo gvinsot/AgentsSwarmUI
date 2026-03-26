@@ -149,6 +149,22 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       `);
       console.log('✅ LLM configs table ready');
 
+      // Create boards table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS boards (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL DEFAULT 'My Board',
+          workflow JSONB NOT NULL DEFAULT '{}',
+          filters JSONB NOT NULL DEFAULT '{}',
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_boards_user ON boards(user_id)').catch(() => {});
+      console.log('✅ Boards table ready');
+
       _dbConnected = true;
 
       // Populate caches
@@ -646,6 +662,105 @@ export async function deleteLlmConfig(id) {
     await pool.query('DELETE FROM llm_configs WHERE id = $1', [id]);
   } catch (err) {
     console.error('Failed to delete LLM config:', err.message);
+  }
+}
+
+// ── Boards CRUD ──────────────────────────────────────────────────────────────
+
+export async function getBoardsByUser(userId) {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(
+      'SELECT id, user_id, name, workflow, filters, position, created_at, updated_at FROM boards WHERE user_id = $1 ORDER BY position, created_at',
+      [userId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error('Failed to get boards:', err.message);
+    return [];
+  }
+}
+
+export async function getBoardById(id) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      'SELECT id, user_id, name, workflow, filters, position, created_at, updated_at FROM boards WHERE id = $1',
+      [id]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to get board:', err.message);
+    return null;
+  }
+}
+
+export async function createBoard(userId, name, workflow = {}, filters = {}) {
+  if (!pool) throw new Error('Database not connected');
+  try {
+    const posResult = await pool.query(
+      'SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM boards WHERE user_id = $1',
+      [userId]
+    );
+    const position = posResult.rows[0].next_pos;
+
+    const result = await pool.query(
+      `INSERT INTO boards (user_id, name, workflow, filters, position)
+       VALUES ($1, $2, $3::jsonb, $4::jsonb, $5)
+       RETURNING id, user_id, name, workflow, filters, position, created_at, updated_at`,
+      [userId, name, JSON.stringify(workflow), JSON.stringify(filters), position]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error('Failed to create board:', err.message);
+    throw err;
+  }
+}
+
+export async function updateBoard(id, fields) {
+  if (!pool) throw new Error('Database not connected');
+  const allowed = ['name', 'workflow', 'filters', 'position'];
+  const setClauses = [];
+  const values = [];
+  let idx = 1;
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (!allowed.includes(key)) continue;
+    if (key === 'workflow' || key === 'filters') {
+      setClauses.push(`${key} = $${idx}::jsonb`);
+      values.push(JSON.stringify(value));
+    } else {
+      setClauses.push(`${key} = $${idx}`);
+      values.push(value);
+    }
+    idx++;
+  }
+  if (setClauses.length === 0) return getBoardById(id);
+
+  setClauses.push('updated_at = NOW()');
+  values.push(id);
+
+  try {
+    const result = await pool.query(
+      `UPDATE boards SET ${setClauses.join(', ')} WHERE id = $${idx}
+       RETURNING id, user_id, name, workflow, filters, position, created_at, updated_at`,
+      values
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to update board:', err.message);
+    throw err;
+  }
+}
+
+export async function deleteBoard(id) {
+  if (!pool) return false;
+  try {
+    const result = await pool.query('DELETE FROM boards WHERE id = $1', [id]);
+    return result.rowCount > 0;
+  } catch (err) {
+    console.error('Failed to delete board:', err.message);
+    return false;
   }
 }
 
