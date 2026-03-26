@@ -1691,6 +1691,18 @@ export default function TasksBoard({ agents, onRefresh, user }) {
   const [createDefaultStatus, setCreateDefaultStatus] = useState(null);
   const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
   const [jiraStatus, setJiraStatus] = useState(null);
+  const boardScrollRef = useRef(null);
+
+  // Convert vertical mouse wheel to horizontal scroll on the board
+  const handleBoardWheel = useCallback((e) => {
+    const el = boardScrollRef.current;
+    if (!el) return;
+    // Only hijack vertical wheel when there's horizontal overflow
+    if (el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    }
+  }, []);
 
   // Multi-board state
   const [boards, setBoards] = useState([]);
@@ -2004,7 +2016,11 @@ export default function TasksBoard({ agents, onRefresh, user }) {
       </div>
 
       {/* Board */}
-      <div className="flex-1 overflow-x-scroll overflow-y-auto min-h-0 scrollbar-always-visible">
+      <div
+        ref={boardScrollRef}
+        onWheel={handleBoardWheel}
+        className="flex-1 overflow-x-scroll overflow-y-hidden min-h-0 scrollbar-always-visible"
+      >
         <div className="flex gap-4 p-6 h-full min-w-max">
           {columns.map((col, colIdx) => (
             <KanbanColumn
