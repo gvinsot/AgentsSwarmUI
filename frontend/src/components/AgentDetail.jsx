@@ -565,7 +565,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           )
         )}
         {activeTab === 'tasks' && (
-          <TaskTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
+          <TaskTab key={agent.id} agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'rag' && (
           <RagTab agent={agent} onRefresh={onRefresh} />
