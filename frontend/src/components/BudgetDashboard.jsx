@@ -228,10 +228,7 @@ export default function BudgetDashboard({ agents = [] }) {
               <input type="number" min={0} max={100} value={editConfig.alertThreshold || 80} onChange={e => setEditConfig({ ...editConfig, alertThreshold: parseInt(e.target.value) || 80 })} className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm text-dark-200" />
               <p className="text-xs text-dark-500 mt-1">Alert when daily spend exceeds this % of budget</p>
             </div>
-          <div className="bg-dark-800/50 rounded-xl border border-dark-700/50 p-4">
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-dark-500">Token costs are managed via LLM configurations in Admin Settings.</p>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-dark-700 text-dark-300 rounded text-sm">Cancel</button>
               <button onClick={handleSaveConfig} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
