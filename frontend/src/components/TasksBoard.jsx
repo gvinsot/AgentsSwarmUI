@@ -879,7 +879,7 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
         setTimeout(() => { isDraggingRef.current = false; }, 50);
       }}
       onClick={() => { if (!isDraggingRef.current) onOpen(task); }}
-      className={`group bg-dark-800 rounded-lg border p-3 cursor-pointer
+      className={`group/card bg-dark-800 rounded-lg border p-3 cursor-pointer
         transition-all hover:shadow-lg hover:shadow-black/20
         ${isError
           ? 'border-red-500/40 bg-red-500/5 hover:border-red-500/60'
@@ -940,7 +940,7 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
           <Clock className="w-3 h-3" />
           {timeAgo(task.createdAt)}
         </span>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity">
           {/* Delete */}
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task); }}
