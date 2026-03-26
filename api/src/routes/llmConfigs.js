@@ -1,15 +1,21 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllLlmConfigs, getLlmConfig, saveLlmConfig, deleteLlmConfig } from '../services/database.js';
+import { requireRole } from '../middleware/auth.js';
+
+function maskApiKey(config, isAdmin) {
+  return { ...config, apiKey: isAdmin ? config.apiKey : (config.apiKey ? '********' : '') };
+}
 
 export function llmConfigRoutes(agentManager) {
   const router = express.Router();
 
-  // List all LLM configs
+  // List all LLM configs (any authenticated user)
   router.get('/', async (req, res) => {
     try {
       const configs = await getAllLlmConfigs();
-      res.json(configs);
+      const isAdmin = req.user?.role === 'admin';
+      res.json(configs.map(c => maskApiKey(c, isAdmin)));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -20,70 +26,73 @@ export function llmConfigRoutes(agentManager) {
     try {
       const config = await getLlmConfig(req.params.id);
       if (!config) return res.status(404).json({ error: 'Not found' });
-      res.json(config);
+      const isAdmin = req.user?.role === 'admin';
+      res.json(maskApiKey(config, isAdmin));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Create LLM config
-  router.post('/', async (req, res) => {
+  // Create LLM config — admin only
+  router.post('/', requireRole('admin'), async (req, res) => {
     try {
       const config = {
-        id: req.body.id || uuidv4(),
+        id: uuidv4(),
         name: req.body.name || 'Unnamed',
         provider: req.body.provider || '',
         model: req.body.model || '',
         apiKey: req.body.apiKey || '',
         endpoint: req.body.endpoint || '',
-        maxOutput: req.body.maxOutput || null,
-        thinking: req.body.thinking || false,
         isReasoning: req.body.isReasoning || false,
         costPerInputToken: req.body.costPerInputToken ?? null,
         costPerOutputToken: req.body.costPerOutputToken ?? null,
-        createdAt: req.body.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
       await saveLlmConfig(config);
-      if (agentManager) await agentManager.refreshLlmConfigs();
-      res.json(config);
+      await agentManager.refreshLlmConfigs();
+      res.status(201).json(config);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Update LLM config
-  router.put('/:id', async (req, res) => {
+  // Update LLM config — admin only
+  router.put('/:id', requireRole('admin'), async (req, res) => {
     try {
       const existing = await getLlmConfig(req.params.id);
       if (!existing) return res.status(404).json({ error: 'Not found' });
+
+      // If the API key is the masked placeholder, keep the existing key
+      const apiKey = (req.body.apiKey && req.body.apiKey !== '********')
+        ? req.body.apiKey
+        : existing.apiKey;
+
       const config = {
         ...existing,
         name: req.body.name ?? existing.name,
         provider: req.body.provider ?? existing.provider,
         model: req.body.model ?? existing.model,
-        apiKey: req.body.apiKey ?? existing.apiKey,
+        apiKey,
         endpoint: req.body.endpoint ?? existing.endpoint,
-        maxOutput: req.body.maxOutput ?? existing.maxOutput,
-        thinking: req.body.thinking ?? existing.thinking,
         isReasoning: req.body.isReasoning ?? existing.isReasoning,
         costPerInputToken: req.body.costPerInputToken ?? existing.costPerInputToken,
         costPerOutputToken: req.body.costPerOutputToken ?? existing.costPerOutputToken,
-        updatedAt: new Date().toISOString(),
       };
       await saveLlmConfig(config);
-      if (agentManager) await agentManager.refreshLlmConfigs();
+      await agentManager.refreshLlmConfigs();
       res.json(config);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Delete LLM config
-  router.delete('/:id', async (req, res) => {
+  // Delete LLM config — admin only
+  router.delete('/:id', requireRole('admin'), async (req, res) => {
     try {
+      const existing = await getLlmConfig(req.params.id);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
       await deleteLlmConfig(req.params.id);
-      if (agentManager) await agentManager.refreshLlmConfigs();
+      await agentManager.refreshLlmConfigs();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
