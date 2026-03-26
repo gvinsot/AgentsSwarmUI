@@ -36,7 +36,7 @@ const chartOpts = {
   },
 };
 
-export default function ProjectStats({ projectName, onClose }) {
+export default function ProjectStats({ projectName, onClose, embedded = false }) {
   const [stats, setStats] = useState(null);
   const [timeseries, setTimeseries] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -148,14 +148,16 @@ export default function ProjectStats({ projectName, onClose }) {
   const hasOpenData = (timeseries.openOverTime || []).some(d => d.open > 0);
 
   return (
-    <div className="bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-5">
+    <div className={embedded ? 'space-y-5' : 'bg-dark-800 border border-purple-500/30 rounded-xl p-4 space-y-5'}>
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-          <BarChart3 size={16} className="text-purple-400" />
-          Statistics: {projectName}
-        </h3>
-        <div className="flex items-center gap-2">
+        {!embedded && (
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <BarChart3 size={16} className="text-purple-400" />
+            Statistics: {projectName}
+          </h3>
+        )}
+        <div className={`flex items-center gap-2 ${embedded ? 'ml-auto' : ''}`}>
           <select
             value={days}
             onChange={e => setDays(Number(e.target.value))}
@@ -169,9 +171,11 @@ export default function ProjectStats({ projectName, onClose }) {
           <button onClick={loadData} className="text-dark-400 hover:text-white p-1" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={onClose} className="text-dark-400 hover:text-white p-1" title="Close">
-            <X size={14} />
-          </button>
+          {!embedded && (
+            <button onClick={onClose} className="text-dark-400 hover:text-white p-1" title="Close">
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 

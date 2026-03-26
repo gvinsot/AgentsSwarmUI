@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { FolderGit2, Users, ListTodo, Clock, ArrowRight, Search, ChevronDown, Activity, BarChart3, Bug, Sparkles } from 'lucide-react';
-import ProjectStats from './ProjectStats';
+import ProjectDetailModal from './ProjectDetailModal';
 
 function formatDuration(ms) {
   if (!ms || ms <= 0) return '—';
@@ -102,10 +102,10 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
         </div>
       </div>
 
-      {/* Stats Panel */}
+      {/* Project Detail Modal */}
       {selectedProject && (
-        <ProjectStats
-          projectName={selectedProject}
+        <ProjectDetailModal
+          project={projects.find(p => p.name === selectedProject)}
           onClose={() => setSelectedProject(null)}
         />
       )}
@@ -123,15 +123,12 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
         {projects.map(p => (
           <div
             key={p.name}
-            className={`bg-dark-800 border rounded-xl p-4 hover:border-purple-500/50 transition-colors cursor-pointer ${selectedProject === p.name ? 'border-purple-500/50' : 'border-dark-700'}`}
-            onClick={() => setSelectedProject(selectedProject === p.name ? null : p.name)}
+            className="bg-dark-800 border border-dark-700 rounded-xl p-4 hover:border-purple-500/50 transition-colors cursor-pointer"
+            onClick={() => setSelectedProject(p.name)}
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white truncate">{p.name}</h3>
-              <div
-                className={`p-1 rounded hover:bg-dark-600 ${selectedProject === p.name ? 'text-purple-400' : 'text-dark-400'}`}
-                title="View statistics"
-              >
+              <div className="p-1 rounded hover:bg-dark-600 text-dark-400" title="View details">
                 <BarChart3 size={14} />
               </div>
             </div>
