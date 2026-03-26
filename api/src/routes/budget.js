@@ -10,7 +10,7 @@ router.get('/summary', (req, res) => {
   try {
     const days = parseInt(req.query.days) || 1;
     const summary = getTokenUsageSummary(days);
-    const budgetConfig = getSetting('budget_config') || { dailyBudget: 0, alertThreshold: 80, tokenCosts: {} };
+    const budgetConfig = getSetting('budget_config') || { dailyBudget: 0, alertThreshold: 80 };
     res.json({ ...summary, budgetConfig });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -39,15 +39,7 @@ router.get('/daily', async (req, res) => {
 
 router.get('/config', (req, res) => {
   try {
-    const config = getSetting('budget_config') || {
-      dailyBudget: 10.00, alertThreshold: 80,
-      tokenCosts: {
-        'anthropic': { input: 3.0, output: 15.0 },
-        'openai': { input: 2.5, output: 10.0 },
-        'google': { input: 1.25, output: 5.0 },
-        'default': { input: 2.0, output: 10.0 }
-      }
-    };
+    const config = getSetting('budget_config') || { dailyBudget: 10.00, alertThreshold: 80 };
     res.json(config);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
