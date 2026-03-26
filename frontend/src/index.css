@@ -39,6 +39,26 @@ code, pre, .font-mono {
   background: #475569;
 }
 
+/* Always-visible horizontal scrollbar */
+.scrollbar-always-visible {
+  overflow-x: scroll !important;
+  scrollbar-gutter: stable;
+}
+.scrollbar-always-visible::-webkit-scrollbar {
+  height: 8px;
+}
+.scrollbar-always-visible::-webkit-scrollbar-track {
+  background: #1e293b;
+  border-radius: 4px;
+}
+.scrollbar-always-visible::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+.scrollbar-always-visible::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
