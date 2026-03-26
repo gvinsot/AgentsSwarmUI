@@ -1627,9 +1627,8 @@ export default function TasksBoard({ agents, onRefresh, user }) {
           const validBoard = boardList.find(b => b.id === lastBoardId);
           setActiveBoardId(validBoard ? validBoard.id : boardList[0].id);
         } else {
-          // No boards yet — create default board
-          const defaultWf = await api.getWorkflow();
-          const board = await api.createBoard('My Board', defaultWf);
+          // No boards yet — create with clean default (backend provides Todo/In Progress/Done)
+          const board = await api.createBoard('My Board');
           if (cancelled) return;
           setBoards([board]);
           setActiveBoardId(board.id);
@@ -1759,8 +1758,8 @@ export default function TasksBoard({ agents, onRefresh, user }) {
   // ── Board management handlers ──
   const handleCreateBoard = useCallback(async () => {
     try {
-      const defaultWf = await api.getWorkflow();
-      const board = await api.createBoard(`Board ${boards.length + 1}`, defaultWf);
+      // New boards always start with a clean 3-column workflow
+      const board = await api.createBoard(`Board ${boards.length + 1}`);
       setBoards(prev => [...prev, board]);
       setActiveBoardId(board.id);
     } catch (err) {

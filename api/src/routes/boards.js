@@ -1,6 +1,15 @@
 import express from 'express';
 import { getBoardsByUser, getBoardById, createBoard, updateBoard, deleteBoard } from '../services/database.js';
-import { getWorkflow } from '../services/configManager.js';
+
+const DEFAULT_BOARD_WORKFLOW = {
+  columns: [
+    { id: 'todo',        label: 'Todo',        color: '#6b7280' },
+    { id: 'in_progress', label: 'In Progress', color: '#3b82f6' },
+    { id: 'done',        label: 'Done',        color: '#22c55e' },
+  ],
+  transitions: [],
+  version: 1,
+};
 
 export function boardRoutes() {
   const router = express.Router();
@@ -53,22 +62,16 @@ export function boardRoutes() {
     }
   });
 
-  // POST / — create a new board (optionally clone from default workflow)
+  // POST / — create a new board with clean default workflow
   router.post('/', async (req, res) => {
     try {
       const { name, workflow, filters } = req.body;
       const boardName = (name || 'My Board').slice(0, 100);
 
-      // If no workflow provided, copy the default workflow
-      let boardWorkflow = workflow;
-      if (!boardWorkflow || !boardWorkflow.columns) {
-        const defaultWf = await getWorkflow('_default');
-        boardWorkflow = {
-          columns: defaultWf.columns,
-          transitions: defaultWf.transitions,
-          version: 1,
-        };
-      }
+      // Use provided workflow if valid, otherwise use clean default (Todo / In Progress / Done)
+      const boardWorkflow = (workflow && Array.isArray(workflow.columns) && workflow.columns.length > 0)
+        ? { columns: workflow.columns, transitions: workflow.transitions || [], version: 1 }
+        : JSON.parse(JSON.stringify(DEFAULT_BOARD_WORKFLOW));
 
       const board = await createBoard(req.user.userId, boardName, boardWorkflow, filters || {});
       res.status(201).json(board);
