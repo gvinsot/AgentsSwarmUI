@@ -1,20 +1,18 @@
-import { useState } from 'react';
-import { X, Cpu, Search, FolderCode, Crown, Mic, Copy } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Cpu, Search, FolderCode, Crown, Mic } from 'lucide-react';
 import { api } from '../api';
 
 export default function AddAgentModal({ templates, projects, agents = [], onClose, onCreated }) {
   const [step, setStep] = useState('choose'); // choose | template | custom
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [llmConfigs, setLlmConfigs] = useState([]);
   const [form, setForm] = useState({
     name: '',
     role: '',
     description: '',
     instructions: 'You are a helpful AI assistant.',
-    provider: 'ollama',
-    model: 'qwen3-coder-next:q4_K_M',
-    endpoint: 'https://llm-dev.methodinfo.fr',
-    apiKey: '',
+    llmConfigId: '',
     temperature: 0.7,
     temperatureEnabled: true,
     maxTokens: 128000,
@@ -24,12 +22,13 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     project: '',
     isLeader: false,
     isVoice: false,
-    isReasoning: false,
     voice: 'alloy',
-    costPerInputToken: '',
-    costPerOutputToken: '',
   });
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
+  }, []);
 
   const filteredTemplates = templates.filter(t =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -52,8 +51,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
       isLeader: template.isLeader || template.isVoice || false,
       isVoice: template.isVoice || false,
       voice: template.isVoice ? 'alloy' : prev.voice,
-      ...(template.provider ? { provider: template.provider } : {}),
-      ...(template.model ? { model: template.model } : {}),
     }));
     setSelectedTemplate(template);
     setStep('custom');
@@ -65,8 +62,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     try {
       const { temperatureEnabled, ...payload } = form;
       payload.temperature = temperatureEnabled ? payload.temperature : null;
-      payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
-      payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
+      payload.llmConfigId = payload.llmConfigId || null;
       const agent = await api.createAgent({
         ...payload,
         template: selectedTemplate?.id || null,
@@ -283,8 +279,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                         updateField('isVoice', isVoice);
                         if (isVoice) {
                           updateField('isLeader', true);
-                          updateField('provider', 'openai');
-                          updateField('model', 'gpt-realtime-1.5');
                         }
                       }}
                       className="w-4 h-4 rounded border-dark-600 bg-dark-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-dark-800"
@@ -294,7 +288,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                       <span className="text-sm text-dark-200 group-hover:text-dark-100">Voice Agent</span>
                     </div>
                   </label>
-                  <p className="text-[11px] text-dark-500 mt-1 ml-7">Speech-to-speech agent using OpenAI Realtime API (forces Leader + OpenAI provider)</p>
+                  <p className="text-[11px] text-dark-500 mt-1 ml-7">Speech-to-speech agent using OpenAI Realtime API (forces Leader mode)</p>
                 </div>
                 )}
 
@@ -324,189 +318,33 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                   </h4>
                 </div>
 
-                {agents.length > 0 && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5 flex items-center gap-1.5">
-                      <Copy className="w-3 h-3" /> Import config from existing agent
-                    </label>
-                    <select
-                      onChange={(e) => {
-                        const source = agents.find(a => a.id === e.target.value);
-                        if (source) {
-                          setForm(prev => ({
-                            ...prev,
-                            provider: source.provider || prev.provider,
-                            model: source.model || prev.model,
-                            endpoint: source.endpoint || prev.endpoint,
-                            apiKey: '',
-                            copyApiKeyFromAgent: source.id,
-                            temperature: source.temperature ?? prev.temperature,
-                            temperatureEnabled: source.temperature != null,
-                            maxTokens: source.maxTokens ?? prev.maxTokens,
-                            contextLength: source.contextLength ?? prev.contextLength,
-                            costPerInputToken: source.costPerInputToken ?? '',
-                            costPerOutputToken: source.costPerOutputToken ?? '',
-                          }));
-                        }
-                        e.target.value = '';
-                      }}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                      defaultValue=""
-                    >
-                      <option value="" disabled>Select an agent to copy its LLM settings...</option>
-                      {agents.map(a => (
-                        <option key={a.id} value={a.id}>
-                          {a.icon} {a.name} — {a.provider}/{a.model}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-dark-500 mt-1">Copies provider, model, endpoint, API key, temperature, max tokens, context length and token costs</p>
-                    {form.copyApiKeyFromAgent && !form.apiKey && (
-                      <p className="text-[11px] text-green-400 mt-1">API key will be copied from the selected agent</p>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1.5">Provider *</label>
+                <div className="col-span-2">
+                  <label className="block text-xs text-dark-400 mb-1.5">LLM Configuration *</label>
                   <select
-                    value={form.provider}
-                    disabled={form.isVoice}
-                    onChange={(e) => {
-                      updateField('provider', e.target.value);
-                      if (e.target.value === 'claude') {
-                        updateField('model', 'claude-sonnet-4-20250514');
-                        updateField('endpoint', '');
-                      } else if (e.target.value === 'openai') {
-                        updateField('model', 'gpt-4o');
-                        updateField('endpoint', '');
-                      } else if (e.target.value === 'mistral') {
-                        updateField('model', 'mistral-large-latest');
-                        updateField('endpoint', '');
-                      } else if (e.target.value === 'vllm') {
-                        updateField('model', '');
-                        updateField('endpoint', 'http://localhost:8000');
-                        updateField('apiKey', '');
-                      } else if (e.target.value === 'claude-paid') {
-                        updateField('model', 'claude-sonnet-4-20250514');
-                        updateField('endpoint', '');
-                        updateField('apiKey', '');
-                      } else {
-                        updateField('model', 'qwen3-coder-next:q4_K_M');
-                        updateField('endpoint', 'https://llm-dev.methodinfo.fr');
-                      }
-                    }}
-                    className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 ${form.isVoice ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    value={form.llmConfigId}
+                    onChange={(e) => updateField('llmConfigId', e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="ollama">Ollama</option>
-                    <option value="claude">Claude (Anthropic)</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="mistral">Mistral AI</option>
-                    <option value="vllm">vLLM</option>
-                    <option value="claude-paid">Claude Paid Plan</option>
+                    <option value="">-- Select an LLM config --</option>
+                    {llmConfigs.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.provider}/{c.model})
+                      </option>
+                    ))}
                   </select>
-                  {form.isVoice && <p className="text-[11px] text-dark-500 mt-1">Locked — Voice agents use OpenAI Realtime</p>}
+                  {form.llmConfigId && (() => {
+                    const sel = llmConfigs.find(c => c.id === form.llmConfigId);
+                    return sel ? (
+                      <div className="mt-2 p-2.5 bg-dark-600/50 rounded-lg border border-dark-500/50 text-xs text-dark-400 space-y-0.5">
+                        <p><span className="text-dark-300">Provider:</span> {sel.provider}</p>
+                        <p><span className="text-dark-300">Model:</span> <span className="font-mono">{sel.model}</span></p>
+                        {sel.endpoint && <p><span className="text-dark-300">Endpoint:</span> <span className="font-mono">{sel.endpoint}</span></p>}
+                        {sel.isReasoning && <p><span className="text-dark-300">Reasoning:</span> Yes</p>}
+                      </div>
+                    ) : null;
+                  })()}
+                  <p className="text-[11px] text-dark-500 mt-1">LLM configurations are managed in Admin Settings</p>
                 </div>
-
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1.5">Model *</label>
-                  <input
-                    type="text" value={form.model}
-                    onChange={(e) => updateField('model', e.target.value)}
-                    disabled={form.isVoice}
-                    className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs ${form.isVoice ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  />
-                  {form.isVoice && <p className="text-[11px] text-dark-500 mt-1">Locked — gpt-realtime-1.5</p>}
-                </div>
-
-                {form.provider === 'ollama' && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5">Endpoint URL</label>
-                    <input
-                      type="text" value={form.endpoint}
-                      onChange={(e) => updateField('endpoint', e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                      placeholder="https://..."
-                    />
-                  </div>
-                )}
-
-                {form.provider === 'claude' && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-                    <input
-                      type="password" value={form.apiKey}
-                      onChange={(e) => updateField('apiKey', e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                      placeholder="sk-ant-..."
-                    />
-                    <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
-                  </div>
-                )}
-
-                {form.provider === 'openai' && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-                    <input
-                      type="password" value={form.apiKey}
-                      onChange={(e) => updateField('apiKey', e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                      placeholder="sk-..."
-                    />
-                    <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
-                  </div>
-                )}
-
-                {form.provider === 'mistral' && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-                    <input
-                      type="password" value={form.apiKey}
-                      onChange={(e) => updateField('apiKey', e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                      placeholder="sk-..."
-                    />
-                    <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key (MISTRAL_API_KEY)</p>
-                  </div>
-                )}
-
-                {form.provider === 'claude-paid' && (
-                  <div className="col-span-2">
-                    <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-                    <input
-                      type="password" value={form.apiKey}
-                      onChange={(e) => updateField('apiKey', e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                      placeholder="sk-ant-..."
-                    />
-                    <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key (ANTHROPIC_API_KEY). Routed via coder-service.</p>
-                  </div>
-                )}
-
-                {form.provider === 'vllm' && (
-                  <>
-                    <div className="col-span-2">
-                      <label className="block text-xs text-dark-400 mb-1.5">Server URL *</label>
-                      <input
-                        type="text" value={form.endpoint}
-                        onChange={(e) => updateField('endpoint', e.target.value)}
-                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                        placeholder="http://localhost:8000"
-                      />
-                      <p className="text-[11px] text-dark-500 mt-1">Base URL of your vLLM server (OpenAI-compatible API)</p>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs text-dark-400 mb-1.5">API Key (optional)</label>
-                      <input
-                        type="password" value={form.apiKey}
-                        onChange={(e) => updateField('apiKey', e.target.value)}
-                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                        placeholder="token-..."
-                      />
-                      <p className="text-[11px] text-dark-500 mt-1">Leave blank if your vLLM server doesn't require authentication</p>
-                    </div>
-                  </>
-                )}
 
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
@@ -532,18 +370,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox" checked={form.isReasoning}
-                      onChange={(e) => updateField('isReasoning', e.target.checked)}
-                      className="accent-indigo-500"
-                    />
-                    <span className="text-xs text-dark-400">Reasoning model</span>
-                  </label>
-                  <p className="text-[11px] text-dark-500 mt-1">Uses 'developer' role instead of 'system', disables temperature</p>
-                </div>
-
-                <div>
                   <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>
                   <input
                     type="number" value={form.maxTokens}
@@ -562,34 +388,6 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                     placeholder="128000"
                     className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                   />
-                </div>
-
-                {/* Token cost per agent */}
-                <div className="col-span-2 border-t border-dark-700 pt-3 mt-1">
-                  <h4 className="text-xs font-medium text-dark-300 mb-2">Token Costs ($ per 1M tokens)</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-dark-400 mb-1">Input cost</label>
-                      <input
-                        type="number" step="0.01" min="0"
-                        value={form.costPerInputToken}
-                        onChange={(e) => updateField('costPerInputToken', e.target.value)}
-                        placeholder="Global default"
-                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-dark-400 mb-1">Output cost</label>
-                      <input
-                        type="number" step="0.01" min="0"
-                        value={form.costPerOutputToken}
-                        onChange={(e) => updateField('costPerOutputToken', e.target.value)}
-                        placeholder="Global default"
-                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-dark-500 mt-1.5">Leave empty to use global provider default from Budget settings</p>
                 </div>
 
                 <div>

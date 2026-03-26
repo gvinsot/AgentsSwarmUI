@@ -2026,21 +2026,22 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
     temperatureEnabled: agent.temperature != null,
     maxTokens: agent.maxTokens,
     contextLength: agent.contextLength || 0,
-    provider: agent.provider,
-    model: agent.model,
-    endpoint: agent.endpoint || '',
-    apiKey: agent.apiKey || '',
+    llmConfigId: agent.llmConfigId || '',
     icon: agent.icon,
     color: agent.color,
     project: agent.project || '',
     enabled: agent.enabled !== false,
-    isReasoning: agent.isReasoning || false,
     costPerInputToken: agent.costPerInputToken ?? '',
     costPerOutputToken: agent.costPerOutputToken ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [llmConfigs, setLlmConfigs] = useState([]);
+
+  useEffect(() => {
+    api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
+  }, []);
 
   // Reset form when switching agents
   useEffect(() => {
@@ -2053,15 +2054,11 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       temperatureEnabled: agent.temperature != null,
       maxTokens: agent.maxTokens,
       contextLength: agent.contextLength || 0,
-      provider: agent.provider,
-      model: agent.model,
-      endpoint: agent.endpoint || '',
-      apiKey: agent.apiKey || '',
+      llmConfigId: agent.llmConfigId || '',
       icon: agent.icon,
       color: agent.color,
       project: agent.project || '',
       enabled: agent.enabled !== false,
-      isReasoning: agent.isReasoning || false,
       costPerInputToken: agent.costPerInputToken ?? '',
       costPerOutputToken: agent.costPerOutputToken ?? '',
     });
@@ -2082,6 +2079,7 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       payload.temperature = temperatureEnabled ? payload.temperature : null;
       payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
+      payload.llmConfigId = payload.llmConfigId || null;
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -2178,138 +2176,32 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
             rows={6}
           />
         </div>
-        <div>
-          <label className="block text-xs text-dark-400 mb-1.5">Provider</label>
+        <div className="col-span-2">
+          <label className="block text-xs text-dark-400 mb-1.5">LLM Configuration</label>
           <select
-            value={form.provider}
-            onChange={(e) => updateField('provider', e.target.value)}
+            value={form.llmConfigId}
+            onChange={(e) => updateField('llmConfigId', e.target.value)}
             className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
           >
-            <option value="ollama">Ollama</option>
-            <option value="claude">Claude</option>
-            <option value="openai">OpenAI</option>
-            <option value="mistral">Mistral AI</option>
-            <option value="vllm">vLLM</option>
-            <option value="claude-paid">Claude Paid Plan</option>
+            <option value="">-- Select an LLM config --</option>
+            {llmConfigs.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.provider}/{c.model})
+              </option>
+            ))}
           </select>
-        </div>
-        <div>
-          <label className="block text-xs text-dark-400 mb-1.5">Model</label>
-          <input
-            type="text" value={form.model}
-            onChange={(e) => updateField('model', e.target.value)}
-            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-          />
-        </div>
-        {form.provider === 'ollama' && (
-          <div className="col-span-2">
-            <label className="block text-xs text-dark-400 mb-1.5">Endpoint URL</label>
-            <input
-              type="text" value={form.endpoint}
-              onChange={(e) => updateField('endpoint', e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-              placeholder="https://..."
-            />
-          </div>
-        )}
-        {form.provider === 'claude' && (
-          <div className="col-span-2">
-            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-            <input
-              type="password" value={form.apiKey}
-              onChange={(e) => updateField('apiKey', e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-              placeholder="sk-ant-..."
-            />
-            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
-          </div>
-        )}
-        {form.provider === 'openai' && (
-          <div className="col-span-2">
-            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-            <input
-              type="password" value={form.apiKey}
-              onChange={(e) => updateField('apiKey', e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-              placeholder="sk-..."
-            />
-            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key</p>
-          </div>
-        )}
-        {form.provider === 'mistral' && (
-          <div className="col-span-2">
-            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-            <input
-              type="password" value={form.apiKey}
-              onChange={(e) => updateField('apiKey', e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-              placeholder="sk-..."
-            />
-            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key (MISTRAL_API_KEY)</p>
-          </div>
-        )}
-        {form.provider === 'claude-paid' && (
-          <div className="col-span-2">
-            <label className="block text-xs text-dark-400 mb-1.5">API Key</label>
-            <input
-              type="password" value={form.apiKey}
-              onChange={(e) => updateField('apiKey', e.target.value)}
-              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-              placeholder="sk-ant-..."
-            />
-            <p className="text-[11px] text-dark-500 mt-1">Leave blank to use server default key (ANTHROPIC_API_KEY). Routed via coder-service.</p>
-          </div>
-        )}
-        {form.provider === 'vllm' && (
-          <>
-            <div className="col-span-2">
-              <label className="block text-xs text-dark-400 mb-1.5">Server URL *</label>
-              <input
-                type="text" value={form.endpoint}
-                onChange={(e) => updateField('endpoint', e.target.value)}
-                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                placeholder="http://localhost:8000"
-              />
-              <p className="text-[11px] text-dark-500 mt-1">Base URL of your vLLM server (OpenAI-compatible API)</p>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-dark-400 mb-1.5">API Key (optional)</label>
-              <input
-                type="password" value={form.apiKey}
-                onChange={(e) => updateField('apiKey', e.target.value)}
-                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                placeholder="token-..."
-              />
-              <p className="text-[11px] text-dark-500 mt-1">Leave blank if your vLLM server doesn't require authentication</p>
-            </div>
-          </>
-        )}
-        {/* Token cost per agent */}
-        <div className="col-span-2 border-t border-dark-700/50 pt-3 mt-1">
-          <h4 className="text-xs font-medium text-dark-300 mb-2">Token Costs ($ per 1M tokens)</h4>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-dark-400 mb-1">Input cost</label>
-              <input
-                type="number" step="0.01" min="0"
-                value={form.costPerInputToken}
-                onChange={(e) => updateField('costPerInputToken', e.target.value)}
-                placeholder="Global default"
-                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-dark-400 mb-1">Output cost</label>
-              <input
-                type="number" step="0.01" min="0"
-                value={form.costPerOutputToken}
-                onChange={(e) => updateField('costPerOutputToken', e.target.value)}
-                placeholder="Global default"
-                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-dark-500 mt-1.5">Leave empty to use global provider default from Budget settings</p>
+          {form.llmConfigId && (() => {
+            const sel = llmConfigs.find(c => c.id === form.llmConfigId);
+            return sel ? (
+              <div className="mt-2 p-2.5 bg-dark-700/50 rounded-lg border border-dark-600/50 text-xs text-dark-400 space-y-0.5">
+                <p><span className="text-dark-300">Provider:</span> {sel.provider}</p>
+                <p><span className="text-dark-300">Model:</span> <span className="font-mono">{sel.model}</span></p>
+                {sel.endpoint && <p><span className="text-dark-300">Endpoint:</span> <span className="font-mono">{sel.endpoint}</span></p>}
+                {sel.isReasoning && <p><span className="text-dark-300">Reasoning:</span> Yes</p>}
+              </div>
+            ) : null;
+          })()}
+          <p className="text-[11px] text-dark-500 mt-1">LLM configurations are managed in Admin Settings</p>
         </div>
 
         <div>
@@ -2333,17 +2225,6 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
               className="w-full accent-indigo-500"
             />
           )}
-        </div>
-        <div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox" checked={form.isReasoning}
-              onChange={(e) => updateField('isReasoning', e.target.checked)}
-              className="accent-indigo-500"
-            />
-            <span className="text-xs text-dark-400">Reasoning model</span>
-          </label>
-          <p className="text-[11px] text-dark-500 mt-1">Uses 'developer' role instead of 'system', disables temperature</p>
         </div>
         <div>
           <label className="block text-xs text-dark-400 mb-1.5">Max Tokens <span className="text-dark-500">(output)</span></label>

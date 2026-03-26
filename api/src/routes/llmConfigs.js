@@ -2,7 +2,7 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllLlmConfigs, getLlmConfig, saveLlmConfig, deleteLlmConfig } from '../services/database.js';
 
-export function llmConfigRoutes() {
+export function llmConfigRoutes(agentManager) {
   const router = express.Router();
 
   // List all LLM configs
@@ -39,10 +39,13 @@ export function llmConfigRoutes() {
         maxOutput: req.body.maxOutput || null,
         thinking: req.body.thinking || false,
         isReasoning: req.body.isReasoning || false,
+        costPerInputToken: req.body.costPerInputToken ?? null,
+        costPerOutputToken: req.body.costPerOutputToken ?? null,
         createdAt: req.body.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       await saveLlmConfig(config);
+      if (agentManager) await agentManager.refreshLlmConfigs();
       res.json(config);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -64,9 +67,12 @@ export function llmConfigRoutes() {
         maxOutput: req.body.maxOutput ?? existing.maxOutput,
         thinking: req.body.thinking ?? existing.thinking,
         isReasoning: req.body.isReasoning ?? existing.isReasoning,
+        costPerInputToken: req.body.costPerInputToken ?? existing.costPerInputToken,
+        costPerOutputToken: req.body.costPerOutputToken ?? existing.costPerOutputToken,
         updatedAt: new Date().toISOString(),
       };
       await saveLlmConfig(config);
+      if (agentManager) await agentManager.refreshLlmConfigs();
       res.json(config);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -77,6 +83,7 @@ export function llmConfigRoutes() {
   router.delete('/:id', async (req, res) => {
     try {
       await deleteLlmConfig(req.params.id);
+      if (agentManager) await agentManager.refreshLlmConfigs();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
