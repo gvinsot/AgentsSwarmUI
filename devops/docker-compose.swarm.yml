@@ -66,7 +66,7 @@ services:
 
         # HTTPS Router — API + WebSocket (/api and /socket.io)
         # Using realtime-global (no WAF) to avoid blocking AI chat content with code patterns
-        - "traefik.http.routers.pulsarteam-api.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.pulsarteam-api.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
         - "traefik.http.routers.pulsarteam-api.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-api.tls.certresolver=letsencrypt"
         - "traefik.http.routers.pulsarteam-api.middlewares=realtime-global@file"
@@ -74,7 +74,7 @@ services:
         - "traefik.http.routers.pulsarteam-api.priority=100"
 
         # HTTP redirect
-        - "traefik.http.routers.pulsarteam-api-http.rule=Host(`swarm.methodinfo.fr`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+        - "traefik.http.routers.pulsarteam-api-http.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
         - "traefik.http.routers.pulsarteam-api-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-api-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.pulsarteam-api-http.service=noop@internal"
@@ -105,8 +105,8 @@ services:
         # Service port
         - "traefik.http.services.pulsarteam-frontend.loadbalancer.server.port=80"
 
-        # HTTPS Router — Frontend (catch-all for swarm.methodinfo.fr)
-        - "traefik.http.routers.pulsarteam-frontend.rule=Host(`swarm.methodinfo.fr`)"
+        # HTTPS Router — Frontend (catch-all for www.pulsarteam.io)
+        - "traefik.http.routers.pulsarteam-frontend.rule=Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)"
         - "traefik.http.routers.pulsarteam-frontend.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-frontend.tls.certresolver=letsencrypt"
         - "traefik.http.routers.pulsarteam-frontend.middlewares=global@file"
@@ -114,7 +114,7 @@ services:
         - "traefik.http.routers.pulsarteam-frontend.priority=1"
 
         # HTTP redirect
-        - "traefik.http.routers.pulsarteam-frontend-http.rule=Host(`swarm.methodinfo.fr`)"
+        - "traefik.http.routers.pulsarteam-frontend-http.rule=Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)"
         - "traefik.http.routers.pulsarteam-frontend-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-frontend-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.pulsarteam-frontend-http.service=noop@internal"
