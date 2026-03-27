@@ -2097,9 +2097,10 @@ function ActionLogsTab({ agent, onRefresh }) {
   };
 
   const typeConfig = {
-    busy:  { icon: Zap,          color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   label: 'Busy' },
-    idle:  { icon: Clock,        color: 'text-emerald-400', bg: 'bg-emerald-500/10',  border: 'border-emerald-500/20', label: 'Idle' },
-    error: { icon: AlertCircle,  color: 'text-red-400',     bg: 'bg-red-500/10',      border: 'border-red-500/20',     label: 'Error' },
+    busy:    { icon: Zap,          color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   label: 'Busy' },
+    idle:    { icon: Clock,        color: 'text-emerald-400', bg: 'bg-emerald-500/10',  border: 'border-emerald-500/20', label: 'Idle' },
+    error:   { icon: AlertCircle,  color: 'text-red-400',     bg: 'bg-red-500/10',      border: 'border-red-500/20',     label: 'Error' },
+    warning: { icon: AlertCircle,  color: 'text-orange-400',  bg: 'bg-orange-500/10',   border: 'border-orange-500/20',  label: 'Warning' },
   };
 
   return (

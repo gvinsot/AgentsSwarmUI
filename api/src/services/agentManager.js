@@ -2063,17 +2063,20 @@ export class AgentManager {
       if (isTopLevel) this._chatLocks.delete(id);
       return fullResponse;
     } catch (err) {
-      // ── Rate limit: put task on hold and schedule retry ──
+      // ── Rate limit: mark task as error and schedule retry ──
       if (err.isRateLimit) {
         const delayMs = Math.max(0, err.retryAt - Date.now());
         console.log(`🕐 [Rate Limit] "${agent.name}": ${err.message} — retry in ${Math.round(delayMs / 60000)}min`);
         if (streamCallback) streamCallback(`\n⏸️ *${err.message}. Task will auto-retry at ${err.resetLabel} + 5min.*\n`);
+        this.addActionLog(id, 'error', `Rate limit reached — resets at ${err.resetLabel}`, err.message);
 
-        // Find the in_progress task for this agent and put it back to pending
+        // Find the in_progress task for this agent and mark it as error
         const inProgressTask = agent.todoList?.find(t => t.status === 'in_progress');
         if (inProgressTask) {
-          this.setTaskStatus(id, inProgressTask.id, 'pending', { skipAutoRefine: true, by: 'rate-limit' });
-          console.log(`🕐 [Rate Limit] Task "${inProgressTask.text.slice(0, 60)}" moved back to pending`);
+          this.setTaskStatus(id, inProgressTask.id, 'error', { skipAutoRefine: true, by: 'rate-limit' });
+          const actualTask = agent.todoList?.find(t => t.id === inProgressTask.id);
+          if (actualTask) actualTask.error = `Rate limit reached — resets at ${err.resetLabel}`;
+          console.log(`🕐 [Rate Limit] Task "${inProgressTask.text.slice(0, 60)}" set to error`);
         }
 
         // Schedule re-check after reset time + 5min
@@ -2093,6 +2096,7 @@ export class AgentManager {
       if (this._isContextExceededError(err.message) && !agent._compactionRetried) {
         console.log(`🗜️  [Reactive Compact] "${agent.name}": context exceeded — compacting and retrying`);
         agent._compactionRetried = true;  // Prevent infinite retry loop
+        this.addActionLog(id, 'warning', 'Context limit exceeded — compacting conversation and retrying');
         // Release the chat lock BEFORE recursive retry so it can re-acquire it
         if (isTopLevel) this._chatLocks.delete(id);
         try {
@@ -2133,6 +2137,7 @@ export class AgentManager {
         agent._streamRetryCount = retryCount + 1;
         const delay = 2000 * Math.pow(2, retryCount); // 2s, 4s, 8s
         console.log(`🔄 [Stream Retry] "${agent.name}": ${err.message} — retry ${retryCount + 1}/${MAX_STREAM_RETRIES} in ${delay}ms`);
+        this.addActionLog(id, 'warning', `Connection lost, retrying (${retryCount + 1}/${MAX_STREAM_RETRIES})`, err.message);
         if (streamCallback) streamCallback(`\n⚠️ *Connection lost, retrying (${retryCount + 1}/${MAX_STREAM_RETRIES})...*\n`);
         await new Promise(r => setTimeout(r, delay));
         // Remove the user message we already pushed to avoid duplication
