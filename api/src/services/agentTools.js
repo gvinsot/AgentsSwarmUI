@@ -374,8 +374,27 @@ function sanitizeCommitMessage(msg) {
     .slice(0, 500);                  // limit length
 }
 
+/**
+ * Extract the commit hash from git commit output.
+ * Handles standard, root-commit, and detached HEAD formats:
+ *   [main abc1234] message
+ *   [main (root-commit) abc1234] message
+ *   [detached HEAD abc1234] message
+ */
+function extractCommitHash(text) {
+  if (!text) return null;
+  // Match: [anything HASH] — covers all git commit output formats
+  const match = text.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
+  if (match) return match[1];
+  // Fallback: bare full hash on its own line
+  const lineMatch = text.match(/^([a-f0-9]{40})$/m);
+  return lineMatch ? lineMatch[1] : null;
+}
+
 async function toolGitCommitPush(sandboxMgr, agentId, message) {
   const safeMsg = sanitizeCommitMessage(message);
+  let commitHash = null;
+  let commitOutput = '';
   try {
     // Step 1: Stage all changes
     await sandboxMgr.exec(agentId, `git add -A`, { timeout: 15000 });
@@ -411,6 +430,17 @@ async function toolGitCommitPush(sandboxMgr, agentId, message) {
       { timeout: 30000 }
     );
 
+    // Capture commit hash immediately after commit (before push which may fail)
+    commitOutput = [commitOut, commitErr].filter(Boolean).join('\n');
+    commitHash = extractCommitHash(commitOutput);
+    // If regex didn't match, try git rev-parse as a reliable fallback
+    if (!commitHash) {
+      try {
+        const { stdout: revOut } = await sandboxMgr.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
+        commitHash = (revOut || '').trim() || null;
+      } catch { /* ignore */ }
+    }
+
     // Step 5: Push (with SSH options to prevent host key verification hangs)
     const { stdout: pushOut, stderr: pushErr } = await sandboxMgr.exec(
       agentId,
@@ -418,10 +448,18 @@ async function toolGitCommitPush(sandboxMgr, agentId, message) {
       { timeout: 60000 }
     );
 
-    const output = [commitOut, commitErr, pushOut, pushErr].filter(Boolean).join('\n').trim();
-    return { success: true, result: output.slice(0, 10000) };
+    const output = [commitOutput, pushOut, pushErr].filter(Boolean).join('\n').trim();
+    return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
   } catch (err) {
-    return { success: false, error: err.message, result: (err.stderr || err.stdout || '').slice(0, 5000) };
+    // Push may have failed but commit may have succeeded — still return the hash
+    const errOutput = (err.stderr || err.stdout || '');
+    const fullOutput = [commitOutput, errOutput].filter(Boolean).join('\n').trim();
+    return {
+      success: false,
+      error: err.message,
+      result: fullOutput.slice(0, 5000),
+      meta: { commitHash }
+    };
   }
 }
 

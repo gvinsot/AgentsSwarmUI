@@ -2477,16 +2477,38 @@ export class AgentManager {
         });
 
         // Auto-capture commit hash from git_commit_push and link to current in_progress task
-        if (call.tool === 'git_commit_push' && result.success && result.result) {
-          const commitMatch = result.result.match(/\[[\w./-]+\s+([a-f0-9]{7,40})\]/);
-          if (commitMatch) {
-            const commitHash = commitMatch[1];
+        // Works even if push failed (commit may still exist) and falls back to recently-done tasks
+        if (call.tool === 'git_commit_push') {
+          // Prefer structured hash from meta, fall back to regex on output
+          let commitHash = result.meta?.commitHash || null;
+          if (!commitHash && result.result) {
+            // Robust regex: [anything HASH] — handles root-commit, detached HEAD, etc.
+            const commitMatch = result.result.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
+            if (commitMatch) commitHash = commitMatch[1];
+          }
+          if (commitHash) {
             const commitMsg = call.args[0] || '';
-            const inProgressTask = (agent.todoList || []).find(t => t.status === 'in_progress');
-            if (inProgressTask) {
-              this.addTaskCommit(agentId, inProgressTask.id, commitHash, commitMsg);
-              console.log(`🔗 [Commit] Auto-linked ${commitHash.slice(0, 7)} to task "${inProgressTask.text.slice(0, 50)}"`);
+            // Try in_progress task first
+            let targetTask = (agent.todoList || []).find(t => t.status === 'in_progress');
+            // Fallback: if no in_progress task, link to the most recently completed task
+            // (the agent may have called @update_task(done) before @git_commit_push in the same batch)
+            if (!targetTask) {
+              const doneTasks = (agent.todoList || [])
+                .filter(t => t.status === 'done' && t.completedAt)
+                .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+              if (doneTasks.length > 0) {
+                targetTask = doneTasks[0];
+                console.log(`🔗 [Commit] No in_progress task — falling back to most recently done task "${targetTask.text.slice(0, 50)}"`);
+              }
             }
+            if (targetTask) {
+              this.addTaskCommit(agentId, targetTask.id, commitHash, commitMsg);
+              console.log(`🔗 [Commit] Auto-linked ${commitHash.slice(0, 7)} to task "${targetTask.text.slice(0, 50)}" (status=${targetTask.status})`);
+            } else {
+              console.warn(`⚠️  [Commit] Agent "${agent.name}" committed ${commitHash.slice(0, 7)} but no task found to link it to`);
+            }
+          } else if (result.success) {
+            console.warn(`⚠️  [Commit] Agent "${agent.name}" git_commit_push succeeded but could not extract commit hash from output`);
           }
         }
 
