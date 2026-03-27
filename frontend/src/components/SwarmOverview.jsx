@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Activity, Cpu, MessageSquare, TrendingUp, Zap, AlertTriangle, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function SwarmOverview({ stats, agents }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   // Count unique active projects
   const activeProjects = new Set(agents.filter(a => a.project).map(a => a.project));
 
