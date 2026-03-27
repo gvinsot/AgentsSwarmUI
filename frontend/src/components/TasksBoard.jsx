@@ -83,8 +83,9 @@ const SOURCE_META = {
 // ── CreateTaskModal ──────────────────────────────────────────────────────────
 
 function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOptions, defaultStatus, boardId }) {
-  // Allow all columns except the last one (typically "Done") as creation statuses
-  const CREATE_STATUSES = statusOptions.length > 1 ? statusOptions.slice(0, -1) : statusOptions;
+  // Allow all columns as creation statuses (don't exclude the last one —
+  // custom columns added after "Done" would be wrongly hidden by slice(0, -1))
+  const CREATE_STATUSES = statusOptions;
   const initialStatus = defaultStatus && CREATE_STATUSES.some(s => s.value === defaultStatus)
     ? defaultStatus
     : (CREATE_STATUSES[0]?.value || 'backlog');
@@ -2031,7 +2032,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
               onDrop={handleDrop}
               onOpen={setSelectedTask}
               onClearAll={col.id === 'done' ? handleClearDone : undefined}
-              onAddTask={colIdx < columns.length - 1 ? () => { setCreateDefaultStatus(col.id); setCreateOpen(true); } : undefined}
+              onAddTask={() => { setCreateDefaultStatus(col.id); setCreateOpen(true); }}
               showAgent={col.showAgent}
             />
           ))}
