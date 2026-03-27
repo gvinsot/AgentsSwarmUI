@@ -749,13 +749,19 @@ export class AgentManager {
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
-      'costPerInputToken', 'costPerOutputToken', 'llmConfigId'
+      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId'
     ];
 
     for (const key of allowed) {
       if (updates[key] !== undefined) {
         // Don't overwrite existing apiKey with empty string
         if (key === 'apiKey' && !updates[key] && agent[key]) continue;
+        // Ownership change — also update DB column
+        if (key === 'ownerId' && updates[key] !== agent[key]) {
+          agent[key] = updates[key];
+          setAgentOwner(agent.id, updates[key]);
+          continue;
+        }
         // Context switching when project changes
         if (key === 'project' && updates[key] !== agent[key]) {
           this._switchProjectContext(agent, agent.project, updates[key]);

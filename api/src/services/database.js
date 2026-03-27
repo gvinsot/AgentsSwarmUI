@@ -216,7 +216,7 @@ export async function saveAgent(agent) {
     await pool.query(
       `INSERT INTO agents (id, data, owner_id, updated_at) 
        VALUES ($1, $2, $3, NOW()) 
-       ON CONFLICT (id) DO UPDATE SET data = $2, owner_id = COALESCE($3, agents.owner_id), updated_at = NOW()`,
+       ON CONFLICT (id) DO UPDATE SET data = $2, owner_id = $3, updated_at = NOW()'
       [agent.id, JSON.stringify(agent), agent.ownerId || null]
     );
   } catch (err) {

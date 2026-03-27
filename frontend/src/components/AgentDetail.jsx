@@ -580,7 +580,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab agent={agent} projects={projects} currentProject={currentProject} onRefresh={onRefresh} />
+          <SettingsTab agent={agent} projects={projects} currentProject={currentProject} onRefresh={onRefresh} userRole={userRole} />
         )}
       </div>
     </div>
@@ -2201,7 +2201,7 @@ function ActionLogsTab({ agent, onRefresh }) {
 }
 
 // ─── Settings Tab ──────────────────────────────────────────────────────────
-function SettingsTab({ agent, projects, currentProject, onRefresh }) {
+function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
   const [form, setForm] = useState({
     name: agent.name,
     role: agent.role,
@@ -2214,15 +2214,20 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
     enabled: agent.enabled !== false,
     costPerInputToken: agent.costPerInputToken ?? '',
     costPerOutputToken: agent.costPerOutputToken ?? '',
+    ownerId: agent.ownerId || '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [llmConfigs, setLlmConfigs] = useState([]);
+  const [users, setUsers] = useState([]);
 
   useEffect(() => {
     api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
-  }, []);
+    if (userRole === 'admin') {
+      api.getUsers().then(setUsers).catch(() => {});
+    }
+  }, [userRole]);
 
   // Reset form when switching agents
   useEffect(() => {
@@ -2238,6 +2243,7 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       enabled: agent.enabled !== false,
       costPerInputToken: agent.costPerInputToken ?? '',
       costPerOutputToken: agent.costPerOutputToken ?? '',
+      ownerId: agent.ownerId || '',
     });
     setSaved(false);
   }, [agent.id]);
@@ -2256,6 +2262,11 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
       payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       payload.llmConfigId = payload.llmConfigId || null;
+      if (userRole === 'admin') {
+        payload.ownerId = payload.ownerId || null;
+      } else {
+        delete payload.ownerId;
+      }
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -2398,6 +2409,24 @@ function SettingsTab({ agent, projects, currentProject, onRefresh }) {
           />
         </div>
       </div>
+
+      {/* Owner (admin only) */}
+      {userRole === 'admin' && (
+        <div className="px-3 py-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50">
+          <label className="block text-xs text-dark-400 mb-1.5">Owner</label>
+          <select
+            value={form.ownerId}
+            onChange={(e) => updateField('ownerId', e.target.value)}
+            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="">No owner (visible to all)</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.username}</option>
+            ))}
+          </select>
+          <p className="text-[11px] text-dark-500 mt-1">An agent without owner is visible to all users</p>
+        </div>
+      )}
 
       {/* Metrics */}
       <div className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50">

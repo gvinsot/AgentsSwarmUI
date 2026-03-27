@@ -38,7 +38,9 @@ const createAgentSchema = z.object({
 });
 
 // Schema for updating an agent (all fields optional)
-const updateAgentSchema = createAgentSchema.partial();
+const updateAgentSchema = createAgentSchema.partial().extend({
+  ownerId: z.string().uuid().nullable().optional(),
+});
 
 // Mask sensitive fields before sending agent data to the client
 function sanitizeAgent(agent) {
@@ -53,10 +55,11 @@ function sanitizeAgent(agent) {
 export function agentRoutes(agentManager) {
   const router = express.Router();
 
-  // ── Ownership guard: users can only access their own agents or unowned ones ──
+  // ── Ownership guard: users can only access their own agents or unowned ones (admins bypass) ──
   function requireAgentAccess(req, res, next) {
     const agent = agentManager.agents.get(req.params.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (req.user.role === 'admin') return next();
     if (agent.ownerId && agent.ownerId !== req.user.userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -139,6 +142,10 @@ export function agentRoutes(agentManager) {
     }
     try {
       const parsed = updateAgentSchema.parse(req.body);
+      // Only admins can change ownership
+      if ('ownerId' in parsed && req.user.role !== 'admin') {
+        delete parsed.ownerId;
+      }
       const agent = await agentManager.update(req.params.id, parsed);
       if (!agent) return res.status(404).json({ error: 'Agent not found' });
       res.json(agent);
