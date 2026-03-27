@@ -255,8 +255,7 @@ export function agentRoutes(agentManager) {
       agentManager.update(agent.id, { project });
     }
     const resolvedSource = source || { type: 'user' };
-    const validStatuses = ['idea', 'backlog', 'pending', 'in_progress', 'done', 'error'];
-    const resolvedStatus = status && validStatuses.includes(status) ? status : undefined;
+    const resolvedStatus = status && typeof status === 'string' ? status : undefined;
     const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: boardId || undefined, recurrence: recurrence || undefined });
     if (!task) return res.status(404).json({ error: 'Agent not found' });
     res.status(201).json(task);
