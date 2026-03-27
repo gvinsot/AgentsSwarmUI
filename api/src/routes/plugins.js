@@ -49,6 +49,14 @@ function sanitizePlugin(plugin) {
 export function pluginRoutes(skillManager, mcpManager) {
   const router = express.Router();
 
+  /** Only admins can create, edit, or delete plugins */
+  function requireAdmin(req, res, next) {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+  }
+
   router.get('/', (req, res) => {
     const plugins = skillManager.getAll().map(sanitizePlugin);
     res.json(plugins);
@@ -60,7 +68,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     res.json(sanitizePlugin(plugin));
   });
 
-  router.post('/', async (req, res) => {
+  router.post('/', requireAdmin, async (req, res) => {
     try {
       const parsed = createPluginSchema.parse(req.body);
       const plugin = await skillManager.create(parsed);
@@ -73,7 +81,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     }
   });
 
-  router.put('/:id', async (req, res) => {
+  router.put('/:id', requireAdmin, async (req, res) => {
     try {
       const parsed = updatePluginSchema.parse(req.body);
       const plugin = await skillManager.update(req.params.id, parsed);
@@ -87,7 +95,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     }
   });
 
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', requireAdmin, async (req, res) => {
     try {
       const success = await skillManager.delete(req.params.id);
       if (!success) return res.status(404).json({ error: 'Plugin not found' });
@@ -97,7 +105,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     }
   });
 
-  router.post('/:id/mcps/:mcpId', async (req, res) => {
+  router.post('/:id/mcps/:mcpId', requireAdmin, async (req, res) => {
     try {
       const plugin = skillManager.getById(req.params.id);
       if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
@@ -125,7 +133,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     }
   });
 
-  router.delete('/:id/mcps/:mcpId', async (req, res) => {
+  router.delete('/:id/mcps/:mcpId', requireAdmin, async (req, res) => {
     try {
       const plugin = skillManager.getById(req.params.id);
       if (!plugin) return res.status(404).json({ error: 'Plugin not found' });

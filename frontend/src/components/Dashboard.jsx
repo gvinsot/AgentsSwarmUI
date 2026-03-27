@@ -274,6 +274,7 @@ export default function Dashboard({
             socket={socket}
             onClose={() => setShowBroadcast(false)}
             onRefresh={onRefresh}
+            user={user}
           />
         )}
 

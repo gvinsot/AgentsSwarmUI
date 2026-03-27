@@ -66,7 +66,8 @@ const statusLabels = {
   disconnected: 'Deconnecte',
 };
 
-export default function BroadcastPanel({ agents, projects = [], skills = [], mcpServers = [], socket, onClose, onRefresh }) {
+export default function BroadcastPanel({ agents, projects = [], skills = [], mcpServers = [], socket, onClose, onRefresh, user }) {
+  const isAdmin = user?.role === 'admin';
   const [tab, setTab] = useState('broadcast');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -462,6 +463,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                       Plugins
                       <span className="text-dark-400 font-normal">({skills.length})</span>
                     </h4>
+                    {isAdmin && (
                     <button
                       onClick={() => { setShowCreate(!showCreate); setEditingPlugin(null); }}
                       className="flex items-center gap-1 px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors"
@@ -469,6 +471,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                       <Plus className="w-3.5 h-3.5" />
                       New Plugin
                     </button>
+                    )}
                   </div>
 
                   {/* OneDrive OAuth connection */}
@@ -476,7 +479,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
 
                   {/* Create plugin form */}
                   {showCreate && (
-                    <div className="flex-shrink-0">
+                    <div className="max-h-[60vh] overflow-auto rounded-lg">
                       <PluginEditor
                         value={newPlugin}
                         onChange={setNewPlugin}
@@ -493,12 +496,12 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                     {skills.map(plugin => (
                       <div
                         key={plugin.id}
-                        className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors group cursor-pointer ${
+                        className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors group ${isAdmin ? 'cursor-pointer' : ''} ${
                           editingPlugin === plugin.id
                             ? 'bg-indigo-500/10 border-indigo-500/30'
                             : 'bg-dark-800/30 border-dark-700/30 hover:border-dark-600'
                         }`}
-                        onClick={() => startEdit(plugin)}
+                        onClick={() => isAdmin && startEdit(plugin)}
                       >
                         <span className="text-base flex-shrink-0">{plugin.icon}</span>
                         <div className="flex-1 min-w-0">
@@ -519,11 +522,13 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                           </div>
                           <p className="text-xs text-dark-500 truncate">{plugin.description}</p>
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); handleDelete(plugin.id); }} className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors" title="Delete plugin">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {isAdmin && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); handleDelete(plugin.id); }} className="p-1.5 text-dark-400 hover:text-red-400 rounded-md hover:bg-dark-700 transition-colors" title="Delete plugin">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                     {skills.length === 0 && (
@@ -779,7 +784,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
         </div>
         </div>
         {/* ── Right panel: Plugin editor ── */}
-        {editingPlugin && (
+        {editingPlugin && isAdmin && (
           <div className="hidden sm:flex flex-col w-[400px] border-l border-dark-700 bg-dark-850 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700 flex-shrink-0">
               <div className="flex items-center gap-2">
