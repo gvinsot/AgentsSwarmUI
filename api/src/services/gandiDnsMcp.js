@@ -138,58 +138,6 @@ export function createGandiDnsMcpServer(mcpManager) {
     }
   );
 
-  // ── Update record ─────────────────────────────────────────────────────
-
-  server.tool(
-    'update_record',
-    'Update an existing DNS record (overwrites values for the given name and type).',
-    {
-      domain: z.string().describe('Fully qualified domain name, e.g. "example.com"'),
-      name: z.string().describe('Record name (subdomain), e.g. "api", "www", or "@" for apex'),
-      type: z.string().describe('Record type: A, AAAA, CNAME, MX, TXT, SRV, NS, etc.'),
-      values: z.array(z.string()).describe('New record values'),
-      ttl: z.number().int().min(300).max(2592000).optional().describe('TTL in seconds (default 300)'),
-    },
-    async ({ domain, name, type, values, ttl = 300 }) => {
-      const pat = getPat();
-      const body = { rrset_values: values, rrset_ttl: ttl };
-      const result = await gandiRequest(
-        pat,
-        `/domains/${encodeURIComponent(domain)}/records/${encodeURIComponent(name)}/${encodeURIComponent(type)}`,
-        { method: 'PUT', body: JSON.stringify(body) }
-      );
-      return {
-        content: [{
-          type: 'text',
-          text: `✅ Updated ${type} record: ${name}.${domain} → ${values.join(', ')} (TTL ${ttl}s)\n\n${JSON.stringify(result, null, 2)}`,
-        }],
-      };
-    }
-  );
-
-  // ── Delete record ─────────────────────────────────────────────────────
-
-  server.tool(
-    'delete_record',
-    'Delete a DNS record by name and type.',
-    {
-      domain: z.string().describe('Fully qualified domain name, e.g. "example.com"'),
-      name: z.string().describe('Record name (subdomain), e.g. "api", "www", or "@" for apex'),
-      type: z.string().describe('Record type: A, AAAA, CNAME, MX, TXT, SRV, NS, etc.'),
-    },
-    async ({ domain, name, type }) => {
-      const pat = getPat();
-      await gandiRequest(
-        pat,
-        `/domains/${encodeURIComponent(domain)}/records/${encodeURIComponent(name)}/${encodeURIComponent(type)}`,
-        { method: 'DELETE' }
-      );
-      return {
-        content: [{ type: 'text', text: `✅ Deleted ${type} record: ${name}.${domain}` }],
-      };
-    }
-  );
-
   return server;
 }
 
