@@ -2007,7 +2007,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
       {/* Board */}
       <div
         ref={boardScrollRef}
-        className="flex-1 min-h-0 overflow-auto scrollbar-always-visible"
+        className="flex-1 min-h-0 overflow-auto"
       >
         <div className="flex gap-4 p-6 min-w-max items-start">
           {columns.map((col, colIdx) => (
