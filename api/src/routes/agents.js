@@ -283,8 +283,10 @@ export function agentRoutes(agentManager) {
         } catch { /* fall through to addTask default */ }
       }
 
+      console.log(`[CreateTask] POST /:id/tasks — input: status="${status}", boardId="${boardId}" → resolved: status="${resolvedStatus}", boardId="${resolvedBoardId}" text="${(text || '').slice(0, 60)}"`);
       const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: resolvedBoardId, recurrence: recurrence || undefined });
       if (!task) return res.status(404).json({ error: 'Agent not found' });
+      console.log(`[CreateTask] Task created: id=${task.id} status="${task.status}" boardId="${task.boardId}"`);
       res.status(201).json(task);
     } catch (err) {
       res.status(500).json({ error: err.message });
