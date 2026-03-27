@@ -682,7 +682,7 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                 {llmForm.provider === 'claude-paid' && (
                 <div className="sm:col-span-2">
                   <div className="px-3 py-2 bg-dark-900/50 border border-dark-700 rounded-lg text-xs text-dark-400">
-                    🔒 Authentication is handled via OAuth per agent (coder-service). No API key needed.
+                    🔒 Authentication is handled via OAuth per user (coder-service). All agents of the same user share one token. No API key needed.
                     Endpoint is auto-configured to <code className="text-indigo-400">coder-service:8000</code>.
                   </div>
                 </div>

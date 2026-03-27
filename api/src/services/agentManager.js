@@ -1185,7 +1185,8 @@ export class AgentManager {
         model: llmConfig.model,
         endpoint: llmConfig.endpoint,
         apiKey: llmConfig.apiKey,
-        agentId: id
+        agentId: id,
+        ownerId: agent.ownerId || null
       });
 
       fullResponse = '';
@@ -4228,7 +4229,8 @@ export class AgentManager {
         model: llmConfig.model,
         endpoint: llmConfig.endpoint,
         apiKey: llmConfig.apiKey,
-        agentId: id
+        agentId: id,
+        ownerId: agent.ownerId || null
       });
 
       const msgCount = toSummarize.length + (existingSummary ? 1 : 0);
