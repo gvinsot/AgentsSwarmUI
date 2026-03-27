@@ -1,13 +1,31 @@
-import { Activity, Cpu, MessageSquare, TrendingUp, Zap, AlertTriangle, FolderOpen } from 'lucide-react';
+import { useState } from 'react';
+import { Activity, Cpu, MessageSquare, TrendingUp, Zap, AlertTriangle, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function SwarmOverview({ stats, agents }) {
+  const [collapsed, setCollapsed] = useState(false);
   // Count unique active projects
   const activeProjects = new Set(agents.filter(a => a.project).map(a => a.project));
 
   return (
     <div className="border-b border-dark-800 bg-dark-900/30">
       <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-3">
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {/* Mobile toggle button */}
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          className="sm:hidden flex items-center justify-between w-full mb-2 text-sm text-dark-400 hover:text-dark-200 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5" />
+            <span>Statistics</span>
+            <span className="text-xs text-dark-500">
+              ({stats.total} agents &middot; {stats.busy} active)
+            </span>
+          </span>
+          {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+        </button>
+
+        {/* Stats grid - hidden on mobile when collapsed, always visible on sm+ */}
+        <div className={`${collapsed ? 'hidden' : 'grid'} sm:grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3`}>
           <StatCard
             icon={<Cpu className="w-4 h-4" />}
             label="Total Agents"
