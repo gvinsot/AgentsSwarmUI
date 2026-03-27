@@ -15,6 +15,7 @@ import { SandboxManager } from './services/sandboxManager.js';
 import { MCPManager } from './services/mcpManager.js';
 import { CodeIndexService } from './services/codeIndexService.js';
 import { createCodeIndexMcpHandler } from './services/codeIndexMcp.js';
+import { createGandiDnsMcpHandler } from './services/gandiDnsMcp.js';
 import { pluginRoutes } from './routes/plugins.js';
 import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
@@ -134,6 +135,9 @@ app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
+
+const gandiDnsMcpHandler = createGandiDnsMcpHandler(mcpManager);
+app.all('/api/gandi-dns/mcp', authenticateToken, (req, res) => gandiDnsMcpHandler(req, res));
 
 // External Swarm API — secured via API key (Bearer token)
 const swarmApiMcpHandler = createSwarmApiMcpHandler(agentManager);

@@ -80,6 +80,9 @@ async def ensure_agent_user(agent_id: str) -> dict:
     Instead of creating Linux users (requires root), we create separate
     home directories and override HOME/USER env vars. Claude Code CLI
     uses $HOME to find its config files, so this provides effective isolation.
+    
+    Each agent has its OWN OAuth credentials — we only copy settings and
+    onboarding files from the main coder user, NOT credentials.
     """
     if not agent_id:
         return None
@@ -97,19 +100,18 @@ async def ensure_agent_user(agent_id: str) -> dict:
         try:
             agent_claude_dir = os.path.join(home_dir, ".claude")
             os.makedirs(agent_claude_dir, exist_ok=True)
-            # Copy config files from the main coder user
+            # Copy NON-credential config files from the main coder user
             coder_home = os.path.expanduser("~")
-            # 1. Credentials (OAuth token for CLI)
-            if os.path.exists(CREDENTIALS_FILE):
-                shutil.copy2(CREDENTIALS_FILE, os.path.join(agent_claude_dir, ".credentials.json"))
-            # 2. Settings (MCP servers config)
+            # 1. Settings (MCP servers config) — shared across agents
             coder_settings = os.path.join(coder_home, ".claude", "settings.json")
             if os.path.exists(coder_settings):
                 shutil.copy2(coder_settings, os.path.join(agent_claude_dir, "settings.json"))
-            # 3. Onboarding bypass (.claude.json in home root)
+            # 2. Onboarding bypass (.claude.json in home root)
             coder_claude_json = os.path.join(coder_home, ".claude.json")
             if os.path.exists(coder_claude_json):
                 shutil.copy2(coder_claude_json, os.path.join(home_dir, ".claude.json"))
+            # NOTE: Credentials are NOT copied. Each agent authenticates
+            # independently via /auth/agent/{agent_id}/login.
             user_info = {"username": username, "uid": os.getuid(), "gid": os.getgid(), "home": home_dir}
             _agent_users[agent_id] = user_info
             logger.info(f"[Agent User] Created isolated home for agent {agent_id[:12]} at {home_dir}")
@@ -118,13 +120,133 @@ async def ensure_agent_user(agent_id: str) -> dict:
             logger.error(f"[Agent User] Failed to create home for agent {agent_id}: {e}")
             return None
 
+
+def _load_agent_token(agent_user: dict) -> Optional[str]:
+    """Load the OAuth token specific to an agent from its isolated home dir."""
+    if not agent_user:
+        return None
+    home = agent_user["home"]
+    # 1. Agent-specific token JSON (written by per-agent auth flow)
+    agent_token_json = os.path.join(home, "oauth_token.json")
+    try:
+        with open(agent_token_json) as f:
+            data = json.load(f)
+        token = data.get("accessToken")
+        if token:
+            return token
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        pass
+    # 2. Agent credentials.json
+    agent_creds = os.path.join(home, ".claude", ".credentials.json")
+    try:
+        with open(agent_creds) as f:
+            creds = json.load(f)
+        token = creds.get("claudeAiOauth", {}).get("accessToken")
+        if token:
+            return token
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _save_agent_token(agent_user: dict, token: str, refresh_token: Optional[str] = None, expires_in: int = 28800):
+    """Save an OAuth token for a specific agent in its isolated home dir."""
+    home = agent_user["home"]
+    os.makedirs(home, exist_ok=True)
+    oauth_data = {
+        "accessToken": token,
+        "refreshToken": refresh_token or "",
+        "expiresAt": int((time.time() + expires_in) * 1000),
+        "scopes": OAUTH_SCOPES.split(),
+    }
+    # Save agent token JSON
+    with open(os.path.join(home, "oauth_token.json"), "w") as f:
+        json.dump(oauth_data, f, indent=2)
+    # Also write credentials.json for CLI compatibility
+    agent_creds_file = os.path.join(home, ".claude", ".credentials.json")
+    os.makedirs(os.path.dirname(agent_creds_file), exist_ok=True)
+    creds = {}
+    try:
+        with open(agent_creds_file) as f:
+            creds = json.load(f)
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        pass
+    creds["claudeAiOauth"] = oauth_data
+    with open(agent_creds_file, "w") as f:
+        json.dump(creds, f, indent=2)
+    logger.info(f"[Agent Auth] Saved OAuth token for agent {agent_user['username']}")
+
+
+def _is_agent_token_expired(agent_user: dict, margin_seconds: int = 300) -> bool:
+    """Check if an agent's OAuth token is expired."""
+    if not agent_user:
+        return False
+    agent_token_json = os.path.join(agent_user["home"], "oauth_token.json")
+    try:
+        with open(agent_token_json) as f:
+            data = json.load(f)
+        expires_at_ms = data.get("expiresAt", 0)
+        if not expires_at_ms:
+            return False
+        return time.time() >= (expires_at_ms / 1000) - margin_seconds
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        return False
+
+
+def _get_agent_refresh_token(agent_user: dict) -> Optional[str]:
+    """Get the refresh token for an agent."""
+    if not agent_user:
+        return None
+    agent_token_json = os.path.join(agent_user["home"], "oauth_token.json")
+    try:
+        with open(agent_token_json) as f:
+            return json.load(f).get("refreshToken") or None
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+async def _refresh_agent_token(agent_user: dict) -> bool:
+    """Refresh an agent's OAuth token using its own refresh token."""
+    refresh_token = _get_agent_refresh_token(agent_user)
+    if not refresh_token:
+        logger.warning(f"[Agent Auth] No refresh token for {agent_user['username']}")
+        return False
+    payload = {
+        "grant_type": "refresh_token",
+        "client_id": OAUTH_CLIENT_ID,
+        "refresh_token": refresh_token,
+    }
+    result = await _token_http_request(payload, f"agent {agent_user['username']} token refresh")
+    if not result or result.get("_already_valid"):
+        return bool(result)
+    access_token = result.get("access_token")
+    if not access_token:
+        logger.error(f"[Agent Auth] Refresh response missing access_token for {agent_user['username']}")
+        return False
+    new_refresh = result.get("refresh_token", refresh_token)
+    expires_in = result.get("expires_in", 28800)
+    _save_agent_token(agent_user, access_token, refresh_token=new_refresh, expires_in=expires_in)
+    logger.info(f"[Agent Auth] Token refreshed for {agent_user['username']}")
+    return True
+
+
 def _get_agent_env(agent_user: dict = None) -> dict:
-    env = _get_claude_env()
+    """Build env for agent subprocess. Uses agent's own OAuth token if available."""
     if agent_user:
+        # Build env with agent-specific token (don't use global token)
+        env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+        agent_token = _load_agent_token(agent_user)
+        if agent_token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = agent_token
+        elif env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            # Remove global token so agent doesn't use it
+            del env["CLAUDE_CODE_OAUTH_TOKEN"]
         env["HOME"] = agent_user["home"]
         env["USER"] = agent_user["username"]
         env["LOGNAME"] = agent_user["username"]
-    return env
+        return env
+    # No agent — use global token (fallback for non-agent requests)
+    return _get_claude_env()
 
 def _get_subprocess_kwargs(agent_user: dict = None) -> dict:
     """No-op: all agents run as the same coder user, isolated by HOME dir."""
@@ -619,12 +741,17 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
                 "login_url": _auth_url,
             }
 
-    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
-    if _is_token_expired() and time.time() >= _token_cooldown_until:
-        await _refresh_oauth_token()
-
     # Resolve agent-specific Linux user for isolation
     agent_user = await ensure_agent_user(agent_id) if agent_id else None
+
+    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
+    if agent_user:
+        # Per-agent token refresh
+        if _is_agent_token_expired(agent_user) and time.time() >= _token_cooldown_until:
+            await _refresh_agent_token(agent_user)
+    else:
+        if _is_token_expired() and time.time() >= _token_cooldown_until:
+            await _refresh_oauth_token()
 
     cmd = _build_claude_cmd(output_format="json", system_prompt=system_prompt)
 
@@ -666,20 +793,39 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
     # Detect auth errors — auto-trigger login flow or token refresh
     combined = f"{stdout} {stderr}".lower()
     if "token has expired" in combined or ("authentication_error" in combined and "401" in combined):
-        logger.warning("Claude Code auth error: token expired, attempting refresh...")
-        refreshed = await _refresh_oauth_token()
-        if refreshed:
-            logger.info("Token refreshed, retrying request...")
-            return await run_claude_sync(prompt, system_prompt)
-        login_url = await _get_login_url()
-        return {
-            "status": "auth_required",
-            "output": "",
-            "error": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
-            "login_url": login_url,
-        }
+        if agent_user:
+            logger.warning(f"Agent {agent_user['username']} auth error: token expired, attempting refresh...")
+            refreshed = await _refresh_agent_token(agent_user)
+            if refreshed:
+                logger.info(f"Agent token refreshed, retrying request...")
+                return await run_claude_sync(prompt, system_prompt, agent_id=agent_id)
+            return {
+                "status": "auth_required",
+                "output": "",
+                "error": f"Agent OAuth token expired and refresh failed. Authenticate via POST /auth/agent/{agent_id}/login",
+            }
+        else:
+            logger.warning("Claude Code auth error: token expired, attempting refresh...")
+            refreshed = await _refresh_oauth_token()
+            if refreshed:
+                logger.info("Token refreshed, retrying request...")
+                return await run_claude_sync(prompt, system_prompt)
+            login_url = await _get_login_url()
+            return {
+                "status": "auth_required",
+                "output": "",
+                "error": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
+                "login_url": login_url,
+            }
 
     if "not logged in" in combined:
+        if agent_user:
+            logger.warning(f"Agent {agent_user['username']} not logged in")
+            return {
+                "status": "auth_required",
+                "output": "",
+                "error": f"Agent not authenticated. Call POST /auth/agent/{agent_id}/login to start.",
+            }
         logger.warning("Claude Code auth error: not logged in, initiating login flow...")
         login_url = await _get_login_url()
         if login_url:
@@ -746,20 +892,30 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
             }
             return
 
-    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
-    if _is_token_expired() and time.time() >= _token_cooldown_until:
-        refreshed = await _refresh_oauth_token()
-        if not refreshed:
-            login_url = await _get_login_url()
-            yield {
-                "type": "error",
-                "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
-                "login_url": login_url,
-            }
-            return
-
     # Resolve agent-specific Linux user for isolation
     agent_user = await ensure_agent_user(agent_id) if agent_id else None
+
+    # Proactively refresh token if expired (skip if in cooldown from a recent 429)
+    if agent_user:
+        if _is_agent_token_expired(agent_user) and time.time() >= _token_cooldown_until:
+            refreshed = await _refresh_agent_token(agent_user)
+            if not refreshed:
+                yield {
+                    "type": "error",
+                    "content": f"Agent OAuth token expired and refresh failed. Authenticate this agent via POST /auth/agent/{agent_id}/login",
+                }
+                return
+    else:
+        if _is_token_expired() and time.time() >= _token_cooldown_until:
+            refreshed = await _refresh_oauth_token()
+            if not refreshed:
+                login_url = await _get_login_url()
+                yield {
+                    "type": "error",
+                    "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
+                    "login_url": login_url,
+                }
+                return
 
     cmd = _build_claude_cmd(output_format="stream-json", system_prompt=system_prompt)
 
@@ -1125,6 +1281,176 @@ async def auth_login(
         "status": "pending",
         "login_url": url,
         "message": "Open this URL, then send the verification code as your next message.",
+    }
+
+
+# ─── Per-Agent Auth Routes ────────────────────────────────────────────────────
+
+# Per-agent pending OAuth flow state: { agent_id: { code_verifier, state, auth_url } }
+_agent_oauth_flows: dict[str, dict] = {}
+
+
+@app.get("/auth/agent/{agent_id}/status")
+async def agent_auth_status(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Check whether a specific agent has its own OAuth token."""
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    agent_user = await ensure_agent_user(agent_id)
+    if not agent_user:
+        return {"authenticated": False, "error": "Failed to resolve agent user"}
+
+    token = _load_agent_token(agent_user)
+    if token:
+        expired = _is_agent_token_expired(agent_user)
+        return {"authenticated": True, "expired": expired, "agent_id": agent_id}
+    return {"authenticated": False, "agent_id": agent_id}
+
+
+@app.post("/auth/agent/{agent_id}/login")
+async def agent_auth_login(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Initiate OAuth PKCE login flow for a specific agent."""
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    agent_user = await ensure_agent_user(agent_id)
+    if not agent_user:
+        raise HTTPException(status_code=500, detail="Failed to create agent user")
+
+    # Already authenticated?
+    token = _load_agent_token(agent_user)
+    if token and not _is_agent_token_expired(agent_user):
+        return {"status": "authenticated", "agent_id": agent_id}
+
+    # Check if there's already a pending flow
+    if agent_id in _agent_oauth_flows:
+        return {
+            "status": "pending",
+            "agent_id": agent_id,
+            "login_url": _agent_oauth_flows[agent_id]["auth_url"],
+            "message": "Open this URL in your browser to authenticate this agent with its own Claude subscription.",
+        }
+
+    # Generate PKCE challenge
+    code_verifier = secrets.token_urlsafe(64)[:128]
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(32)
+
+    auth_url = (
+        f"{OAUTH_AUTHORIZE_URL}?"
+        f"client_id={OAUTH_CLIENT_ID}&"
+        f"response_type=code&"
+        f"redirect_uri={OAUTH_REDIRECT_URI}&"
+        f"scope={OAUTH_SCOPES.replace(' ', '+')}&"
+        f"code_challenge={code_challenge}&"
+        f"code_challenge_method=S256&"
+        f"state={state}"
+    )
+
+    _agent_oauth_flows[agent_id] = {
+        "code_verifier": code_verifier,
+        "state": state,
+        "auth_url": auth_url,
+    }
+
+    return {
+        "status": "pending",
+        "agent_id": agent_id,
+        "login_url": auth_url,
+        "message": "Open this URL in your browser, then POST the verification code to /auth/agent/{agent_id}/callback.",
+    }
+
+
+class AgentAuthCallback(BaseModel):
+    code: str
+
+
+@app.post("/auth/agent/{agent_id}/callback")
+async def agent_auth_callback(
+    agent_id: str,
+    request: AgentAuthCallback,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Exchange OAuth code for token and save it for a specific agent."""
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    flow = _agent_oauth_flows.get(agent_id)
+    if not flow:
+        raise HTTPException(status_code=400, detail="No pending OAuth flow for this agent. Call POST /auth/agent/{agent_id}/login first.")
+
+    agent_user = await ensure_agent_user(agent_id)
+    if not agent_user:
+        raise HTTPException(status_code=500, detail="Failed to resolve agent user")
+
+    code = request.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code cannot be empty")
+
+    payload = {
+        "grant_type": "authorization_code",
+        "client_id": OAUTH_CLIENT_ID,
+        "code": code,
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "code_verifier": flow["code_verifier"],
+    }
+    result = await _token_http_request(payload, f"agent {agent_id} code exchange")
+    if not result:
+        raise HTTPException(status_code=502, detail="Token exchange failed")
+
+    access_token = result.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=502, detail=f"Token response missing access_token: {json.dumps(result)}")
+
+    refresh_token = result.get("refresh_token")
+    expires_in = result.get("expires_in", 28800)
+
+    _save_agent_token(agent_user, access_token, refresh_token=refresh_token, expires_in=expires_in)
+    # Clean up the pending flow
+    _agent_oauth_flows.pop(agent_id, None)
+
+    return {
+        "status": "authenticated",
+        "agent_id": agent_id,
+        "message": "Agent now has its own OAuth token.",
+    }
+
+
+@app.post("/auth/agent/{agent_id}/token")
+async def agent_set_token(
+    agent_id: str,
+    request: TokenRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Directly set an OAuth token for a specific agent (e.g. from `claude setup-token`)."""
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    agent_user = await ensure_agent_user(agent_id)
+    if not agent_user:
+        raise HTTPException(status_code=500, detail="Failed to resolve agent user")
+
+    token = request.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token cannot be empty")
+
+    _save_agent_token(agent_user, token)
+    return {
+        "status": "success",
+        "agent_id": agent_id,
+        "message": "OAuth token saved for this agent.",
     }
 
 

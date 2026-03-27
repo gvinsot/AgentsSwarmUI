@@ -80,7 +80,8 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
 
   useEffect(() => { if (activeTab === 'llm') loadLlmConfigs(); }, [activeTab, loadLlmConfigs]);
 
-  const PROVIDER_OPTIONS = ['anthropic', 'openai', 'google', 'deepseek', 'mistral', 'openrouter', 'vllm', 'ollama'];
+  const PROVIDER_OPTIONS = ['anthropic', 'claude-paid', 'openai', 'google', 'deepseek', 'mistral', 'openrouter', 'vllm', 'ollama'];
+  const PROVIDER_LABELS = { 'claude-paid': 'Anthropic Paid Plan' };
 
   const handleSaveLlmConfig = async (e) => {
     e.preventDefault();
@@ -653,10 +654,15 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                 </div>
                 <div>
                   <label className="block text-xs text-dark-400 mb-1">Provider</label>
-                  <select value={llmForm.provider || ''} onChange={e => setLlmForm(f => ({ ...f, provider: e.target.value, model: '' }))}
+                  <select value={llmForm.provider || ''} onChange={e => {
+                      const prov = e.target.value;
+                      const updates = { provider: prov, model: '' };
+                      if (prov === 'claude-paid') { updates.endpoint = 'http://coder-service:8000'; updates.apiKey = ''; }
+                      setLlmForm(f => ({ ...f, ...updates }));
+                    }}
                     className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500" required>
                     <option value="">Select provider...</option>
-                    {PROVIDER_OPTIONS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                    {PROVIDER_OPTIONS.map(p => <option key={p} value={p}>{PROVIDER_LABELS[p] || p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
                   </select>
                 </div>
                 <div>
@@ -665,12 +671,23 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                     className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                     placeholder="e.g. claude-opus-4-20250514" required />
                 </div>
+                {llmForm.provider !== 'claude-paid' && (
                 <div>
                   <label className="block text-xs text-dark-400 mb-1">Endpoint <span className="text-dark-500">(vLLM/Ollama only)</span></label>
                   <input type="text" value={llmForm.endpoint || ''} onChange={e => setLlmForm(f => ({ ...f, endpoint: e.target.value }))}
                     className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                     placeholder="http://localhost:8000/v1" />
                 </div>
+                )}
+                {llmForm.provider === 'claude-paid' && (
+                <div className="sm:col-span-2">
+                  <div className="px-3 py-2 bg-dark-900/50 border border-dark-700 rounded-lg text-xs text-dark-400">
+                    🔒 Authentication is handled via OAuth per agent (coder-service). No API key needed.
+                    Endpoint is auto-configured to <code className="text-indigo-400">coder-service:8000</code>.
+                  </div>
+                </div>
+                )}
+                {llmForm.provider !== 'claude-paid' && (
                 <div className="relative">
                   <label className="block text-xs text-dark-400 mb-1">API Key</label>
                   <input type={showLlmApiKey[llmForm.id || '_new'] ? 'text' : 'password'}
@@ -682,6 +699,7 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                     {showLlmApiKey[llmForm.id || '_new'] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                )}
                 <div className="flex items-center gap-4 pt-5">
                   <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
                     <input type="checkbox" checked={llmForm.isReasoning || false} onChange={e => setLlmForm(f => ({ ...f, isReasoning: e.target.checked }))}

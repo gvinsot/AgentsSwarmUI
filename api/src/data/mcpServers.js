@@ -28,5 +28,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-gandi-dns',
+    name: 'Gandi DNS',
+    url: '__internal__gandi_dns',
+    description: 'Gandi LiveDNS — create, update, delete DNS records (A, AAAA, CNAME, MX, TXT…) on your domains',
+    icon: '🌐',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

@@ -53,10 +53,24 @@ export function setupSocketHandlers(io, agentManager) {
     // Send initial state — filtered by user (admin sees all, others see own + unowned)
     socket.emit('agents:list', agentManager.getAllForUser(userId, userRole));
 
+    /** Check if the current socket user can access the given agent */
+    function canAccessAgent(agentId) {
+      const agent = agentManager.agents.get(agentId);
+      if (!agent) return false;
+      if (userRole === 'admin') return true;
+      return !agent.ownerId || agent.ownerId === userId;
+    }
+
     // ── Chat with streaming ───────────────────────────────────────────
     socket.on('agent:chat', async (data) => {
       const { agentId, message, messageId } = data;
       if (!agentId || !message) return;
+
+      // Ownership check
+      if (!canAccessAgent(agentId)) {
+        socket.emit('error', { message: 'Access denied: this agent belongs to another user.' });
+        return;
+      }
       if (!checkSocketRate()) {
         socket.emit('error', { message: 'Rate limit exceeded. Please wait before sending more messages.' });
         return;
@@ -112,9 +126,13 @@ export function setupSocketHandlers(io, agentManager) {
       socket.emit('broadcast:start', { message });
 
       try {
+        // Only broadcast to agents visible to this user
+        const visibleAgents = agentManager._agentsForUser(userId, userRole);
+        const visibleIds = new Set(visibleAgents.map(a => a.id));
         const results = await agentManager.broadcastMessage(
           message,
           (agentId, chunk) => {
+            if (!visibleIds.has(agentId)) return;
             const a = agentManager.agents.get(agentId);
             socket.emit('agent:stream:chunk', { agentId, project: a?.project || null, chunk });
             emitForAgent(agentId, 'agent:thinking', {
@@ -122,7 +140,8 @@ export function setupSocketHandlers(io, agentManager) {
               project: a?.project || null,
               thinking: a?.currentThinking || ''
             });
-          }
+          },
+          visibleIds
         );
 
         socket.emit('broadcast:complete', { results });
@@ -135,6 +154,10 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agent:handoff', async (data) => {
       const { fromId, toId, context } = data;
       if (!fromId || !toId || !context) return;
+      if (!canAccessAgent(fromId) || !canAccessAgent(toId)) {
+        socket.emit('agent:handoff:error', { error: 'Access denied' });
+        return;
+      }
       if (!checkSocketRate()) {
         socket.emit('error', { message: 'Rate limit exceeded.' });
         return;
@@ -185,6 +208,7 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agent:status', (data) => {
       const { agentId } = data || {};
       if (!agentId) return;
+      if (!canAccessAgent(agentId)) return;
       const status = agentManager.getAgentStatus(agentId);
       if (status) {
         socket.emit('agent:status', status);
@@ -207,6 +231,7 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agent:stop', (data) => {
       const { agentId } = data;
       if (!agentId) return;
+      if (!canAccessAgent(agentId)) return;
       
       const stopped = agentManager.stopAgent(agentId);
       if (stopped) {
@@ -219,6 +244,7 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agent:task:execute', async (data) => {
       const { agentId, taskId } = data;
       if (!agentId || !taskId) return;
+      if (!canAccessAgent(agentId)) return;
 
       const taskAgent = agentManager.agents.get(agentId);
       const taskProject = taskAgent?.project || null;
@@ -246,6 +272,7 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agent:task:executeAll', async (data) => {
       const { agentId } = data;
       if (!agentId) return;
+      if (!canAccessAgent(agentId)) return;
 
       const execAgent = agentManager.agents.get(agentId);
       const execProject = execAgent?.project || null;
@@ -280,7 +307,7 @@ export function setupSocketHandlers(io, agentManager) {
 
       try {
         // Find target agent by name
-        const targetAgent = agentManager.getAll().find(
+        const targetAgent = agentManager.getAllForUser(userId, userRole).find(
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
@@ -345,7 +372,7 @@ export function setupSocketHandlers(io, agentManager) {
       if (!agentId || !targetAgentName || !question) return;
 
       try {
-        const targetAgent = agentManager.getAll().find(
+        const targetAgent = agentManager.getAllForUser(userId, userRole).find(
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
@@ -390,6 +417,10 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('voice:management', async (data) => {
       const { agentId, functionName, args } = data;
       if (!agentId || !functionName) return;
+      if (!canAccessAgent(agentId)) {
+        socket.emit('voice:management:result', { agentId, functionName, error: 'Access denied', result: null });
+        return;
+      }
 
       const voiceAgent = agentManager.agents.get(agentId);
       if (!voiceAgent) {
@@ -397,8 +428,9 @@ export function setupSocketHandlers(io, agentManager) {
         return;
       }
 
-      // Helper to find an agent by name (excluding self)
-      const findAgent = (name) => Array.from(agentManager.agents.values()).find(
+      // Helper to find an agent by name (excluding self) — scoped to user's visible agents
+      const userAgents = agentManager.getAllForUser(userId, userRole);
+      const findAgent = (name) => userAgents.find(
         a => a.name.toLowerCase() === (name || '').toLowerCase() && a.id !== agentId && a.enabled !== false
       );
 
@@ -422,7 +454,7 @@ export function setupSocketHandlers(io, agentManager) {
             break;
           }
           case 'list_agents': {
-            const enabled = Array.from(agentManager.agents.values()).filter(a => a.enabled !== false);
+            const enabled = userAgents.filter(a => a.enabled !== false);
             result = enabled.map(a => `${a.name} [${a.status}] (${a.role || 'worker'})${a.project ? ` project=${a.project}` : ''}`).join('\n');
             break;
           }
@@ -436,7 +468,7 @@ export function setupSocketHandlers(io, agentManager) {
             break;
           }
           case 'get_available_agent': {
-            const available = Array.from(agentManager.agents.values()).find(
+            const available = userAgents.find(
               a => a.id !== agentId && a.enabled !== false && a.status === 'idle' && (a.role || '').toLowerCase() === (args.role || '').toLowerCase()
             );
             result = available
@@ -483,7 +515,7 @@ export function setupSocketHandlers(io, agentManager) {
           }
           case 'clear_all_chats': {
             let count = 0;
-            for (const a of agentManager.agents.values()) {
+            for (const a of userAgents) {
               if (a.id !== agentId && a.enabled !== false) {
                 agentManager.clearHistory(a.id);
                 count++;
@@ -495,7 +527,7 @@ export function setupSocketHandlers(io, agentManager) {
           }
           case 'clear_all_action_logs': {
             let count = 0;
-            for (const a of agentManager.agents.values()) {
+            for (const a of userAgents) {
               if (a.id !== agentId && a.enabled !== false) {
                 agentManager.clearActionLogs(a.id);
                 count++;

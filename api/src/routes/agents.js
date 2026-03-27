@@ -53,6 +53,17 @@ function sanitizeAgent(agent) {
 export function agentRoutes(agentManager) {
   const router = express.Router();
 
+  // ── Ownership guard: non-admin users can only access their own agents ──
+  function requireAgentAccess(req, res, next) {
+    const agent = agentManager.agents.get(req.params.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (req.user.role === 'admin') return next();
+    if (agent.ownerId && agent.ownerId !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    next();
+  }
+
   // List agents (filtered by user — admin sees all, others see own + unowned)
   router.get('/', (req, res) => {
     const agents = agentManager.getAllForUser(req.user.userId, req.user.role);
@@ -91,14 +102,14 @@ export function agentRoutes(agentManager) {
   });
 
   // Get single agent detailed status (lightweight, includes project + currentTask)
-  router.get('/:id/status', (req, res) => {
+  router.get('/:id/status', requireAgentAccess, (req, res) => {
     const status = agentManager.getAgentStatus(req.params.id);
     if (!status) return res.status(404).json({ error: 'Agent not found' });
     res.json(status);
   });
 
   // Get single agent
-  router.get('/:id', (req, res) => {
+  router.get('/:id', requireAgentAccess, (req, res) => {
     const agent = agentManager.getById(req.params.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     res.json(sanitizeAgent(agent));
@@ -122,17 +133,10 @@ export function agentRoutes(agentManager) {
     }
   });
 
-  // Update agent (basic users cannot edit settings, ownership check for non-admin)
-  router.put('/:id', async (req, res) => {
+  // Update agent (basic users cannot edit settings, ownership enforced by middleware)
+  router.put('/:id', requireAgentAccess, async (req, res) => {
     if (req.user.role === 'basic') {
       return res.status(403).json({ error: 'Basic users cannot modify agents' });
-    }
-    // Non-admin users can only update their own agents
-    if (req.user.role !== 'admin') {
-      const existing = agentManager.agents.get(req.params.id);
-      if (existing && existing.ownerId && existing.ownerId !== req.user.userId) {
-        return res.status(403).json({ error: 'You can only modify your own agents' });
-      }
     }
     try {
       const parsed = updateAgentSchema.parse(req.body);
@@ -147,16 +151,10 @@ export function agentRoutes(agentManager) {
     }
   });
 
-  // Delete agent (basic users cannot delete, ownership check for non-admin)
-  router.delete('/:id', async (req, res) => {
+  // Delete agent (basic users cannot delete, ownership enforced by middleware)
+  router.delete('/:id', requireAgentAccess, async (req, res) => {
     if (req.user.role === 'basic') {
       return res.status(403).json({ error: 'Basic users cannot delete agents' });
-    }
-    if (req.user.role !== 'admin') {
-      const existing = agentManager.agents.get(req.params.id);
-      if (existing && existing.ownerId && existing.ownerId !== req.user.userId) {
-        return res.status(403).json({ error: 'You can only delete your own agents' });
-      }
     }
     const success = await agentManager.delete(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
@@ -164,7 +162,7 @@ export function agentRoutes(agentManager) {
   });
 
   // Send message to agent
-  router.post('/:id/chat', async (req, res) => {
+  router.post('/:id/chat', requireAgentAccess, async (req, res) => {
     try {
       const { message } = req.body;
       if (!message) return res.status(400).json({ error: 'Message required' });
@@ -180,35 +178,34 @@ export function agentRoutes(agentManager) {
   });
 
   // Get conversation history
-  router.get('/:id/history', (req, res) => {
+  router.get('/:id/history', requireAgentAccess, (req, res) => {
     const agent = agentManager.agents.get(req.params.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
     res.json(agent.conversationHistory);
   });
 
   // Clear conversation history
-  router.delete('/:id/history', (req, res) => {
+  router.delete('/:id/history', requireAgentAccess, (req, res) => {
     const success = agentManager.clearHistory(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
     res.json({ success: true });
   });
 
   // Truncate conversation history after a specific message index
-  router.delete('/:id/history/after/:index', (req, res) => {
+  router.delete('/:id/history/after/:index', requireAgentAccess, (req, res) => {
     const result = agentManager.truncateHistory(req.params.id, req.params.index);
     if (result === null) return res.status(404).json({ error: 'Agent not found or invalid index' });
     res.json(result);
   });
 
   // Clear action logs
-  router.delete('/:id/action-logs', (req, res) => {
+  router.delete('/:id/action-logs', requireAgentAccess, (req, res) => {
     const success = agentManager.clearActionLogs(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
     res.json({ success: true });
   });
 
   // Handoff between agents
-  router.post('/:id/handoff', async (req, res) => {
+  router.post('/:id/handoff', requireAgentAccess, async (req, res) => {
     try {
       const { targetAgentId, context } = req.body;
       if (!targetAgentId || !context) {
@@ -227,19 +224,21 @@ export function agentRoutes(agentManager) {
       const { message } = req.body;
       if (!message) return res.status(400).json({ error: 'Message required' });
 
-      const results = await agentManager.broadcastMessage(message);
+      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role).map(a => a.id));
+      const results = await agentManager.broadcastMessage(message, null, visibleIds);
       res.json({ results });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Update project for all agents
+  // Update project for all user's agents
   router.put('/project/all', async (req, res) => {
     try {
       const { project } = req.body;
       if (project === undefined) return res.status(400).json({ error: 'Project required' });
-      const updated = await agentManager.updateAllProjects(project);
+      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role).map(a => a.id));
+      const updated = await agentManager.updateAllProjects(project, visibleIds);
       res.json({ success: true, count: updated.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -247,7 +246,7 @@ export function agentRoutes(agentManager) {
   });
 
   // ── Task endpoints ──────────────────────────────────────────────────────
-  router.post('/:id/tasks', async (req, res) => {
+  router.post('/:id/tasks', requireAgentAccess, async (req, res) => {
     try {
       const { text, project, source, status, boardId, recurrence } = req.body;
       if (!text) return res.status(400).json({ error: 'Text required' });
@@ -293,7 +292,7 @@ export function agentRoutes(agentManager) {
     }
   });
 
-  router.patch('/:id/tasks/:taskId', (req, res) => {
+  router.patch('/:id/tasks/:taskId', requireAgentAccess, (req, res) => {
     try {
     const { status, text, project, source, recurrence } = req.body || {};
     // Source is immutable once set at creation — reject any attempt to change it
@@ -343,13 +342,13 @@ export function agentRoutes(agentManager) {
     }
   });
 
-  router.delete('/:id/tasks', (req, res) => {
+  router.delete('/:id/tasks', requireAgentAccess, (req, res) => {
     const success = agentManager.clearTasks(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
     res.json({ success: true });
   });
 
-  router.delete('/:id/tasks/:taskId', (req, res) => {
+  router.delete('/:id/tasks/:taskId', requireAgentAccess, (req, res) => {
     // Check if deleting an in_progress task
     const agent = agentManager.agents.get(req.params.id);
     const taskToDelete = agent?.todoList?.find(t => t.id === req.params.taskId);
@@ -365,7 +364,7 @@ export function agentRoutes(agentManager) {
     res.json({ success: true });
   });
 
-  router.post('/:id/tasks/:taskId/transfer', (req, res) => {
+  router.post('/:id/tasks/:taskId/transfer', requireAgentAccess, (req, res) => {
     const { targetAgentId } = req.body;
     if (!targetAgentId) return res.status(400).json({ error: 'targetAgentId required' });
     const task = agentManager.transferTask(req.params.id, req.params.taskId, targetAgentId);
@@ -373,7 +372,7 @@ export function agentRoutes(agentManager) {
     res.status(201).json(task);
   });
 
-  router.patch('/:id/tasks/:taskId/assignee', (req, res) => {
+  router.patch('/:id/tasks/:taskId/assignee', requireAgentAccess, (req, res) => {
     const { assigneeId } = req.body;
     // assigneeId can be null to unassign
     if (assigneeId && !agentManager.agents.get(assigneeId)) {
@@ -385,7 +384,7 @@ export function agentRoutes(agentManager) {
   });
 
   // ── Task commit association ────────────────────────────────────────
-  router.post('/:id/tasks/:taskId/commits', (req, res) => {
+  router.post('/:id/tasks/:taskId/commits', requireAgentAccess, (req, res) => {
     const { hash, message } = req.body;
     if (!hash) return res.status(400).json({ error: 'Commit hash required' });
     const task = agentManager.addTaskCommit(req.params.id, req.params.taskId, hash, message || '');
@@ -393,14 +392,14 @@ export function agentRoutes(agentManager) {
     res.status(201).json(task);
   });
 
-  router.delete('/:id/tasks/:taskId/commits/:hash', (req, res) => {
+  router.delete('/:id/tasks/:taskId/commits/:hash', requireAgentAccess, (req, res) => {
     const task = agentManager.removeTaskCommit(req.params.id, req.params.taskId, req.params.hash);
     if (!task) return res.status(404).json({ error: 'Not found' });
     res.json(task);
   });
 
   // ── On-demand AI refinement (synchronous — waits for result) ────────
-  router.post('/:id/tasks/:taskId/refine', async (req, res) => {
+  router.post('/:id/tasks/:taskId/refine', requireAgentAccess, async (req, res) => {
     const { refineAgentId } = req.body;
     if (!refineAgentId) return res.status(400).json({ error: 'refineAgentId required' });
 
@@ -428,7 +427,7 @@ export function agentRoutes(agentManager) {
   });
 
   // ── RAG Document endpoints ─────────────────────────────────────────
-  router.post('/:id/rag', (req, res) => {
+  router.post('/:id/rag', requireAgentAccess, (req, res) => {
     const { name, content } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'Name and content required' });
     const doc = agentManager.addRagDocument(req.params.id, name, content);
@@ -436,7 +435,7 @@ export function agentRoutes(agentManager) {
     res.status(201).json(doc);
   });
 
-  router.delete('/:id/rag/:docId', (req, res) => {
+  router.delete('/:id/rag/:docId', requireAgentAccess, (req, res) => {
     const success = agentManager.deleteRagDocument(req.params.id, req.params.docId);
     if (!success) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
@@ -456,10 +455,10 @@ export function agentRoutes(agentManager) {
     if (!success) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   };
-  router.post('/:id/plugins', pluginAssignHandler);
-  router.delete('/:id/plugins/:pluginId', pluginRemoveHandler);
+  router.post('/:id/plugins', requireAgentAccess, pluginAssignHandler);
+  router.delete('/:id/plugins/:pluginId', requireAgentAccess, pluginRemoveHandler);
   // Backward compatibility
-  router.post('/:id/skills', pluginAssignHandler);
+  router.post('/:id/skills', requireAgentAccess, pluginAssignHandler);
 
 // ── Task History & Stats ──────────────────────────────────────────────────────
 
@@ -481,10 +480,10 @@ router.get("/tasks/:id/history", (req, res) => {
   if (!history) return res.status(404).json({ error: "Not found" });
   res.json(history);
 });
-  router.delete('/:id/skills/:skillId', pluginRemoveHandler);
+  router.delete('/:id/skills/:skillId', requireAgentAccess, pluginRemoveHandler);
 
   // ── MCP server assignment endpoints (backward compat) ───────────
-  router.post('/:id/mcp-servers', (req, res) => {
+  router.post('/:id/mcp-servers', requireAgentAccess, (req, res) => {
     const { serverId } = req.body;
     if (!serverId) return res.status(400).json({ error: 'serverId required' });
     const result = agentManager.assignMcpServer(req.params.id, serverId);
@@ -492,7 +491,7 @@ router.get("/tasks/:id/history", (req, res) => {
     res.json({ success: true, mcpServers: result });
   });
 
-  router.delete('/:id/mcp-servers/:serverId', (req, res) => {
+  router.delete('/:id/mcp-servers/:serverId', requireAgentAccess, (req, res) => {
     const success = agentManager.removeMcpServer(req.params.id, req.params.serverId);
     if (!success) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });

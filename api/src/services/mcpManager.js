@@ -13,6 +13,7 @@ export function resolveInternalMcpConfig(serverUrl, {
     '__internal__onedrive': `http://localhost:${port}/api/onedrive/mcp`,
     '__internal__code_index': `http://localhost:${port}/api/code-index/mcp`,
     '__internal__code-index': `http://localhost:${port}/api/code-index/mcp`,
+    '__internal__gandi_dns': `http://localhost:${port}/api/gandi-dns/mcp`,
   };
 
   if (!mappings[serverUrl]) {

@@ -773,9 +773,10 @@ export class AgentManager {
     return true;
   }
 
-  async updateAllProjects(project) {
+  async updateAllProjects(project, agentIdFilter = null) {
     const updated = [];
     for (const agent of this.agents.values()) {
+      if (agentIdFilter && !agentIdFilter.has(agent.id)) continue;
       if (project !== agent.project) {
         this._switchProjectContext(agent, agent.project, project);
         agent.projectChangedAt = project ? new Date().toISOString() : null;
@@ -3094,8 +3095,11 @@ export class AgentManager {
   }
 
   // ─── Global Broadcast (tmux-style) ─────────────────────────────────
-  async broadcastMessage(message, streamCallback) {
-    const agents = Array.from(this.agents.values()).filter(a => a.enabled !== false);
+  async broadcastMessage(message, streamCallback, agentIdFilter = null) {
+    let agents = Array.from(this.agents.values()).filter(a => a.enabled !== false);
+    if (agentIdFilter) {
+      agents = agents.filter(a => agentIdFilter.has(a.id));
+    }
     const results = [];
 
     const promises = agents.map(async (agent) => {
