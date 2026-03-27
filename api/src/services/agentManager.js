@@ -4156,8 +4156,10 @@ export class AgentManager {
           .filter(t => this._validTransition(t))
           .filter(t => {
             if (!t) return false;
+            // Only condition-based transitions need periodic re-evaluation.
+            // on_enter transitions fire once via _checkAutoRefine when a task
+            // enters the status — re-checking them here causes infinite loops.
             if (t.trigger === 'condition' && (t.conditions || []).length > 0) return true;
-            if (t.trigger === 'on_enter' && (t.actions || []).some(a => a.type === 'run_agent')) return true;
             return false;
           });
         if (condTransitions.length > 0) {
@@ -4493,14 +4495,11 @@ export class AgentManager {
         streamCallback
       );
 
-      // If workflow manages in_progress transitions, let it handle the next move
-      // Otherwise fall back to moving the task to the target status directly
-      if (this._workflowManagedStatuses?.has('in_progress')) {
-        console.log(`🔄 [TaskLoop] Execution finished for "${task.text.slice(0, 60)}" — stays in_progress for workflow`);
-      } else {
-        this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: true, by: executor.name });
-        console.log(`🔄 [TaskLoop] Resumed and completed "${task.text.slice(0, 60)}" -> ${targetStatus}`);
-      }
+      // Execution complete — always move to the determined targetStatus.
+      // The task loop is the fallback executor (no workflow transition fired);
+      // it is responsible for completing the task.
+      this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
+      console.log(`🔄 [TaskLoop] Resumed and completed "${task.text.slice(0, 60)}" -> ${targetStatus}`);
     } catch (err) {
       console.error(`🔄 [TaskLoop] Error resuming task for ${executor.name}:`, err.message);
       this._emit('agent:stream:error', { agentId: executorId, error: err.message });

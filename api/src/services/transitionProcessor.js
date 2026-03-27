@@ -255,28 +255,12 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
       const response = (result?.content || fullResponse).trim();
 
       if (isExecution) {
-        // Check if workflow has a transition from in_progress (condition or agent-based)
-        // If so, let workflow handle it; otherwise move to targetStatus directly
-        let workflowManagesInProgress = false;
-        try {
-          const wf = await getWorkflowForBoard(task.boardId);
-          workflowManagesInProgress = wf.transitions.some(t => {
-            if (t.actions) {
-              // New format: check for condition trigger or run_agent actions
-              return t.from === 'in_progress' && (
-                (t.trigger === 'condition' && (t.conditions || []).length > 0) ||
-                (t.actions || []).some(a => a.type === 'run_agent')
-              );
-            }
-            // Old format
-            return t.from === 'in_progress' && (t.autoRefine || t.triggerType === 'condition');
-          });
-        } catch (_) { /* use default: move immediately */ }
-
-        if (workflowManagesInProgress) {
-          console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}" — stays in_progress for workflow transition`);
-        } else if (targetStatus) {
-          agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: agent.name });
+        // Execution complete — move to targetStatus.
+        // This IS the workflow action that just ran; always honour its configured target.
+        // Condition-based transitions from in_progress (e.g. "wait for subtasks") are a
+        // different trigger and will be handled by _recheckConditionalTransitions separately.
+        if (targetStatus) {
+          agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: false, by: agent.name });
           console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}" — moved to ${targetStatus}`);
         }
       } else if (isDecide) {
