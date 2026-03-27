@@ -1,6 +1,8 @@
 import express from 'express';
 import { z } from 'zod';
 import { globalTaskStore } from '../services/globalTaskStore.js';
+import { getWorkflowForBoard } from '../services/configManager.js';
+import { getAllBoards } from '../services/database.js';
 
 // Schema for creating a new agent
 const createAgentSchema = z.object({
@@ -245,20 +247,48 @@ export function agentRoutes(agentManager) {
   });
 
   // ── Task endpoints ──────────────────────────────────────────────────────
-  router.post('/:id/tasks', (req, res) => {
-    const { text, project, source, status, boardId, recurrence } = req.body;
-    if (!text) return res.status(400).json({ error: 'Text required' });
-    const agent = agentManager.agents.get(req.params.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    // Auto-assign agent to project if provided and different from current
-    if (project && project !== agent.project) {
-      agentManager.update(agent.id, { project });
+  router.post('/:id/tasks', async (req, res) => {
+    try {
+      const { text, project, source, status, boardId, recurrence } = req.body;
+      if (!text) return res.status(400).json({ error: 'Text required' });
+      const agent = agentManager.agents.get(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      // Auto-assign agent to project if provided and different from current
+      if (project && project !== agent.project) {
+        agentManager.update(agent.id, { project });
+      }
+      const resolvedSource = source || { type: 'user' };
+      let resolvedStatus = status && typeof status === 'string' ? status : undefined;
+      let resolvedBoardId = boardId || undefined;
+
+      // When no boardId is provided, auto-assign the first available board
+      // so the task is visible and gets the correct default status
+      if (!resolvedBoardId) {
+        try {
+          const boards = await getAllBoards();
+          if (boards.length > 0) {
+            resolvedBoardId = boards[0].id;
+          }
+        } catch { /* no board available */ }
+      }
+
+      // When no status is provided, resolve default from the board's first column
+      // so the task lands in the correct column (not hardcoded 'pending')
+      if (!resolvedStatus && resolvedBoardId) {
+        try {
+          const wf = await getWorkflowForBoard(resolvedBoardId);
+          if (wf?.columns?.length > 0) {
+            resolvedStatus = wf.columns[0].id;
+          }
+        } catch { /* fall through to addTask default */ }
+      }
+
+      const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: resolvedBoardId, recurrence: recurrence || undefined });
+      if (!task) return res.status(404).json({ error: 'Agent not found' });
+      res.status(201).json(task);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-    const resolvedSource = source || { type: 'user' };
-    const resolvedStatus = status && typeof status === 'string' ? status : undefined;
-    const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: boardId || undefined, recurrence: recurrence || undefined });
-    if (!task) return res.status(404).json({ error: 'Agent not found' });
-    res.status(201).json(task);
   });
 
   router.patch('/:id/tasks/:taskId', (req, res) => {
