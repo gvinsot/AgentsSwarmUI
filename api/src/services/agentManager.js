@@ -3477,19 +3477,6 @@ export class AgentManager {
     task.status = prevStatus === 'done' ? 'pending' : 'done';
     if (task.status === 'done') task.completedAt = new Date().toISOString();
 
-    // If Jira sync is enabled and this task is not from Jira, create a Jira issue
-    if (isJiraEnabled() && task.source?.type !== 'jira' && !task.jiraKey) {
-      createJiraIssue(task.text, '').then(result => {
-        if (result) {
-          task.jiraKey = result.key;
-          task.jiraId = result.id;
-          task.text = `[${result.key}] ${task.text}`;
-          this.configManager.updateAgent(agentId, { todoList: agent.todoList });
-          this._emitUpdate(agent);
-          console.log(`[AgentManager] Linked task to Jira issue ${result.key}`);
-        }
-      }).catch(err => console.error('[AgentManager] Jira issue creation failed:', err.message));
-    }
     const now = new Date().toISOString();
     if (!task.history) task.history = [];
     task.history.push({ from: prevStatus, status: task.status, at: now, by: 'user' });
