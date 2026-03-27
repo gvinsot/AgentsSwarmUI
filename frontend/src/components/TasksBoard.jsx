@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
-  Edit3, Save, Check, Tag, Calendar, ChevronDown, Plus, Settings,
-  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat
+  Edit3, Save, Check, Tag, Calendar, ChevronDown, ChevronRight, Plus, Settings,
+  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -280,6 +280,73 @@ function CreateTaskModal({ agents, allProjects, onClose, onCreated, statusOption
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ── ExecutionLogEntry ────────────────────────────────────────────────────────
+
+function ExecutionLogEntry({ entry, index }) {
+  const [expanded, setExpanded] = useState(false);
+  const messages = entry.messages || [];
+  const duration = entry.startedAt && entry.at
+    ? Math.round((new Date(entry.at) - new Date(entry.startedAt)) / 1000)
+    : null;
+  const durationLabel = duration != null
+    ? duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m${duration % 60}s`
+    : null;
+
+  return (
+    <div className="flex-1 min-w-0">
+      <button
+        onClick={(e) => { e.stopPropagation(); setExpanded(o => !o); }}
+        className="flex items-center gap-1.5 text-xs group/exec hover:opacity-80 transition-opacity w-full"
+      >
+        <MessageSquare className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />
+        <span className={`font-medium ${entry.success ? 'text-blue-300' : 'text-red-300'}`}>
+          Execution {entry.success ? '✓' : '✗'}
+        </span>
+        <span className="text-dark-500 truncate">by {entry.by}</span>
+        {durationLabel && (
+          <span className="text-[10px] text-dark-500 font-mono">({durationLabel})</span>
+        )}
+        {messages.length > 0 && (
+          <span className="text-[10px] text-dark-500">
+            — {messages.length} msg{messages.length > 1 ? 's' : ''}
+          </span>
+        )}
+        {expanded
+          ? <ChevronDown className="w-3 h-3 text-dark-500 flex-shrink-0 ml-auto" />
+          : <ChevronRight className="w-3 h-3 text-dark-500 flex-shrink-0 ml-auto" />
+        }
+      </button>
+      {expanded && messages.length > 0 && (
+        <div className="mt-2 space-y-2 max-h-80 overflow-y-auto scrollbar-thin-dark">
+          {messages.map((m, mi) => (
+            <div key={mi} className={`rounded-lg p-2.5 text-xs leading-relaxed ${
+              m.role === 'user'
+                ? 'bg-blue-500/10 border border-blue-500/20'
+                : 'bg-dark-700/60 border border-dark-600/50'
+            }`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                  m.role === 'user' ? 'text-blue-400' : 'text-emerald-400'
+                }`}>
+                  {m.role === 'user' ? '→ Prompt' : '← Agent'}
+                </span>
+                {m.timestamp && (
+                  <span className="text-[10px] text-dark-500">
+                    {new Date(m.timestamp).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <pre className="whitespace-pre-wrap break-words text-dark-300 font-sans">
+                {m.content}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -698,11 +765,14 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                 <div className="text-[10px] uppercase tracking-wider text-dark-500 font-semibold mb-1.5">History</div>
                 <div className="relative pl-4 border-l border-dark-700 space-y-1.5">
                   {task.history.map((h, i) => (
-                    <div key={i} className="relative flex items-start gap-2">
-                      <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-dark-600 ring-2 ring-dark-900" />
-                      <div className="flex-1 flex items-center justify-between gap-2 min-w-0">
-                        <div className="flex items-center gap-1.5 text-xs min-w-0">
-                          {h.type === 'edit' ? (
+                    <div key={i} className="relative">
+                      <div className="flex items-start gap-2">
+                        <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-dark-600 ring-2 ring-dark-900" />
+                        <div className="flex-1 flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 text-xs min-w-0">
+                            {h.type === 'execution' ? (
+                              <ExecutionLogEntry entry={h} index={i} />
+                            ) : h.type === 'edit' ? (
                             <>
                               <Edit3 className="w-2.5 h-2.5 text-dark-400 flex-shrink-0" />
                               <span className="text-dark-200 font-medium">edited {h.field || (h.fields ? h.fields.map(f => f.field).join(', ') : 'task')}</span>
@@ -737,6 +807,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                           {timeAgo(h.at)}
                         </span>
                       </div>
+                    </div>
                     </div>
                   ))}
                 </div>
