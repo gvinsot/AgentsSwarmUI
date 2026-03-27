@@ -192,19 +192,41 @@ export async function pollJira(agentManager) {
   }
 
   // Fetch ONLY issues whose status matches watched IDs (JQL filter)
-  const jqlFilter = `status in (${[...allWatchedIds].map(id => `"${id}"`).join(',')})`;
+  // Use unquoted numeric IDs — quoted values are interpreted as status NAMES by Jira
+  const jqlFilter = `status in (${[...allWatchedIds].join(',')})`;
   let startAt = 0;
   const maxResults = 50;
   const allIssues = [];
-  while (true) {
-    const data = await jiraFetch(
-      cfg,
-      `/rest/agile/1.0/board/${cfg.boardId}/issue?jql=${encodeURIComponent(jqlFilter)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,status`
-    );
-    const issues = data.issues || [];
-    allIssues.push(...issues);
-    if (startAt + issues.length >= (data.total || issues.length)) break;
-    startAt += maxResults;
+
+  console.log(`[Jira] Poll: JQL filter = "${jqlFilter}"`);
+
+  try {
+    while (true) {
+      const data = await jiraFetch(
+        cfg,
+        `/rest/agile/1.0/board/${cfg.boardId}/issue?jql=${encodeURIComponent(jqlFilter)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,status`
+      );
+      const issues = data.issues || [];
+      allIssues.push(...issues);
+      if (startAt + issues.length >= (data.total || issues.length)) break;
+      startAt += maxResults;
+    }
+  } catch (err) {
+    // If the board endpoint fails with JQL, fall back to project-scoped search
+    console.warn(`[Jira] Board issue endpoint failed: ${err.message} — falling back to /rest/api/3/search`);
+    allIssues.length = 0;
+    startAt = 0;
+    const searchJql = `project = "${cfg.projectKey}" AND status in (${[...allWatchedIds].join(',')})`;
+    while (true) {
+      const data = await jiraFetch(
+        cfg,
+        `/rest/api/3/search?jql=${encodeURIComponent(searchJql)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,status`
+      );
+      const issues = data.issues || [];
+      allIssues.push(...issues);
+      if (startAt + issues.length >= (data.total || issues.length)) break;
+      startAt += maxResults;
+    }
   }
 
   console.log(`[Jira] Poll: fetched ${allIssues.length} issue(s) matching watched statuses`);
@@ -216,10 +238,21 @@ export async function pollJira(agentManager) {
     const watchedStatusIds = new Set(trigger.jiraStatusIds.map(String));
     const targetColumn = trigger.from; // the PulsarTeam column to create the task in
 
+    let matchedCount = 0;
+    let skippedStatus = 0;
+    let skippedExisting = 0;
+
     for (const issue of allIssues) {
       const statusId = String(issue.fields?.status?.id || '');
-      if (!statusId || !watchedStatusIds.has(statusId)) continue;
-      if (existingJiraKeys.has(issue.key)) continue;
+      if (!statusId || !watchedStatusIds.has(statusId)) {
+        skippedStatus++;
+        continue;
+      }
+      if (existingJiraKeys.has(issue.key)) {
+        skippedExisting++;
+        continue;
+      }
+      matchedCount++;
 
       // Find creator agent (prefer leader)
       let creatorAgent = null;
@@ -253,6 +286,10 @@ export async function pollJira(agentManager) {
         // Execute transition actions (change_status, run_agent, etc.)
         await executeTransitionActions(trigger, actualTask || task, creatorAgent.id, agentManager);
       }
+    }
+
+    if (matchedCount > 0 || skippedStatus > 0) {
+      console.log(`[Jira] Poll trigger "${targetColumn}": watched=[${[...watchedStatusIds].join(',')}], matched=${matchedCount}, skippedStatus=${skippedStatus}, skippedExisting=${skippedExisting}`);
     }
   }
 
