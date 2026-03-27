@@ -41,8 +41,8 @@ code, pre, .font-mono {
 
 /* Always-visible horizontal scrollbar */
 .scrollbar-always-visible {
-  overflow: auto !important;
-  scrollbar-gutter: stable;
+  overflow-x: scroll !important;
+  overflow-y: auto !important;
 }
 .scrollbar-always-visible::-webkit-scrollbar {
   height: 8px;

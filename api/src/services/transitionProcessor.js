@@ -323,11 +323,14 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
   } catch (err) {
     console.error(`[Workflow] Error processing "${task.text}":`, err.message, err.stack);
     try {
-      const isExec = mode === 'execute' || (!mode && (!instructions || instructions.includes('[EXECUTE]')));
-      if (isExec) {
-        agentManager.setTaskStatus(task.agentId, task.id, 'error', { skipAutoRefine: true, by: 'workflow' });
-      } else if (targetStatus) {
-        agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: true, by: 'workflow' });
+      // On error, always set task to error status — keeps it in the current column and blocks auto-transitions
+      agentManager.setTaskStatus(task.agentId, task.id, 'error', { skipAutoRefine: true, by: 'workflow' });
+      // Store the error message on the task for display
+      const creatorAgent = agentManager.agents.get(task.agentId);
+      const actualTask = creatorAgent?.todoList?.find(t => t.id === task.id);
+      if (actualTask) {
+        actualTask.error = err.message;
+        saveAgent(creatorAgent);
       }
     } catch (e) {
       console.error(`[Workflow] Failed to set status after error:`, e.message);

@@ -4465,6 +4465,14 @@ export class AgentManager {
     } catch (err) {
       console.error(`🔄 [TaskLoop] Error resuming task for ${executor.name}:`, err.message);
       this._emit('agent:stream:error', { agentId: executorId, error: err.message });
+      // Mark the task as error — it stays in the in_progress column (visible) and blocks auto-transitions
+      this.setTaskStatus(agentId, task.id, 'error', { skipAutoRefine: true, by: executor.name });
+      // Store the error message on the task for display
+      const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
+      if (actualTask) {
+        actualTask.error = err.message;
+        saveAgent(this.agents.get(agentId));
+      }
       if (executor.status === 'error') {
         this.setStatus(executorId, 'idle', 'Auto-recovered after resume error');
       }
