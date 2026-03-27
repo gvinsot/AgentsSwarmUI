@@ -4654,11 +4654,15 @@ export class AgentManager {
       // Save execution chat log to task history
       this._saveExecutionLog(agentId, task.id, executorId, startMsgIdx, executionStartedAt, true);
 
-      // Execution complete — always move to the determined targetStatus.
-      // The task loop is the fallback executor (no workflow transition fired);
-      // it is responsible for completing the task.
-      this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
-      console.log(`🔄 [TaskLoop] Resumed and completed "${task.text.slice(0, 60)}" -> ${targetStatus}`);
+      // Check the task's actual status before moving — sendMessage may have
+      // set it to 'error' internally (e.g. rate limit) without throwing.
+      const freshTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
+      if (freshTask?.status === 'error') {
+        console.log(`🔄 [TaskLoop] Execution of "${task.text.slice(0, 60)}" ended with task in error — blocking transition to ${targetStatus}`);
+      } else {
+        this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
+        console.log(`🔄 [TaskLoop] Resumed and completed "${task.text.slice(0, 60)}" -> ${targetStatus}`);
+      }
     } catch (err) {
       console.error(`🔄 [TaskLoop] Error resuming task for ${executor.name}:`, err.message);
       this._emit('agent:stream:error', { agentId: executorId, error: err.message });

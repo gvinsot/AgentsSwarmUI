@@ -269,11 +269,13 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
         // Save execution chat log to task history
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true);
 
-        // Execution complete — move to targetStatus.
-        // This IS the workflow action that just ran; always honour its configured target.
-        // Condition-based transitions from in_progress (e.g. "wait for subtasks") are a
-        // different trigger and will be handled by _recheckConditionalTransitions separately.
-        if (targetStatus) {
+        // Check the task's actual status before moving — sendMessage may have
+        // set it to 'error' internally (e.g. rate limit) without throwing.
+        const creatorAgent = agentManager.agents.get(task.agentId);
+        const currentTask = creatorAgent?.todoList?.find(t => t.id === task.id);
+        if (currentTask?.status === 'error') {
+          console.log(`[Workflow] Execution of "${task.text.slice(0, 60)}" ended with task in error — blocking transition to ${targetStatus}`);
+        } else if (targetStatus) {
           agentManager.setTaskStatus(task.agentId, task.id, targetStatus, { skipAutoRefine: false, by: agent.name });
           console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}" — moved to ${targetStatus}`);
         }
