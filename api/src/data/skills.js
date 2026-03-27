@@ -1,18 +1,88 @@
 export const BUILTIN_SKILLS = [
   {
-    "id": "skill-swarm-devops",
-    "name": "Swarm DevOps",
-    "description": "Deploy projects to the Docker Swarm cluster using the standard build & deploy pipeline",
+    "id": "skill-swarm-reader",
+    "name": "Swarm Reader",
+    "description": "Monitor Docker Swarm stacks, containers, hosts and search logs via PulsarCD Read",
+    "category": "devops",
+    "icon": "📊",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-pulsarcd-read"
+    ],
+    "instructions": `You can monitor the Docker Swarm cluster using the PulsarCD Read MCP tools (read-only).
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(PulsarCD Read, tool_name, {"param": "value"}) syntax shown there.
+
+## AVAILABLE TOOLS
+
+@mcp_call(PulsarCD Read, list_stacks, {})
+  — List all available stacks (GitHub starred repos).
+
+@mcp_call(PulsarCD Read, list_containers, {"host": "optional", "status": "optional"})
+  — List containers and their state. Filter by host or status.
+
+@mcp_call(PulsarCD Read, list_computers, {})
+  — List all monitored hosts/machines.
+
+@mcp_call(PulsarCD Read, get_log_metadata, {})
+  — Discover available services, containers, hosts, and log levels.
+
+@mcp_call(PulsarCD Read, search_logs, {"query": "error", "last_hours": 24})
+  — Search collected logs. Supports filters: query, github_project, compose_services, hosts, containers, levels, http_status_min, http_status_max, last_hours, start_time, end_time, opensearch_query, size.
+
+@mcp_call(PulsarCD Read, get_action_status, {"action_id": "ACTION_ID"})
+  — Check the status of a build/deploy action.
+
+## MONITORING WORKFLOW
+1. Use @mcp_call(PulsarCD Read, list_stacks, {}) to see all deployed projects
+2. Use @mcp_call(PulsarCD Read, list_containers, {}) to check running containers
+3. Use @mcp_call(PulsarCD Read, search_logs, {"query": "error", "last_hours": 24}) to investigate issues
+4. Use @mcp_call(PulsarCD Read, list_computers, {}) to check node availability
+5. Use @mcp_call(PulsarCD Read, get_log_metadata, {}) to discover available log sources before searching`
+  },
+  {
+    "id": "skill-swarm-actions",
+    "name": "Swarm Actions",
+    "description": "Build, test and deploy stacks on Docker Swarm via PulsarCD Actions",
     "category": "devops",
     "icon": "🚀",
     "builtin": true,
     "mcpServerIds": [
-      "mcp-swarm-manager"
+      "mcp-pulsarcd-actions",
+      "mcp-pulsarcd-read"
     ],
-    "instructions": `You know how to integrate and deploy projects on the Swarm cluster.
+    "instructions": `You can build, test, and deploy projects on the Docker Swarm cluster using PulsarCD Actions MCP tools.
 
-Build and deploy operations are managed via MCP tools. The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
 Call them using the @mcp_call(ServerName, tool_name, {"param": "value"}) syntax shown there.
+
+## BUILD & DEPLOY TOOLS (PulsarCD Actions)
+
+@mcp_call(PulsarCD Actions, build_stack, {"repo_name": "my-app", "ssh_url": "git@github.com:org/my-app.git", "version": "1.2.0", "branch": "main"})
+  — Build a Docker image from a GitHub repo. Optional: branch, commit.
+
+@mcp_call(PulsarCD Actions, test_stack, {"repo_name": "my-app", "ssh_url": "git@github.com:org/my-app.git", "branch": "main"})
+  — Run tests for a stack (docker-compose.swarm.yml test target). Optional: branch, tag, commit.
+
+@mcp_call(PulsarCD Actions, deploy_stack, {"repo_name": "my-app", "ssh_url": "git@github.com:org/my-app.git", "version": "1.2.0"})
+  — Deploy a stack on Docker Swarm. Optional: tag.
+
+All three tools return an action_id. Use get_action_status on the Read server to track progress.
+
+## MONITORING TOOLS (PulsarCD Read)
+
+@mcp_call(PulsarCD Read, get_action_status, {"action_id": "ACTION_ID"})
+  — Check the status of a build/test/deploy action.
+
+@mcp_call(PulsarCD Read, list_stacks, {})
+  — List all available stacks.
+
+@mcp_call(PulsarCD Read, list_containers, {})
+  — List containers and their state.
+
+@mcp_call(PulsarCD Read, search_logs, {"query": "error", "last_hours": 1})
+  — Search logs to investigate issues after deployment.
 
 ## DEPLOYMENT WORKFLOW
 
@@ -21,26 +91,23 @@ FIRST TIME SETUP — If the project has no devops/ folder yet:
    - Create the devops/ folder with docker-compose.swarm.yml, .env, and optional pre/post scripts
    - Commit and push: use cli
 
-If you are asked to build:
-   - Use @mcp_call to call the build_stack tool with the repo name, ssh_url, and version
-   - Images are built from devops/docker-compose.swarm.yml
-   - Tagged with semantic version and pushed to the registry
-   - Check build progress with @get_action_status(action_id="ACTION_ID")
-   - Fix any build errors before proceeding
+BUILD:
+   1. Call @mcp_call(PulsarCD Actions, build_stack, {...}) with repo_name, ssh_url, and version
+   2. Track progress: @mcp_call(PulsarCD Read, get_action_status, {"action_id": "ACTION_ID"})
+   3. Fix any build errors before proceeding
 
-If you are asked to deploy a specific version:
-   - Use @mcp_call to call the deploy_stack tool with the repo name, ssh_url, and version
-   - Check deploy progress with @get_action_status(action_id="ACTION_ID")
-   - Verify services are running with @list_stacks() or @list_containers()
+TEST:
+   1. Call @mcp_call(PulsarCD Actions, test_stack, {...}) with repo_name and ssh_url
+   2. Track progress: @mcp_call(PulsarCD Read, get_action_status, {"action_id": "ACTION_ID"})
 
-## MONITORING
-- Use @list_stacks() to check service health
-- Use @list_containers() to check running containers
-- Use @search_logs(query="error", last_hours=24) to investigate issues
-- Use @list_computers() to check node availability
+DEPLOY:
+   1. Call @mcp_call(PulsarCD Actions, deploy_stack, {...}) with repo_name, ssh_url, and version
+   2. Track progress: @mcp_call(PulsarCD Read, get_action_status, {"action_id": "ACTION_ID"})
+   3. Verify: @mcp_call(PulsarCD Read, list_containers, {}) to check services are running
 
 ## IMPORTANT
-- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`
+- Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
+- Always check action status after build/test/deploy — do not assume success.`
   },
   {
     "id": "skill-basic-tools",

@@ -93,12 +93,24 @@ export class MCPManager {
 
   async loadFromDatabase() {
     const servers = await getAllMcpServers();
+    const activeBuiltinIds = new Set(BUILTIN_MCP_SERVERS.map(s => s.id));
+    let retiredBuiltins = 0;
+
     for (const server of servers) {
+      // Remove retired built-in servers from DB
+      if (server.builtin && !activeBuiltinIds.has(server.id)) {
+        await deleteMcpServerFromDb(server.id);
+        retiredBuiltins++;
+        continue;
+      }
       server.status = 'disconnected';
       server.tools = server.tools || [];
       this.servers.set(server.id, server);
     }
-    console.log(`✅ Loaded ${servers.length} MCP servers from database`);
+    console.log(`✅ Loaded ${this.servers.size} MCP servers from database`);
+    if (retiredBuiltins > 0) {
+      console.log(`🧹 Removed ${retiredBuiltins} retired built-in MCP server(s)`);
+    }
   }
 
   async seedDefaults(defaults) {

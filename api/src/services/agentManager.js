@@ -93,6 +93,7 @@ export class AgentManager {
         agent.isVoice = agent.isVoice || false;
         agent.voice = agent.voice || 'alloy';
         agent.projectContexts = agent.projectContexts || {};
+        let needsSave = false;
         // Migration: initialize projectChangedAt for existing agents
         if (agent.projectChangedAt === undefined) {
           agent.projectChangedAt = agent.project ? (agent.updatedAt || agent.createdAt || null) : null;
@@ -110,6 +111,21 @@ export class AgentManager {
             }
           }
         }
+        // Migration: mcp-swarm-manager → mcp-pulsarcd-read + mcp-pulsarcd-actions
+        if (agent.mcpServers.includes('mcp-swarm-manager')) {
+          agent.mcpServers = agent.mcpServers.filter(id => id !== 'mcp-swarm-manager');
+          if (!agent.mcpServers.includes('mcp-pulsarcd-read')) agent.mcpServers.push('mcp-pulsarcd-read');
+          if (!agent.mcpServers.includes('mcp-pulsarcd-actions')) agent.mcpServers.push('mcp-pulsarcd-actions');
+          needsSave = true;
+        }
+        // Migration: skill-swarm-devops → skill-swarm-reader + skill-swarm-actions
+        if (agent.skills.includes('skill-swarm-devops')) {
+          agent.skills = agent.skills.filter(id => id !== 'skill-swarm-devops');
+          if (!agent.skills.includes('skill-swarm-reader')) agent.skills.push('skill-swarm-reader');
+          if (!agent.skills.includes('skill-swarm-actions')) agent.skills.push('skill-swarm-actions');
+          needsSave = true;
+        }
+        if (needsSave) await saveAgent(agent);
         this.agents.set(agent.id, agent);
       }
       console.log(`📂 Loaded ${agents.length} agents from database`);
