@@ -2073,9 +2073,9 @@ export class AgentManager {
         // Find the in_progress task for this agent and mark it as error
         const inProgressTask = agent.todoList?.find(t => t.status === 'in_progress');
         if (inProgressTask) {
+          // Set the error message BEFORE changing status so it's persisted in the same save
+          inProgressTask.error = `Rate limit reached — resets at ${err.resetLabel}`;
           this.setTaskStatus(id, inProgressTask.id, 'error', { skipAutoRefine: true, by: 'rate-limit' });
-          const actualTask = agent.todoList?.find(t => t.id === inProgressTask.id);
-          if (actualTask) actualTask.error = `Rate limit reached — resets at ${err.resetLabel}`;
           console.log(`🕐 [Rate Limit] Task "${inProgressTask.text.slice(0, 60)}" set to error`);
         }
 
