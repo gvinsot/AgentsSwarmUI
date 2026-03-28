@@ -1680,7 +1680,7 @@ function PluginsTab({ agent, plugins, onRefresh }) {
                 <button
                   onClick={() => handleEdit(plugin)}
                   className="p-1 text-dark-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                  title="Edit plugin"
+                  title="View plugin"
                 >
                   <Edit3 className="w-4 h-4" />
                 </button>
@@ -1708,26 +1708,6 @@ function PluginsTab({ agent, plugins, onRefresh }) {
             Available Plugins
             <span className="ml-2 text-dark-400 font-normal">({filteredAvailable.length})</span>
           </h3>
-          <button
-            onClick={() => {
-              setEditingPluginId(null);
-              setShowCreate(v => !v);
-              if (!showCreate) {
-                setDraft({
-                  name: '',
-                  description: '',
-                  category: 'coding',
-                  icon: '🔧',
-                  instructions: '',
-                  userConfig: {},
-                  mcps: [],
-                });
-              }
-            }}
-            className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
         </div>
 
         <div className="flex flex-wrap gap-1.5 mb-3">
@@ -1765,6 +1745,7 @@ function PluginsTab({ agent, plugins, onRefresh }) {
             onCancel={resetDraft}
             saving={savingPlugin}
             submitLabel="Save Plugin"
+            readOnly
           />
         )}
 
@@ -1794,16 +1775,9 @@ function PluginsTab({ agent, plugins, onRefresh }) {
               <button
                 onClick={() => handleEdit(plugin)}
                 className="p-1 text-dark-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                title="Edit plugin"
+                title="View plugin"
               >
                 <Edit3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handleDelete(plugin.id, plugin.name)}
-                className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                title="Delete plugin"
-              >
-                <Trash2 className="w-4 h-4" />
               </button>
               <button
                 onClick={() => handleAssign(plugin.id)}

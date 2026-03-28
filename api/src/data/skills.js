@@ -118,7 +118,8 @@ DEPLOY:
     "builtin": true,
     "instructions": `## TOOLS — USE THEM, DON'T JUST TALK
 - @read_file(path) — examine existing code
-- @list_dir(path) — explore project structure
+- @list_dir(path) — explore code structure
+- @list_projects() — list available projects (GitHub repos)
 - @write_file(path, """content""") — create or update files
 - @search_files(pattern, query) — find relevant code
 - @run_command(command) — run tests, builds, git commands, etc.

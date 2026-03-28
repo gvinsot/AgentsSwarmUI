@@ -34,7 +34,7 @@ function stringifyKeyValue(obj) {
   return Object.entries(obj || {}).map(([k, v]) => `${k}=${v ?? ''}`).join('\\n');
 }
 
-export default function PluginEditor({ value, onChange, onSubmit, onCancel, saving, submitLabel = 'Save Plugin' }) {
+export default function PluginEditor({ value, onChange, onSubmit, onCancel, saving, submitLabel = 'Save Plugin', readOnly = false }) {
   const [expandedMcps, setExpandedMcps] = useState(() => new Set((value.mcps || []).map((_, i) => i)));
   const userConfigText = useMemo(() => stringifyKeyValue(value.userConfig || {}), [value.userConfig]);
 
@@ -70,6 +70,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
           onChange={(e) => update({ icon: e.target.value })}
           className="w-12 px-2 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-center focus:outline-none focus:border-indigo-500"
           placeholder="🔧"
+          disabled={readOnly}
         />
         <input
           type="text"
@@ -77,11 +78,13 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
           onChange={(e) => update({ name: e.target.value })}
           className="flex-1 px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
           placeholder="Plugin name"
+          disabled={readOnly}
         />
         <select
           value={value.category}
           onChange={(e) => update({ category: e.target.value })}
           className="px-2 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-200 focus:outline-none focus:border-indigo-500"
+          disabled={readOnly}
         >
           <option value="coding">coding</option>
           <option value="devops">devops</option>
@@ -98,6 +101,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
         onChange={(e) => update({ description: e.target.value })}
         className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
         placeholder="Short description"
+        disabled={readOnly}
       />
 
       <div>
@@ -108,6 +112,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
           className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 font-mono resize-none"
           placeholder="Plugin instructions injected into the agent prompt..."
           rows={5}
+          disabled={readOnly}
         />
       </div>
 
@@ -175,7 +180,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                   </div>
                   <button
                     onClick={() => removeMcp(index)}
-                    className="p-1 text-dark-500 hover:text-red-400 transition-colors"
+                    className={`p-1 text-dark-500 hover:text-red-400 transition-colors ${readOnly ? 'hidden' : ''}`}
                     title="Supprimer ce MCP"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -194,6 +199,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                           onChange={(e) => updateMcp(index, { name: e.target.value })}
                           className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                           placeholder="Nom du serveur MCP"
+                          disabled={readOnly}
                         />
                       </div>
                       <div>
@@ -203,6 +209,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                           value={mcp.icon}
                           onChange={(e) => updateMcp(index, { icon: e.target.value })}
                           className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 text-center focus:outline-none focus:border-indigo-500"
+                          disabled={readOnly}
                         />
                       </div>
                     </div>
@@ -216,6 +223,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                         onChange={(e) => updateMcp(index, { url: e.target.value })}
                         className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                         placeholder="https://mcp-server.example.com/sse"
+                        disabled={readOnly}
                       />
                     </div>
 
@@ -228,6 +236,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                         onChange={(e) => updateMcp(index, { description: e.target.value })}
                         className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                         placeholder="Description du serveur MCP"
+                        disabled={readOnly}
                       />
                     </div>
 
@@ -237,6 +246,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                       <div className="flex gap-2">
                         <button
                           onClick={() => updateMcp(index, { authMode: 'none' })}
+                          disabled={readOnly}
                           className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm border transition-colors ${
                             authMode === 'none'
                               ? 'bg-dark-700 border-indigo-500 text-dark-100'
@@ -248,6 +258,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                         </button>
                         <button
                           onClick={() => updateMcp(index, { authMode: 'bearer' })}
+                          disabled={readOnly}
                           className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm border transition-colors ${
                             authMode === 'bearer'
                               ? 'bg-amber-500/10 border-amber-500 text-amber-400'
@@ -271,6 +282,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                           className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                           placeholder={mcp.hasApiKey ? 'Laisser vide pour conserver, ou saisir une nouvelle cle' : 'Saisir la cle d\'API ou le bearer token'}
                           autoComplete="off"
+                          disabled={readOnly}
                         />
                         <p className="text-[11px] text-dark-500 mt-1">
                           Le token sera envoye dans le header <code className="text-dark-400">Authorization: Bearer &lt;token&gt;</code>
@@ -286,6 +298,7 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
                           checked={mcp.enabled !== false}
                           onChange={(e) => updateMcp(index, { enabled: e.target.checked })}
                           className="w-4 h-4 rounded border-dark-600 bg-dark-700"
+                          disabled={readOnly}
                         />
                         MCP active
                       </label>
@@ -305,14 +318,14 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
       </div>
 
       <div className="flex gap-2 justify-end">
-        <button onClick={onCancel} className="px-3 py-2 text-dark-400 hover:text-dark-200 text-sm">Annuler</button>
+        <button onClick={onCancel} className="px-3 py-2 text-dark-400 hover:text-dark-200 text-sm">{readOnly ? 'Fermer' : 'Annuler'}</button>
         <button
           onClick={onSubmit}
-          disabled={saving || !value.name.trim() || !value.instructions.trim()}
+          disabled={saving || (!readOnly && (!value.name.trim() || !value.instructions.trim()))}
           className="px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 flex items-center gap-2"
         >
           {saving ? <RotateCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {submitLabel}
+          {readOnly ? 'Save config' : submitLabel}
         </button>
       </div>
     </div>

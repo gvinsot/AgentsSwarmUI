@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, ChevronRight, Plus, Settings,
-  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare, FolderKanban
+  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare, FolderKanban, Code
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -1254,6 +1254,9 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
   });
   const [saving, setSaving] = useState(false);
   const [jiraColumns, setJiraColumns] = useState([]);
+  const [showJson, setShowJson] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonError, setJsonError] = useState(null);
 
   const jiraEnabled = jiraStatus?.enabled || false;
 
@@ -1672,22 +1675,77 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-dark-700">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-dark-700">
           <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs text-dark-300 hover:text-dark-100 bg-dark-800 hover:bg-dark-700 rounded-lg transition-colors"
+            onClick={() => { setJsonText(JSON.stringify({ columns: cols, transitions }, null, 2)); setJsonError(null); setShowJson(true); }}
+            className="p-1.5 text-dark-500 hover:text-indigo-400 hover:bg-dark-700 rounded-lg transition-colors"
+            title="View / Edit JSON"
           >
-            Cancel
+            <Code className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg transition-colors disabled:opacity-50"
-          >
-            <Save className="w-3 h-3" />
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs text-dark-300 hover:text-dark-100 bg-dark-800 hover:bg-dark-700 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Save className="w-3 h-3" />
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
+
+        {/* JSON Modal */}
+        {showJson && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowJson(false)}>
+            <div className="bg-dark-800 border border-dark-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-3 border-b border-dark-700">
+                <span className="text-sm font-semibold text-dark-100">Workflow JSON</span>
+                <button onClick={() => setShowJson(false)} className="p-1 text-dark-400 hover:text-dark-100 rounded">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 p-4 overflow-auto">
+                <textarea
+                  value={jsonText}
+                  onChange={e => { setJsonText(e.target.value); setJsonError(null); }}
+                  className="w-full h-[50vh] bg-dark-900 border border-dark-600 rounded-lg p-3 text-xs font-mono text-dark-200 focus:outline-none focus:border-indigo-500 resize-none"
+                  spellCheck={false}
+                />
+                {jsonError && <p className="mt-2 text-xs text-red-400">{jsonError}</p>}
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-3 border-t border-dark-700">
+                <button onClick={() => setShowJson(false)} className="px-3 py-1.5 text-xs text-dark-300 hover:text-dark-100 bg-dark-800 hover:bg-dark-700 rounded-lg transition-colors">Cancel</button>
+                <button
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(jsonText);
+                      if (!Array.isArray(parsed.columns) || !Array.isArray(parsed.transitions)) {
+                        setJsonError('JSON must have "columns" and "transitions" arrays.');
+                        return;
+                      }
+                      setCols(parsed.columns);
+                      setTransitions(parsed.transitions.filter(validTransition));
+                      setShowJson(false);
+                    } catch (err) {
+                      setJsonError('Invalid JSON: ' + err.message);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg transition-colors"
+                >
+                  <Check className="w-3 h-3" />
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
