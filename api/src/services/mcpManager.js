@@ -618,3 +618,4 @@ export class MCPManager {
       server.error = null;
     }
   }
+}
