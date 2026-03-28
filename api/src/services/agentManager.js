@@ -4404,7 +4404,7 @@ export class AgentManager {
         model: llmConfig.model,
         endpoint: llmConfig.endpoint,
         apiKey: llmConfig.apiKey,
-        agentId: id
+        agentId: agent.id
       });
 
       const msgCount = toSummarize.length + (existingSummary ? 1 : 0);

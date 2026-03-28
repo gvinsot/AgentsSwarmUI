@@ -614,9 +614,10 @@ export function parseToolCalls(response) {
     .replace(/\[TOOL_CALLS?\]/gi, '');
 
   const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'git_commit_push', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete'];
+  const READ_FILE_TOOLS = ['read_file'];  // 1-arg or 3-arg (path, startLine, endLine)
   const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files', 'update_task'];
   const THREE_ARG_TOOLS = ['mcp_call', 'link_commit'];
-  const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
+  const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...READ_FILE_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');
   let startMatch;
 
@@ -631,6 +632,24 @@ export function parseToolCalls(response) {
 
     if (SINGLE_ARG_TOOLS.includes(toolName)) {
       args = [sanitizeArg(argsString.trim())];
+    } else if (READ_FILE_TOOLS.includes(toolName)) {
+      // @read_file(path) or @read_file(path, startLine, endLine)
+      const firstComma = _findTopLevelComma(argsString);
+      if (firstComma !== -1) {
+        const first = argsString.slice(0, firstComma).trim();
+        const rest = argsString.slice(firstComma + 1).trim();
+        const secondComma = _findTopLevelComma(rest);
+        if (secondComma !== -1) {
+          const second = rest.slice(0, secondComma).trim();
+          const third = rest.slice(secondComma + 1).trim();
+          args = [sanitizeArg(first), sanitizeArg(second), sanitizeArg(third)];
+        } else {
+          // @read_file(path, "10, 25") — legacy format
+          args = [sanitizeArg(first), sanitizeArg(rest)];
+        }
+      } else {
+        args = [sanitizeArg(argsString.trim())];
+      }
     } else if (THREE_ARG_TOOLS.includes(toolName)) {
       // @mcp_call(server, tool, {json}) — split into 3 args
       const trimmedMcp = argsString.trim();
