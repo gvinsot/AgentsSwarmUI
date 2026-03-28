@@ -190,7 +190,7 @@ export async function processTransition(task, agentManager, io) {
 
       try {
         const result = await agentManager.sendMessage(agent.id, titlePrompt, () => {});
-        const title = (result?.content || '').trim().replace(/^["']|["']$/g, '');
+        const title = (result || '').trim().replace(/^["']|["']$/g, '');
         if (title) {
           agentManager.updateTaskTitle(task.agentId, task.id, title);
           console.log(`[Workflow] Title generated: "${title}" for "${task.text?.slice(0, 60)}"`);
