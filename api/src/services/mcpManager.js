@@ -61,7 +61,8 @@ function createBuiltinServerEntry(def) {
 export class MCPManager {
   constructor() {
     this.servers = new Map();   // id -> server config (with tools[], status, etc.)
-    this.clients = new Map();   // id -> MCPClient instance
+    this.clients = new Map();   // id -> MCPClient instance (global/test connections)
+    this.agentClients = new Map(); // "agentId:serverId" -> MCPClient (per-agent connections)
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
@@ -181,6 +182,10 @@ export class MCPManager {
     for (const [id] of this.clients) {
       await this.disconnect(id);
     }
+    for (const [key, client] of this.agentClients) {
+      await client.close().catch(() => {});
+    }
+    this.agentClients.clear();
   }
 
   // ── CRUD ────────────────────────────────────────────────────────────
@@ -400,6 +405,104 @@ export class MCPManager {
     }
 
     return this.callTool(server.id, toolName, args);
+  }
+
+  /**
+   * Call an MCP tool on behalf of an agent, using per-agent auth if configured.
+   * Falls back to the global connection when no agent-specific auth exists.
+   */
+  async callToolByNameForAgent(serverName, toolName, args = {}, agentId = null, agentMcpAuth = {}) {
+    let server = Array.from(this.servers.values()).find(
+      s => s.name.toLowerCase() === serverName.toLowerCase()
+    );
+    if (!server) server = await this.ensureBuiltinServerRegistered(serverName);
+    if (!server) {
+      const availableNames = this.getAll().map(s => s.name);
+      throw new Error(`MCP server "${serverName}" not found. Available servers: ${availableNames.join(', ') || 'none'}`);
+    }
+
+    // Check if agent has custom auth for this server
+    const agentAuth = agentMcpAuth[server.id];
+    if (agentId && agentAuth?.apiKey) {
+      return this._callToolWithAgentAuth(server, toolName, args, agentId, agentAuth.apiKey);
+    }
+
+    // No per-agent auth — use global connection
+    if (server.status !== 'connected') {
+      console.log(`🔌 [MCP] "${server.name}" is ${server.status}, attempting reconnect for ${toolName}...`);
+      try {
+        await this.connect(server.id);
+      } catch (err) {
+        throw new Error(`MCP server "${server.name}" is not connected and reconnect failed: ${err.message}`);
+      }
+    }
+    return this.callTool(server.id, toolName, args);
+  }
+
+  /**
+   * Call a tool using an agent-specific connection with custom auth.
+   * Manages a per-agent client cache keyed by "agentId:serverId".
+   */
+  async _callToolWithAgentAuth(server, toolName, args, agentId, apiKey) {
+    const cacheKey = `${agentId}:${server.id}`;
+    let client = this.agentClients.get(cacheKey);
+
+    // Connect if no cached client or previous connection is dead
+    if (!client || !client.isConnected) {
+      console.log(`🔌 [MCP] Creating per-agent connection for agent=${agentId.slice(0, 8)} server="${server.name}"`);
+      client = new MCPClient('PulsarTeam');
+      const connectOpts = { headers: { Authorization: `Bearer ${apiKey}` } };
+      const internalConfig = resolveInternalMcpConfig(server.url);
+      if (Object.keys(internalConfig.headers).length > 0) {
+        connectOpts.headers = { ...connectOpts.headers, ...internalConfig.headers };
+      }
+      await client.connect(internalConfig.url, connectOpts);
+      this.agentClients.set(cacheKey, client);
+    }
+
+    try {
+      const result = await client.callTool(toolName, args);
+      const textParts = result.content.filter(c => c.type === 'text').map(c => c.text);
+      return {
+        success: !result.isError,
+        result: textParts.join('\n') || JSON.stringify(result.content),
+        raw: result.content
+      };
+    } catch (err) {
+      // Session expired — reconnect and retry once
+      if (err.message?.includes('404') || err.message?.includes('session')) {
+        console.log(`🔌 [MCP] Agent session expired for "${server.name}", reconnecting...`);
+        const newClient = new MCPClient('PulsarTeam');
+        const connectOpts = { headers: { Authorization: `Bearer ${apiKey}` } };
+        const internalConfig = resolveInternalMcpConfig(server.url);
+        if (Object.keys(internalConfig.headers).length > 0) {
+          connectOpts.headers = { ...connectOpts.headers, ...internalConfig.headers };
+        }
+        await newClient.connect(internalConfig.url, connectOpts);
+        this.agentClients.set(cacheKey, newClient);
+        const result = await newClient.callTool(toolName, args);
+        const textParts = result.content.filter(c => c.type === 'text').map(c => c.text);
+        return {
+          success: !result.isError,
+          result: textParts.join('\n') || JSON.stringify(result.content),
+          raw: result.content
+        };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Disconnect all per-agent MCP connections for a specific agent (e.g. on agent delete).
+   */
+  async disconnectAgent(agentId) {
+    const prefix = `${agentId}:`;
+    for (const [key, client] of this.agentClients) {
+      if (key.startsWith(prefix)) {
+        await client.close().catch(() => {});
+        this.agentClients.delete(key);
+      }
+    }
   }
 
   // ── Agent Integration ───────────────────────────────────────────────

@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -1794,6 +1794,133 @@ function PluginsTab({ agent, plugins, onRefresh }) {
           )}
         </div>
       </div>
+
+      {/* Per-agent MCP Authentication */}
+      <McpAuthSection agent={agent} plugins={plugins} onRefresh={onRefresh} />
+    </div>
+  );
+}
+
+// ─── MCP Auth Section (per-agent) ──────────────────────────────────────────
+function McpAuthSection({ agent, plugins, onRefresh }) {
+  const [authDraft, setAuthDraft] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Collect all unique MCPs from assigned plugins
+  const agentPluginIds = agent.skills || [];
+  const assignedPlugins = plugins.filter(p => agentPluginIds.includes(p.id));
+  const mcpMap = new Map();
+  for (const plugin of assignedPlugins) {
+    for (const mcp of (plugin.mcps || [])) {
+      if (mcp.id && !mcpMap.has(mcp.id)) {
+        mcpMap.set(mcp.id, { id: mcp.id, name: mcp.name, url: mcp.url, icon: mcp.icon || '🔌', pluginName: plugin.name });
+      }
+    }
+  }
+  const mcpList = Array.from(mcpMap.values());
+
+  if (mcpList.length === 0) return null;
+
+  const mcpAuth = agent.mcpAuth || {};
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.updateAgent(agent.id, { mcpAuth: authDraft });
+      setAuthDraft({});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to save MCP auth:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasDraftChanges = Object.keys(authDraft).length > 0;
+
+  return (
+    <div>
+      <h3 className="font-medium text-dark-200 text-sm mb-3 flex items-center gap-2">
+        <Key className="w-4 h-4 text-amber-400" />
+        MCP Authentication
+        <span className="text-dark-500 font-normal text-xs">(per-agent)</span>
+      </h3>
+      <p className="text-[11px] text-dark-500 mb-3">
+        Override MCP API keys for this agent. If empty, the global key from the plugin config is used.
+      </p>
+      <div className="space-y-2">
+        {mcpList.map(mcp => {
+          const serverAuth = mcpAuth[mcp.id] || {};
+          const hasKey = serverAuth.hasApiKey;
+          const draftValue = authDraft[mcp.id]?.apiKey;
+          const isDirty = draftValue !== undefined;
+
+          return (
+            <div key={mcp.id} className="flex items-center gap-3 p-3 bg-dark-800/50 rounded-lg border border-dark-700/50">
+              <span className="text-base flex-shrink-0">{mcp.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-dark-200">{mcp.name}</span>
+                  {hasKey && !isDirty && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                      key set
+                    </span>
+                  )}
+                  {!hasKey && !isDirty && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-dark-700 text-dark-500 border-dark-600">
+                      global
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-dark-500 truncate">{mcp.url || 'internal'}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  type="password"
+                  value={draftValue ?? ''}
+                  onChange={(e) => setAuthDraft(prev => ({
+                    ...prev,
+                    [mcp.id]: { apiKey: e.target.value }
+                  }))}
+                  placeholder={hasKey ? '••••••••' : 'API key'}
+                  className="w-40 px-2 py-1.5 bg-dark-900 border border-dark-600 rounded text-xs text-dark-100 placeholder-dark-600 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                {hasKey && !isDirty && (
+                  <button
+                    onClick={() => setAuthDraft(prev => ({ ...prev, [mcp.id]: { apiKey: '' } }))}
+                    className="p-1 text-dark-500 hover:text-red-400 transition-colors"
+                    title="Remove per-agent key (use global)"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {hasDraftChanges && (
+        <div className="flex items-center gap-2 mt-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-40 transition-colors flex items-center gap-1.5"
+          >
+            {saving ? <Loader className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            Save
+          </button>
+          <button
+            onClick={() => setAuthDraft({})}
+            className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-xs"
+          >
+            Cancel
+          </button>
+          {saved && <span className="text-xs text-emerald-400">Saved!</span>}
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,9 @@ const createAgentSchema = z.object({
   ragDocuments: z.array(z.any()).optional(),
   skills: z.array(z.string()).optional(),
   mcpServers: z.array(z.string()).optional(),
+  mcpAuth: z.record(z.string(), z.object({
+    apiKey: z.string().max(500).optional(),
+  })).optional(),
   handoffTargets: z.array(z.string()).optional(),
   project: z.string().max(200).nullable().optional(),
   enabled: z.boolean().optional(),

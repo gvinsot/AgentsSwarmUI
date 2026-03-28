@@ -90,6 +90,7 @@ export class AgentManager {
         agent.actionLogs = agent.actionLogs || [];
         agent.skills = agent.skills || [];
         agent.mcpServers = agent.mcpServers || [];
+        agent.mcpAuth = agent.mcpAuth || {};
         agent.isVoice = agent.isVoice || false;
         agent.voice = agent.voice || 'alloy';
         agent.projectContexts = agent.projectContexts || {};
@@ -750,7 +751,7 @@ export class AgentManager {
 
     const allowed = [
       'name', 'role', 'description', 'instructions', 'temperature',
-      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'handoffTargets',
+      'maxTokens', 'contextLength', 'todoList', 'ragDocuments', 'skills', 'mcpServers', 'mcpAuth', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
       'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId'
     ];
@@ -763,6 +764,23 @@ export class AgentManager {
         if (key === 'ownerId' && updates[key] !== agent[key]) {
           agent[key] = updates[key];
           setAgentOwner(agent.id, updates[key]);
+          continue;
+        }
+        // MCP auth: merge per-server keys, remove entries with empty apiKey
+        if (key === 'mcpAuth') {
+          if (!agent.mcpAuth) agent.mcpAuth = {};
+          for (const [serverId, conf] of Object.entries(updates.mcpAuth || {})) {
+            if (conf?.apiKey) {
+              agent.mcpAuth[serverId] = { apiKey: conf.apiKey };
+            } else {
+              // Empty apiKey → remove per-agent override (fall back to global)
+              delete agent.mcpAuth[serverId];
+            }
+          }
+          // Disconnect stale per-agent connections so they reconnect with new auth
+          if (this.mcpManager) {
+            this.mcpManager.disconnectAgent(id).catch(() => {});
+          }
           continue;
         }
         // Context switching when project changes
@@ -788,6 +806,12 @@ export class AgentManager {
     if (this.sandboxManager) {
       this.sandboxManager.destroySandbox(id).catch(err => {
         console.error(`Failed to destroy sandbox for agent ${id}:`, err.message);
+      });
+    }
+    // Disconnect per-agent MCP connections
+    if (this.mcpManager) {
+      this.mcpManager.disconnectAgent(id).catch(err => {
+        console.error(`Failed to disconnect MCP for agent ${id}:`, err.message);
       });
     }
     this.agents.delete(id);
@@ -2488,7 +2512,7 @@ export class AgentManager {
           } else {
             parsedArgs = argsJson || {};
           }
-          const mcpResult = await this.mcpManager.callToolByName(serverName, toolName, parsedArgs);
+          const mcpResult = await this.mcpManager.callToolByNameForAgent(serverName, toolName, parsedArgs, agentId, agent.mcpAuth || {});
 
           if (streamCallback) {
             const icon = mcpResult.success ? '✓' : '✗';
@@ -4829,8 +4853,15 @@ export class AgentManager {
   }
 
   _sanitize(agent) {
-    const { apiKey, ...rest } = agent;
-    return { ...rest, hasApiKey: !!apiKey };
+    const { apiKey, mcpAuth, ...rest } = agent;
+    // Mask per-server API keys: { serverId: { apiKey: '...' } } → { serverId: { hasApiKey: true } }
+    const sanitizedMcpAuth = {};
+    if (mcpAuth && typeof mcpAuth === 'object') {
+      for (const [serverId, conf] of Object.entries(mcpAuth)) {
+        sanitizedMcpAuth[serverId] = { hasApiKey: !!conf?.apiKey };
+      }
+    }
+    return { ...rest, hasApiKey: !!apiKey, mcpAuth: sanitizedMcpAuth };
   }
 
   _emit(event, data) {
