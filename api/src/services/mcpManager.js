@@ -16,13 +16,7 @@ export function resolveInternalMcpConfig(serverUrl, {
     '__internal__gandi_dns': `http://localhost:${port}/api/gandi-dns/mcp`,
   };
 
-  // Check if this is a remapped internal URL
-  const remapped = mappings[serverUrl];
-
-  // Platform URLs that share JWT_SECRET and need auto-generated JWT auth
-  const needsPlatformJwt = remapped || serverUrl.startsWith('http://swarm-manager');
-
-  if (!needsPlatformJwt) {
+  if (!mappings[serverUrl]) {
     return { url: serverUrl, headers: {} };
   }
 
@@ -33,7 +27,7 @@ export function resolveInternalMcpConfig(serverUrl, {
   );
 
   return {
-    url: remapped || serverUrl,
+    url: mappings[serverUrl],
     headers: {
       Authorization: `Bearer ${token}`,
     },

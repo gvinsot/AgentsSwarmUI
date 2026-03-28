@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   CheckSquare, FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key, CheckCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -1551,6 +1551,8 @@ function PluginsTab({ agent, plugins, onRefresh }) {
   const [savingAuth, setSavingAuth] = useState(false);
   const [authSaved, setAuthSaved] = useState(false);
   const [expandedPlugin, setExpandedPlugin] = useState(null);
+  const [mcpTestResults, setMcpTestResults] = useState({});
+  const [mcpTesting, setMcpTesting] = useState({});
   const [draft, setDraft] = useState({
     name: '',
     description: '',
@@ -1668,6 +1670,24 @@ function PluginsTab({ agent, plugins, onRefresh }) {
     }
   };
 
+  const handleTestMcp = async (mcpId) => {
+    setMcpTesting(prev => ({ ...prev, [mcpId]: true }));
+    setMcpTestResults(prev => ({ ...prev, [mcpId]: undefined }));
+    try {
+      // Use draft key if being edited, else the saved per-agent key
+      const draftKey = authDraft[mcpId]?.apiKey;
+      const savedAuth = mcpAuth[mcpId];
+      // We can't send the real saved key (it's masked), so only send draft or nothing
+      const testKey = draftKey !== undefined ? draftKey : undefined;
+      const result = await api.testMcpServer(mcpId, testKey || undefined);
+      setMcpTestResults(prev => ({ ...prev, [mcpId]: result }));
+    } catch (err) {
+      setMcpTestResults(prev => ({ ...prev, [mcpId]: { success: false, error: err.message } }));
+    } finally {
+      setMcpTesting(prev => ({ ...prev, [mcpId]: false }));
+    }
+  };
+
   return (
     <div className="p-4 space-y-5 overflow-auto">
       <div>
@@ -1753,6 +1773,21 @@ function PluginsTab({ agent, plugins, onRefresh }) {
                               placeholder={hasKey ? '••••••••' : 'API key'}
                               className="w-36 px-2 py-1 bg-dark-900 border border-dark-600 rounded text-[11px] text-dark-100 placeholder-dark-600 focus:outline-none focus:border-indigo-500 font-mono flex-shrink-0"
                             />
+                            <button
+                              onClick={() => handleTestMcp(mcp.id)}
+                              disabled={mcpTesting[mcp.id]}
+                              className={`p-1 transition-colors flex-shrink-0 ${
+                                mcpTestResults[mcp.id]?.success === true ? 'text-emerald-400' :
+                                mcpTestResults[mcp.id]?.success === false ? 'text-red-400' :
+                                'text-dark-500 hover:text-amber-400'
+                              }`}
+                              title={mcpTestResults[mcp.id]?.success === false ? mcpTestResults[mcp.id].error : 'Test connection'}
+                            >
+                              {mcpTesting[mcp.id] ? <Loader className="w-3 h-3 animate-spin" /> :
+                               mcpTestResults[mcp.id]?.success === true ? <CheckCircle className="w-3 h-3" /> :
+                               mcpTestResults[mcp.id]?.success === false ? <XCircle className="w-3 h-3" /> :
+                               <Zap className="w-3 h-3" />}
+                            </button>
                             {hasKey && !isDirty && (
                               <button
                                 onClick={() => setAuthDraft(prev => ({ ...prev, [mcp.id]: { apiKey: '' } }))}

@@ -328,10 +328,11 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
-  testMcpServer: (id) =>
+  testMcpServer: (id, apiKey) =>
     fetch(`${API_BASE}/mcp-servers/${id}/test`, {
       method: 'POST',
-      headers: getHeaders()
+      headers: getHeaders(),
+      body: apiKey ? JSON.stringify({ apiKey }) : undefined,
     }).then(handleResponse),
 
   // OneDrive OAuth

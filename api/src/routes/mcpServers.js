@@ -89,6 +89,7 @@ export function mcpServerRoutes(mcpManager) {
   });
 
   // Test MCP connection by server ID (without persisting state changes)
+  // Accepts optional { apiKey } in body to test with a specific key
   router.post('/:id/test', async (req, res) => {
     try {
       const server = mcpManager.getById(req.params.id);
@@ -97,10 +98,13 @@ export function mcpServerRoutes(mcpManager) {
       const { MCPClient } = await import('../services/mcpClient.js');
       const { resolveInternalMcpConfig } = await import('../services/mcpManager.js');
 
+      // Use provided apiKey (per-agent test) or fall back to global server key
+      const testApiKey = req.body?.apiKey || server.apiKey;
+
       const client = new MCPClient('PulsarTeam-Test');
       const connectOpts = {};
-      if (server.apiKey) {
-        connectOpts.headers = { Authorization: `Bearer ${server.apiKey}` };
+      if (testApiKey) {
+        connectOpts.headers = { Authorization: `Bearer ${testApiKey}` };
       }
       const internalConfig = resolveInternalMcpConfig(server.url);
       const connectUrl = internalConfig.url;
