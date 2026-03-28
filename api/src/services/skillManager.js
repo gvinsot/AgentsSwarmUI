@@ -15,11 +15,17 @@ function normalizeMcp(mcp) {
   };
 }
 
-function normalizeSkill(skill) {
+function normalizeSkill(skill, mcpResolver) {
   const mcps = Array.isArray(skill.mcps)
     ? skill.mcps.map(normalizeMcp)
     : Array.isArray(skill.mcpServerIds)
-      ? skill.mcpServerIds.map((id) => ({ id, name: 'Linked MCP', url: '', description: '', icon: '🔌', apiKey: '', enabled: true, userConfig: {} }))
+      ? skill.mcpServerIds.map((id) => {
+          const server = mcpResolver ? mcpResolver(id) : null;
+          if (server) {
+            return normalizeMcp({ id: server.id, name: server.name, url: server.url, description: server.description || '', icon: server.icon || '🔌', apiKey: server.apiKey || '', enabled: server.enabled !== false, userConfig: {} });
+          }
+          return { id, name: 'Linked MCP', url: '', description: '', icon: '🔌', apiKey: '', enabled: true, userConfig: {} };
+        })
       : [];
 
   return {
@@ -44,6 +50,11 @@ const ACTIVE_BUILTIN_SKILL_IDS = new Set(BUILTIN_SKILLS.map((skill) => skill.id)
 export class SkillManager {
   constructor() {
     this.skills = new Map();
+    this._mcpResolver = null;
+  }
+
+  setMcpResolver(resolver) {
+    this._mcpResolver = resolver;
   }
 
   async loadFromDatabase() {
@@ -57,7 +68,7 @@ export class SkillManager {
         continue;
       }
 
-      this.skills.set(skill.id, normalizeSkill(skill));
+      this.skills.set(skill.id, normalizeSkill(skill, this._mcpResolver));
     }
 
     console.log(`✅ Loaded ${this.skills.size} skills from database`);
@@ -75,7 +86,7 @@ export class SkillManager {
           ...skill,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        }, this._mcpResolver);
         this.skills.set(skill.id, entry);
         await saveSkill(entry);
         seeded++;
@@ -86,7 +97,7 @@ export class SkillManager {
           ...existing,
           ...skill,
           updatedAt: new Date().toISOString()
-        });
+        }, this._mcpResolver);
         this.skills.set(skill.id, entry);
         await saveSkill(entry);
         updated++;
@@ -101,12 +112,13 @@ export class SkillManager {
   }
 
   getAll() {
-    const skills = Array.from(this.skills.values()).map(normalizeSkill);
+    const resolver = this._mcpResolver;
+    const skills = Array.from(this.skills.values()).map(s => normalizeSkill(s, resolver));
     const seen = new Set(skills.map((skill) => skill.id));
 
     for (const builtin of BUILTIN_SKILLS) {
       if (!seen.has(builtin.id)) {
-        skills.push(normalizeSkill(builtin));
+        skills.push(normalizeSkill(builtin, resolver));
       }
     }
 
@@ -115,7 +127,7 @@ export class SkillManager {
 
   getById(id) {
     const skill = this.skills.get(id) || findBuiltinSkill(id) || null;
-    return skill ? normalizeSkill(skill) : null;
+    return skill ? normalizeSkill(skill, this._mcpResolver) : null;
   }
 
   async create(config) {
@@ -132,7 +144,7 @@ export class SkillManager {
       builtin: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    });
+    }, this._mcpResolver);
 
     this.skills.set(id, skill);
     await saveSkill(skill);
@@ -154,7 +166,7 @@ export class SkillManager {
     const normalized = normalizeSkill({
       ...skill,
       updatedAt: new Date().toISOString()
-    });
+    }, this._mcpResolver);
 
     this.skills.set(id, normalized);
     await saveSkill(normalized);

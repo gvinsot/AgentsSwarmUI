@@ -222,6 +222,7 @@ async function start() {
   await skillManager.seedDefaults(BUILTIN_SKILLS);
   await mcpManager.loadFromDatabase();
   await mcpManager.seedDefaults(BUILTIN_MCP_SERVERS);
+  skillManager.setMcpResolver((id) => mcpManager.getById(id));
   await agentManager.loadFromDatabase();
   agentManager.startTaskLoop();
   startJiraSync(agentManager, io, 60000); // sync every 60s
