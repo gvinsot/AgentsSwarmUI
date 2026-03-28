@@ -3550,6 +3550,12 @@ export class AgentManager {
               console.log(`[Workflow] Task in error after run_agent — stopping action chain`);
               return;
             }
+            // If an execute action moved the task out of in_progress (via task_execution_complete),
+            // stop the action chain — don't run subsequent change_status actions
+            if (action.mode === 'execute' && task.status !== 'in_progress') {
+              console.log(`[Workflow] Task moved to "${task.status}" after execute — stopping action chain`);
+              return;
+            }
 
           } else if (action.type === 'change_status') {
             if (action.target && action.target !== task.status) {
@@ -4780,6 +4786,127 @@ export class AgentManager {
   }
 
   /**
+   * Wait for the executing agent to call @task_execution_complete.
+   * Checks immediately after sendMessage returns, then enters a 5-min reminder loop.
+   * Shared by both processTransition (workflow path) and _resumeInProgressTask (task loop path).
+   * Returns: 'completed' | 'error' | 'moved' | 'stopped' | 'deleted' | 'timeout'
+   */
+  async _waitForExecutionComplete(creatorAgentId, taskId, executorId, executorName, targetStatus, taskText) {
+    const freshTask = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
+
+    if (freshTask?.status === 'error') {
+      console.log(`[Execution] Task "${taskText.slice(0, 60)}" ended with error — blocking transition to ${targetStatus}`);
+      return 'error';
+    }
+
+    if (freshTask?._executionCompleted) {
+      const comment = freshTask._executionComment || '';
+      delete freshTask._executionCompleted;
+      delete freshTask._executionComment;
+      this.setTaskStatus(creatorAgentId, taskId, targetStatus, { skipAutoRefine: false, by: executorName });
+      console.log(`✅ [Execution] task_execution_complete for "${taskText.slice(0, 60)}" -> ${targetStatus}${comment ? ` (${comment.slice(0, 80)})` : ''}`);
+      return 'completed';
+    }
+
+    if (freshTask && freshTask.status !== 'in_progress') {
+      console.log(`[Execution] Task "${taskText.slice(0, 60)}" already moved to "${freshTask.status}" — accepting`);
+      return 'moved';
+    }
+
+    // Agent went idle without calling task_execution_complete — start reminder loop
+    console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing "${taskText.slice(0, 60)}" — starting reminder loop`);
+    const REMINDER_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    const MAX_REMINDERS = 12; // 1 hour max
+    let reminded = 0;
+
+    while (reminded < MAX_REMINDERS) {
+      await new Promise(resolve => setTimeout(resolve, REMINDER_INTERVAL_MS));
+
+      const currentTask = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
+      if (!currentTask) {
+        console.log(`🔔 [Execution] Task deleted during reminder wait — exiting loop`);
+        return 'deleted';
+      }
+      if (currentTask._executionCompleted) {
+        const comment = currentTask._executionComment || '';
+        delete currentTask._executionCompleted;
+        delete currentTask._executionComment;
+        this.setTaskStatus(creatorAgentId, taskId, targetStatus, { skipAutoRefine: false, by: executorName });
+        console.log(`✅ [Execution] Completed during wait: "${taskText.slice(0, 60)}" -> ${targetStatus}`);
+        return 'completed';
+      }
+      if (currentTask.status !== 'in_progress') {
+        console.log(`🔔 [Execution] Task status changed to "${currentTask.status}" — exiting loop`);
+        return 'moved';
+      }
+      if (currentTask._executionStopped) {
+        console.log(`🛑 [Execution] Task was manually stopped — exiting reminder loop`);
+        delete currentTask._executionStopped;
+        return 'stopped';
+      }
+
+      const currentExecutor = this.agents.get(executorId);
+      if (!currentExecutor || currentExecutor.status === 'busy') {
+        console.log(`🔔 [Execution] Executor "${executorName}" is busy — skipping reminder`);
+        continue;
+      }
+      if (currentExecutor.status === 'error') {
+        console.log(`🔔 [Execution] Executor "${executorName}" is in error — exiting reminder loop`);
+        return 'error';
+      }
+
+      reminded++;
+      console.log(`🔔 [Execution] Reminding "${executorName}" to complete task (attempt ${reminded}/${MAX_REMINDERS})`);
+
+      this._emit('agent:stream:start', { agentId: executorId });
+      try {
+        const reminderStartIdx = currentExecutor.conversationHistory.length;
+        const reminderStartedAt = new Date().toISOString();
+
+        await this.sendMessage(
+          executorId,
+          `[SYSTEM REMINDER] You have an in-progress task that is not yet complete:\n"${taskText.slice(0, 300)}"\n\nPlease finish your work on this task. When you are done, you MUST call @task_execution_complete(summary of what was done) to signal completion.\n\nIf you have already finished all the work, call @task_execution_complete now with a summary of what was accomplished.`,
+          (chunk) => {
+            this._emit('agent:stream:chunk', { agentId: executorId, chunk });
+            this._emit('agent:thinking', {
+              agentId: executorId,
+              thinking: currentExecutor.currentThinking || ''
+            });
+          }
+        );
+
+        this._saveExecutionLog(creatorAgentId, taskId, executorId, reminderStartIdx, reminderStartedAt, true);
+      } catch (reminderErr) {
+        console.error(`🔔 [Execution] Reminder failed: ${reminderErr.message}`);
+      }
+      this._emit('agent:stream:end', { agentId: executorId });
+      this._emit('agent:updated', this._sanitize(currentExecutor));
+
+      // Check completion after reminder
+      const afterReminder = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
+      if (afterReminder?._executionCompleted) {
+        const comment = afterReminder._executionComment || '';
+        delete afterReminder._executionCompleted;
+        delete afterReminder._executionComment;
+        this.setTaskStatus(creatorAgentId, taskId, targetStatus, { skipAutoRefine: false, by: executorName });
+        console.log(`✅ [Execution] Completed after reminder: "${taskText.slice(0, 60)}" -> ${targetStatus}`);
+        return 'completed';
+      }
+    }
+
+    if (reminded >= MAX_REMINDERS) {
+      const finalTask = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
+      if (finalTask && finalTask.status === 'in_progress' && !finalTask._executionCompleted) {
+        console.warn(`⚠️ [Execution] Max reminders (${MAX_REMINDERS}) reached for "${taskText.slice(0, 60)}" — task remains in_progress`);
+        this.addActionLog(executorId, 'warning', `Task reminder limit reached — task remains in_progress`, taskText.slice(0, 200));
+      }
+      return 'timeout';
+    }
+
+    return 'unknown';
+  }
+
+  /**
    * Resume an in_progress task when the assignee agent is idle.
    * Sends the task text directly to the assignee and moves to done on success.
    * The agentId parameter is the todoList creator; execution uses the assignee.
@@ -4854,117 +4981,8 @@ export class AgentManager {
       // Save execution chat log to task history
       this._saveExecutionLog(agentId, task.id, executorId, startMsgIdx, executionStartedAt, true);
 
-      // Check the task's actual status before moving — sendMessage may have
-      // set it to 'error' internally (e.g. rate limit) without throwing.
-      const freshTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
-      if (freshTask?.status === 'error') {
-        console.log(`🔄 [TaskLoop] Execution of "${task.text.slice(0, 60)}" ended with task in error — blocking transition to ${targetStatus}`);
-      } else if (freshTask?._executionCompleted) {
-        // Agent explicitly signaled completion via @task_execution_complete
-        const comment = freshTask._executionComment || '';
-        delete freshTask._executionCompleted;
-        delete freshTask._executionComment;
-        this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
-        console.log(`✅ [TaskLoop] Agent called task_execution_complete for "${task.text.slice(0, 60)}" -> ${targetStatus}${comment ? ` (${comment.slice(0, 80)})` : ''}`);
-      } else if (freshTask && freshTask.status !== 'in_progress') {
-        // Task status was changed by another mechanism (e.g. @update_task) — accept it
-        console.log(`🔄 [TaskLoop] Task "${task.text.slice(0, 60)}" already moved to "${freshTask.status}" during execution — accepting`);
-      } else {
-        // Agent went idle without calling task_execution_complete — start reminder loop
-        console.log(`🔔 [TaskLoop] Agent "${executor.name}" went idle without completing "${task.text.slice(0, 60)}" — starting reminder loop`);
-        const REMINDER_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-        const MAX_REMINDERS = 12; // 1 hour max
-        let reminded = 0;
-
-        while (reminded < MAX_REMINDERS) {
-          // Wait 5 minutes (yields control to event loop)
-          await new Promise(resolve => setTimeout(resolve, REMINDER_INTERVAL_MS));
-
-          // Re-check task state — it may have been changed externally
-          const currentTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
-          if (!currentTask) {
-            console.log(`🔔 [TaskLoop] Task deleted during reminder wait — exiting loop`);
-            break;
-          }
-          if (currentTask._executionCompleted) {
-            const comment = currentTask._executionComment || '';
-            delete currentTask._executionCompleted;
-            delete currentTask._executionComment;
-            this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
-            console.log(`✅ [TaskLoop] Agent completed task during wait: "${task.text.slice(0, 60)}" -> ${targetStatus}`);
-            break;
-          }
-          if (currentTask.status !== 'in_progress') {
-            console.log(`🔔 [TaskLoop] Task status changed externally to "${currentTask.status}" — exiting loop`);
-            break;
-          }
-          if (currentTask._executionStopped) {
-            console.log(`🛑 [TaskLoop] Task was manually stopped — exiting reminder loop`);
-            delete currentTask._executionStopped;
-            break;
-          }
-
-          // Check executor is still idle (if busy, someone else is using it)
-          const currentExecutor = this.agents.get(executorId);
-          if (!currentExecutor || currentExecutor.status === 'busy') {
-            console.log(`🔔 [TaskLoop] Executor "${executor.name}" is busy — skipping reminder`);
-            continue; // Don't break — wait for next interval, agent might finish and go idle again
-          }
-          if (currentExecutor.status === 'error') {
-            console.log(`🔔 [TaskLoop] Executor "${executor.name}" is in error — exiting reminder loop`);
-            break;
-          }
-
-          // Send reminder
-          reminded++;
-          console.log(`🔔 [TaskLoop] Reminding "${executor.name}" to complete task (attempt ${reminded}/${MAX_REMINDERS})`);
-
-          this._emit('agent:stream:start', { agentId: executorId });
-          try {
-            const reminderStartIdx = currentExecutor.conversationHistory.length;
-            const reminderStartedAt = new Date().toISOString();
-
-            await this.sendMessage(
-              executorId,
-              `[SYSTEM REMINDER] You have an in-progress task that is not yet complete:\n"${task.text.slice(0, 300)}"\n\nPlease finish your work on this task. When you are done, you MUST call @task_execution_complete(summary of what was done) to signal completion.\n\nIf you have already finished all the work, call @task_execution_complete now with a summary of what was accomplished.`,
-              (chunk) => {
-                this._emit('agent:stream:chunk', { agentId: executorId, chunk });
-                this._emit('agent:thinking', {
-                  agentId: executorId,
-                  thinking: currentExecutor.currentThinking || ''
-                });
-              }
-            );
-
-            // Save reminder execution log
-            this._saveExecutionLog(agentId, task.id, executorId, reminderStartIdx, reminderStartedAt, true);
-          } catch (reminderErr) {
-            console.error(`🔔 [TaskLoop] Reminder failed: ${reminderErr.message}`);
-          }
-          this._emit('agent:stream:end', { agentId: executorId });
-          this._emit('agent:updated', this._sanitize(currentExecutor));
-
-          // Check completion after reminder
-          const afterReminder = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
-          if (afterReminder?._executionCompleted) {
-            const comment = afterReminder._executionComment || '';
-            delete afterReminder._executionCompleted;
-            delete afterReminder._executionComment;
-            this.setTaskStatus(agentId, task.id, targetStatus, { skipAutoRefine: false, by: executor.name });
-            console.log(`✅ [TaskLoop] Agent completed task after reminder: "${task.text.slice(0, 60)}" -> ${targetStatus}`);
-            break;
-          }
-        }
-
-        // If max reminders reached without completion, log but don't force transition
-        if (reminded >= MAX_REMINDERS) {
-          const finalTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
-          if (finalTask && finalTask.status === 'in_progress' && !finalTask._executionCompleted) {
-            console.warn(`⚠️ [TaskLoop] Max reminders (${MAX_REMINDERS}) reached for "${task.text.slice(0, 60)}" — task remains in_progress`);
-            this.addActionLog(executorId, 'warning', `Task reminder limit reached — task remains in_progress`, task.text.slice(0, 200));
-          }
-        }
-      }
+      // Wait for agent to signal completion via @task_execution_complete (or enter reminder loop)
+      await this._waitForExecutionComplete(agentId, task.id, executorId, executor.name, targetStatus, task.text);
     } catch (err) {
       console.error(`🔄 [TaskLoop] Error resuming task for ${executor.name}:`, err.message);
       this._emit('agent:stream:error', { agentId: executorId, error: err.message });

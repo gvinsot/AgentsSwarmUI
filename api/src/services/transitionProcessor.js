@@ -350,15 +350,10 @@ Based STRICTLY on the decision instructions above, respond with JSON only: {"dec
         // Save execution chat log to task history
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'execute');
 
-        // Check the task's actual status before logging — sendMessage may have
-        // set it to 'error' internally (e.g. rate limit) without throwing.
-        const creatorAgent = agentManager.agents.get(task.agentId);
-        const currentTask = creatorAgent?.todoList?.find(t => t.id === task.id);
-        if (currentTask?.status === 'error') {
-          console.log(`[Workflow] Execution of "${task.text.slice(0, 60)}" ended with task in error`);
-        } else {
-          console.log(`[Workflow] Execution finished for "${task.text.slice(0, 60)}"`);
-        }
+        // Wait for agent to signal completion via @task_execution_complete (or enter reminder loop)
+        // This blocks the action chain until the agent explicitly finishes the task.
+        console.log(`[Workflow] Execution response received for "${task.text.slice(0, 60)}" — waiting for task_execution_complete`);
+        await agentManager._waitForExecutionComplete(task.agentId, task.id, agent.id, agent.name, targetStatus, task.text);
       } else if (isDecide) {
         // Save decide action log to task history
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'decide');
