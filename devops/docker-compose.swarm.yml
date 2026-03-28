@@ -41,6 +41,7 @@ services:
       - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro  # SSH keys (also mounted into sandboxes)
     networks:
       - proxy
+      - internal
       - postgresqlcluster_internal
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
