@@ -48,7 +48,9 @@ export default function PluginEditor({ value, onChange, onSubmit, onCancel, savi
     setTesting(prev => ({ ...prev, [mcp.id]: true }));
     setTestResults(prev => ({ ...prev, [mcp.id]: undefined }));
     try {
-      const result = await api.testMcpServer(mcp.id);
+      // Send the key only if it's a real value (not the masked placeholder)
+      const key = mcp.apiKey && mcp.apiKey !== '••••••••' ? mcp.apiKey : undefined;
+      const result = await api.testMcpServer(mcp.id, key);
       setTestResults(prev => ({ ...prev, [mcp.id]: result }));
     } catch (err) {
       setTestResults(prev => ({ ...prev, [mcp.id]: { success: false, error: err.message } }));

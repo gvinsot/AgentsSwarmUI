@@ -99,6 +99,20 @@ export function pluginRoutes(skillManager, mcpManager) {
 
       const plugin = await skillManager.update(req.params.id, parsed);
       if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
+
+      // Sync MCP apiKeys to the MCP server registry (global key)
+      if (Array.isArray(parsed.mcps)) {
+        for (const mcp of parsed.mcps) {
+          if (mcp.id && mcpManager.getById(mcp.id)) {
+            const newKey = mcp.apiKey || '';
+            const current = mcpManager.getById(mcp.id);
+            if (current.apiKey !== newKey) {
+              await mcpManager.update(mcp.id, { apiKey: newKey });
+            }
+          }
+        }
+      }
+
       res.json(sanitizePlugin(plugin));
     } catch (err) {
       if (err instanceof z.ZodError) {
