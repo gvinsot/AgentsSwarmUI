@@ -375,7 +375,7 @@ export default function Dashboard({
 
           {/* Agent detail panel */}
           {activeView === 'agents' && selectedAgentData && (
-            <div className="lg:w-1/2 xl:w-2/5 border-l border-dark-700 bg-dark-900/50 overflow-auto">
+            <div className="lg:w-1/2 xl:w-2/5 border-l border-dark-700 bg-dark-900/50 min-h-0 overflow-hidden">
               <AgentDetail
                 key={selectedAgentData.id}
                 agent={selectedAgentData}

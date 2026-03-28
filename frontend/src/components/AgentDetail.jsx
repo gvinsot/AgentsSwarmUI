@@ -419,7 +419,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] animate-slideIn">
+    <div className="flex flex-col h-full animate-slideIn">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
         <div className="flex items-center gap-3 min-w-0">

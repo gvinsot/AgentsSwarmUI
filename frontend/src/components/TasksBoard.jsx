@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, ChevronRight, Plus, Settings,
-  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare
+  ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare, FolderKanban
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -40,6 +40,8 @@ function buildColumns(workflowColumns) {
       dropRing: c.dropRing,
       headerActive: c.headerActive,
       showAgent: col.showAgent || false,
+      showCreator: col.showCreator || false,
+      showProject: col.showProject || false,
     };
   });
 }
@@ -966,7 +968,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 // ── TaskCard ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
+function TaskCard({ task, agents, onDelete, onOpen, showAgent, showCreator, showProject }) {
   const isError = task.status === 'error';
   const isDraggingRef = useRef(false);
 
@@ -1012,12 +1014,12 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1 mb-2.5">
-        {task.project && (
+        {showProject && task.project && (
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-violet-500/10 text-violet-400 ring-1 ring-violet-500/20">
             {task.project}
           </span>
         )}
-        {sourceMeta && (
+        {showCreator && sourceMeta && (
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ring-1 ${sourceMeta.cls}`}>
             {sourceMeta.label(task.source)}
           </span>
@@ -1065,7 +1067,7 @@ function TaskCard({ task, agents, onDelete, onOpen, showAgent }) {
 
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll, onAddTask, showAgent }) {
+function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll, onAddTask, showAgent, showCreator, showProject }) {
   const [dragOver, setDragOver] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -1120,6 +1122,8 @@ function KanbanColumn({ col, tasks, agents, onDelete, onDrop, onOpen, onClearAll
             onDelete={onDelete}
             onOpen={onOpen}
             showAgent={showAgent}
+            showCreator={showCreator}
+            showProject={showProject}
           />
         ))}
         {tasks.length === 0 && (
@@ -1416,12 +1420,18 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                           className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3" />
                         <User className="w-3 h-3" />
                       </label>
-                      <select value={col.autoAssignRole || ''} onChange={e => updateCol(idx, { autoAssignRole: e.target.value || null })}
-                        className="flex-1 bg-dark-700 border border-dark-600 rounded px-1.5 py-0.5 text-[10px] text-dark-300"
-                        title="Auto-assign role">
-                        <option value="">No auto-assign</option>
-                        {availableRoles.map(r => <option key={r} value={r}>Auto: {r}</option>)}
-                      </select>
+                      <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer" title="Show creator on cards">
+                        <input type="checkbox" checked={col.showCreator || false}
+                          onChange={e => updateCol(idx, { showCreator: e.target.checked })}
+                          className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3" />
+                        <Zap className="w-3 h-3" />
+                      </label>
+                      <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer" title="Show project on cards">
+                        <input type="checkbox" checked={col.showProject || false}
+                          onChange={e => updateCol(idx, { showProject: e.target.checked })}
+                          className="rounded border-dark-600 bg-dark-700 text-indigo-500 focus:ring-indigo-500/30 w-3 h-3" />
+                        <FolderKanban className="w-3 h-3" />
+                      </label>
                     </div>
                   </div>
 
@@ -2145,6 +2155,8 @@ export default function TasksBoard({ agents, onRefresh, user }) {
               onClearAll={col.id === 'done' ? handleClearDone : undefined}
               onAddTask={() => { setCreateDefaultStatus(col.id); setCreateOpen(true); }}
               showAgent={col.showAgent}
+              showCreator={col.showCreator}
+              showProject={col.showProject}
             />
           ))}
         </div>
