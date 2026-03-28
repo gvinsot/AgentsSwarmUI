@@ -4408,7 +4408,7 @@ export class AgentManager {
       });
 
       const msgCount = toSummarize.length + (existingSummary ? 1 : 0);
-      console.log(`🗜️  [Compact] "${agent.name}": summarizing ${msgCount} messages (${summaryInput.length} chars input, cap ${summaryInputCap}), keeping ${toKeep.length} recent, context ${contextLimit}`);
+      console.log(`🗜️  [Compact] "${agent.name}": summarizing ${msgCount} messages (${summaryInput.length} chars input, cap ${summaryInputCap}), keeping ${toKeep.length} recent, context ${contextLimit}, model=${llmConfig.model}`);
 
       // Cap input to stay well within context: leave room for system prompt + output tokens
       const maxSummaryInputChars = Math.min(summaryInputCap, (contextLimit - summaryMaxTokens - 1000) * 3);
@@ -4435,7 +4435,7 @@ export class AgentManager {
 
       // Retry once with a simpler prompt if empty (some models struggle with complex instructions)
       if (!summaryText.trim()) {
-        console.warn(`🗜️  [Compact] "${agent.name}": first summary attempt returned empty — retrying with simpler prompt`);
+        console.warn(`🗜️  [Compact] "${agent.name}": first summary attempt returned empty (model=${llmConfig.model}) — retrying with simpler prompt`);
         const retryMessages = [
           { role: 'user', content: `Summarize the following conversation in bullet points. Keep it concise.\n\n${summaryInput.slice(0, Math.floor(maxSummaryInputChars / 2))}` }
         ];
@@ -4448,7 +4448,7 @@ export class AgentManager {
         summaryText = summaryResponse.content || '';
       }
 
-      if (!summaryText.trim()) throw new Error('Empty summary after retry');
+      if (!summaryText.trim()) throw new Error(`Empty summary after retry (model=${llmConfig.model}, provider=${llmConfig.provider})`);
 
       // Replace history: one summary message + recent messages
       agent.conversationHistory = [
@@ -4465,25 +4465,56 @@ export class AgentManager {
       console.log(`🗜️  [Compact] "${agent.name}": compacted ${history.length} → ${agent.conversationHistory.length} messages (summary: ${summaryText.length} chars)`);
 
     } catch (summaryErr) {
-      // Summarization failed — hard truncation fallback
-      console.warn(`🗜️  [Compact] "${agent.name}": summarization failed (${summaryErr.message}), falling back to hard truncation`);
+      // Summarization failed — build mechanical summary (no LLM needed)
+      console.warn(`🗜️  [Compact] "${agent.name}": summarization failed (${summaryErr.message}), building mechanical summary`);
 
-      // Build a basic mechanical summary from discarded messages (no LLM needed)
-      const discardedTopics = [];
+      // Extract structured info from discarded messages
+      const filesRead = new Set();
+      const filesWritten = new Set();
+      const commandsRun = [];
+      const toolCalls = [];
+      const errors = [];
+      const userRequests = [];
+
       for (const m of toSummarize) {
+        const content = m.content || '';
         if (m.role === 'assistant') {
-          // Extract tool calls mentioned
-          const tools = (m.content || '').match(/@\w+\([^)]{0,80}\)/g);
-          if (tools) discardedTopics.push(...tools.slice(0, 5));
-        } else if (m.role === 'user' && m.type === 'tool-result') {
-          // Note tool results
-          const preview = (m.content || '').slice(0, 100).replace(/\n/g, ' ');
-          discardedTopics.push(`[tool-result: ${preview}]`);
+          // Extract tool calls
+          const reads = content.match(/@read_file\(([^)]{1,120})\)/g);
+          if (reads) reads.forEach(r => {
+            const match = r.match(/@read_file\(([^,)]+)/);
+            if (match) filesRead.add(match[1].trim().replace(/^["']|["']$/g, ''));
+          });
+          const writes = content.match(/@write_file\(([^,]{1,120})/g);
+          if (writes) writes.forEach(w => {
+            const match = w.match(/@write_file\(([^,]+)/);
+            if (match) filesWritten.add(match[1].trim().replace(/^["']|["']$/g, ''));
+          });
+          const cmds = content.match(/@run_command\(([^)]{1,200})\)/g);
+          if (cmds) commandsRun.push(...cmds.slice(0, 3).map(c => c.slice(13, -1).slice(0, 80)));
+          const otherTools = content.match(/@(?:search_files|list_dir|append_file|git_commit_push|mcp_call)\([^)]{0,80}\)/g);
+          if (otherTools) toolCalls.push(...otherTools.slice(0, 5));
+        } else if (m.role === 'user') {
+          if (content.includes('Error') || content.includes('error') || content.includes('failed')) {
+            const errPreview = content.slice(0, 150).replace(/\n/g, ' ');
+            errors.push(errPreview);
+          }
+          // Capture original user requests (not tool results)
+          if (!m.type && content.length > 10 && content.length < 500) {
+            userRequests.push(content.slice(0, 150));
+          }
         }
       }
-      const mechanicalSummary = discardedTopics.length > 0
-        ? `[COMPACTION — ${toSummarize.length} messages were discarded (summarization failed). Key actions: ${discardedTopics.slice(0, 10).join(', ')}]`
-        : `[COMPACTION — ${toSummarize.length} messages were discarded (summarization failed)]`;
+
+      const parts = [];
+      parts.push(`[MECHANICAL SUMMARY — ${toSummarize.length} earlier messages compacted (LLM summarization failed)]`);
+      if (userRequests.length > 0) parts.push(`Tasks requested: ${userRequests.slice(0, 3).join(' | ')}`);
+      if (filesRead.size > 0) parts.push(`Files read: ${[...filesRead].slice(0, 15).join(', ')}`);
+      if (filesWritten.size > 0) parts.push(`Files written: ${[...filesWritten].slice(0, 10).join(', ')}`);
+      if (commandsRun.length > 0) parts.push(`Commands run: ${commandsRun.slice(0, 5).join(', ')}`);
+      if (toolCalls.length > 0) parts.push(`Other tools: ${toolCalls.slice(0, 8).join(', ')}`);
+      if (errors.length > 0) parts.push(`Errors encountered: ${errors.slice(0, 3).join(' | ')}`);
+      const mechanicalSummary = parts.join('\n');
 
       if (existingSummary) {
         existingSummary.content += `\n\n${mechanicalSummary}`;
