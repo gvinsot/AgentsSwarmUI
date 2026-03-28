@@ -164,10 +164,22 @@ export class MCPManager {
 
   /**
    * Connect to all enabled servers (called on startup).
+   * Skips servers that require per-agent auth (no global apiKey, external URL).
    * Errors are logged but don't block startup.
    */
   async connectAll() {
-    const enabled = Array.from(this.servers.values()).filter(s => s.enabled !== false);
+    const enabled = Array.from(this.servers.values()).filter(s => {
+      if (s.enabled === false) return false;
+      // Skip external servers without apiKey — they need per-agent auth
+      if (!s.apiKey && s.url && !s.url.startsWith('__internal__')) {
+        const internal = resolveInternalMcpConfig(s.url);
+        if (Object.keys(internal.headers).length === 0) {
+          console.log(`⏭️ [MCP] Skipping "${s.name}" — requires per-agent API key`);
+          return false;
+        }
+      }
+      return true;
+    });
     const results = await Promise.allSettled(
       enabled.map(s => this.connect(s.id))
     );
@@ -507,7 +519,7 @@ export class MCPManager {
 
   // ── Agent Integration ───────────────────────────────────────────────
 
-  async getToolsForAgent(mcpServerIds) {
+  async getToolsForAgent(mcpServerIds, agentId = null, agentMcpAuth = {}) {
     const tools = [];
     const unavailable = [];
 
@@ -518,12 +530,26 @@ export class MCPManager {
         server = await this.ensureBuiltinServerRegistered(serverId);
       }
       if (server && server.status !== 'connected' && server.enabled && server.url) {
-        console.log(`🔌 [MCP] "${server.name}" not connected — attempting reconnect for agent prompt...`);
-        reconnectPromises.push(
-          this.connect(serverId).catch(err => {
-            console.warn(`⚠️ [MCP] Reconnect failed for "${server.name}": ${err.message}`);
-          })
-        );
+        // If agent has auth for this server, use per-agent connection to discover tools
+        const agentAuth = agentMcpAuth[serverId];
+        if (agentId && agentAuth?.apiKey) {
+          reconnectPromises.push(
+            this._discoverToolsWithAgentAuth(server, agentId, agentAuth.apiKey).catch(err => {
+              console.warn(`⚠️ [MCP] Per-agent discovery failed for "${server.name}": ${err.message}`);
+            })
+          );
+        } else {
+          // Try global reconnect (only if server has a global key or is internal)
+          const internal = resolveInternalMcpConfig(server.url);
+          if (server.apiKey || Object.keys(internal.headers).length > 0) {
+            console.log(`🔌 [MCP] "${server.name}" not connected — attempting reconnect for agent prompt...`);
+            reconnectPromises.push(
+              this.connect(serverId).catch(err => {
+                console.warn(`⚠️ [MCP] Reconnect failed for "${server.name}": ${err.message}`);
+              })
+            );
+          }
+        }
       }
     }
     if (reconnectPromises.length > 0) {
@@ -536,20 +562,59 @@ export class MCPManager {
         unavailable.push({ serverId, serverName: serverId, status: 'unknown', reason: 'Server not registered' });
         continue;
       }
-      if (server.status !== 'connected') {
-        unavailable.push({ serverId, serverName: server.name, status: server.status, reason: `Server is ${server.status}` + (server.error ? `: ${server.error}` : '') });
-        continue;
-      }
-      for (const tool of server.tools) {
-        tools.push({
+      // For per-agent auth servers: check if we have tools (discovered via agent connection)
+      // even if global status isn't 'connected'
+      if (server.tools && server.tools.length > 0) {
+        for (const tool of server.tools) {
+          tools.push({
+            serverName: server.name,
+            serverId: server.id,
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          });
+        }
+      } else if (server.status !== 'connected') {
+        const agentAuth = agentMcpAuth[serverId];
+        unavailable.push({
+          serverId,
           serverName: server.name,
-          serverId: server.id,
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema
+          status: server.status,
+          reason: agentAuth?.apiKey
+            ? `Server is ${server.status}` + (server.error ? `: ${server.error}` : '')
+            : 'No API key configured for this agent — set it in the agent\'s Plugins tab'
         });
       }
     }
     return { tools, unavailable };
   }
-}
+
+  /**
+   * Discover tools using a per-agent connection, then store them on the server entry
+   * (so they appear in the agent prompt) without changing the global connection.
+   */
+  async _discoverToolsWithAgentAuth(server, agentId, apiKey) {
+    const cacheKey = `${agentId}:${server.id}`;
+    let client = this.agentClients.get(cacheKey);
+
+    if (!client || !client.isConnected) {
+      console.log(`🔌 [MCP] Discovering tools for "${server.name}" via agent ${agentId.slice(0, 8)} auth`);
+      client = new MCPClient('PulsarTeam');
+      const connectOpts = { headers: { Authorization: `Bearer ${apiKey}` } };
+      const internalConfig = resolveInternalMcpConfig(server.url);
+      if (Object.keys(internalConfig.headers).length > 0) {
+        connectOpts.headers = { ...connectOpts.headers, ...internalConfig.headers };
+      }
+      const { tools } = await client.connect(internalConfig.url || server.url, connectOpts);
+      this.agentClients.set(cacheKey, client);
+
+      // Store discovered tools on the server entry
+      server.tools = tools.map(t => ({
+        name: t.name,
+        description: t.description || '',
+        inputSchema: t.inputSchema || {}
+      }));
+      server.status = 'connected';
+      server.error = null;
+    }
+  }

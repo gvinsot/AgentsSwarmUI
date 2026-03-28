@@ -1075,7 +1075,7 @@ export class AgentManager {
       const directMcpIds = agent.mcpServers || [];
       const allMcpIds = [...new Set([...pluginMcpIds, ...directMcpIds])];
       if (allMcpIds.length > 0 && this.mcpManager) {
-        const { tools: mcpTools, unavailable: mcpUnavailable } = await this.mcpManager.getToolsForAgent(allMcpIds);
+        const { tools: mcpTools, unavailable: mcpUnavailable } = await this.mcpManager.getToolsForAgent(allMcpIds, id, agent.mcpAuth || {});
         if (mcpTools.length > 0) {
           systemContent += '\n\n--- MCP Tools ---\n';
           systemContent += 'These are NOT shell commands. Do NOT use @run_command or any bash tool to call them.\n';
