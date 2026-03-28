@@ -19,6 +19,7 @@ export class SandboxManager {
   }
 
   async ensureSandbox(agentId, project = null, gitUrl = null) {
+    console.log(`📦 [Sandbox] ensureSandbox(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
     await this._ensureSharedContainerRunning();
 
     const existing = this.agentUsers.get(agentId);
@@ -280,6 +281,7 @@ export class SandboxManager {
         { timeout: 5000 }
       );
       const names = stdout.trim().split('\n').filter(Boolean);
+      console.log(`📦 [Sandbox] Discovered containers for filter "${filter}": [${names.join(', ')}]`);
       if (names.length === 0) {
         throw new Error(`No running sandbox container found matching filter "${filter}"`);
       }
@@ -384,16 +386,31 @@ export class SandboxManager {
   }
 
   async _execAsRoot(command, { timeout = 120000 } = {}) {
+    const preview = command.length > 200 ? command.slice(0, 200) + '...' : command;
+    console.log(`📦 [Sandbox:root] ${preview}`);
     const cmd = `docker exec ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
-    return execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
+    const start = Date.now();
+    try {
+      const result = await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
+      console.log(`📦 [Sandbox:root] ✓ ${Date.now() - start}ms`);
+      return result;
+    } catch (err) {
+      console.error(`📦 [Sandbox:root] ✗ ${Date.now() - start}ms — ${err.message.slice(0, 200)}`);
+      throw err;
+    }
   }
 
   async _execAsAgentUser(username, command, { cwd = null, timeout = 120000 } = {}) {
     const cwdArg = cwd ? `-w ${this._sh(cwd)}` : '';
     const homeArg = `-e HOME=/home/${username}`;
+    const preview = command.length > 200 ? command.slice(0, 200) + '...' : command;
+    console.log(`📦 [Sandbox:${username}] ${preview}${cwd ? ` (cwd=${cwd})` : ''}`);
     const cmd = `docker exec ${homeArg} ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
+    const start = Date.now();
     try {
-      return await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
+      const result = await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
+      console.log(`📦 [Sandbox:${username}] ✓ ${Date.now() - start}ms`);
+      return result;
     } catch (err) {
       // Detect "unable to find user" — container was likely replaced and user no longer exists
       if (err.message && err.message.includes('no matching entries in passwd')) {
@@ -407,8 +424,10 @@ export class SandboxManager {
         }
         // Retry the command once
         const retryCmd = `docker exec ${homeArg} ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
+        console.log(`📦 [Sandbox:${username}] Retrying after user re-creation...`);
         return execAsync(retryCmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
       }
+      console.error(`📦 [Sandbox:${username}] ✗ ${Date.now() - start}ms — ${err.message.slice(0, 200)}`);
       throw err;
     }
   }

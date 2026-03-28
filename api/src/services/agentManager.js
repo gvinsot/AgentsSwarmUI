@@ -2235,7 +2235,7 @@ export class AgentManager {
       return [];
     }
     
-    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project})`);
+    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project || 'none'}, sandbox=${this.sandboxManager ? (this.sandboxManager.hasSandbox(agentId) ? 'ready' : 'not-initialized') : 'no-manager'})`);
 
     // Ensure sandbox container is running with the correct project (or workspace-only)
     if (this.sandboxManager) {
@@ -2245,12 +2245,13 @@ export class AgentManager {
           if (gitUrl) {
             await this.sandboxManager.ensureSandbox(agentId, agent.project, gitUrl);
           } else {
-            console.warn(`⚠️  [Sandbox] No git URL found for project "${agent.project}"`);
+            console.warn(`⚠️  [Sandbox] No git URL found for project "${agent.project}" — sandbox will NOT be initialized`);
           }
         } else {
           // No project — ensure sandbox exists at workspace root (access to all projects)
           await this.sandboxManager.ensureSandbox(agentId);
         }
+        console.log(`📦 [Sandbox] After ensureSandbox: hasSandbox=${this.sandboxManager.hasSandbox(agentId)}`);
       } catch (err) {
         console.error(`⚠️  [Sandbox] Failed to ensure sandbox for ${agent.name}:`, err.message);
       }
