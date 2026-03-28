@@ -84,6 +84,19 @@ export function pluginRoutes(skillManager, mcpManager) {
   router.put('/:id', requireAdmin, async (req, res) => {
     try {
       const parsed = updatePluginSchema.parse(req.body);
+
+      // Preserve existing API keys when the frontend sends the masked placeholder
+      if (Array.isArray(parsed.mcps)) {
+        const current = skillManager.getById(req.params.id);
+        const currentMcps = current && Array.isArray(current.mcps) ? current.mcps : [];
+        for (const mcp of parsed.mcps) {
+          if (mcp.apiKey === '••••••••' && mcp.id) {
+            const existing = currentMcps.find(m => m.id === mcp.id);
+            mcp.apiKey = existing ? existing.apiKey : '';
+          }
+        }
+      }
+
       const plugin = await skillManager.update(req.params.id, parsed);
       if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
       res.json(sanitizePlugin(plugin));

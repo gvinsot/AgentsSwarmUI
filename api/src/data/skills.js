@@ -50,7 +50,7 @@ Call them using the @mcp_call(PulsarCD Read, tool_name, {"param": "value"}) synt
     "builtin": true,
     "mcpServerIds": [
       "mcp-pulsarcd-actions",
-      "mcp-pulsarcd-read"
+      "mcp-gandi-dns"
     ],
     "instructions": `You can build, test, and deploy projects on the Docker Swarm cluster using PulsarCD Actions MCP tools.
 

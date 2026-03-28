@@ -9,6 +9,7 @@ function normalizeMcp(mcp) {
     url: mcp.url || '',
     description: mcp.description || '',
     icon: mcp.icon || '🔌',
+    authMode: mcp.authMode || (mcp.apiKey ? 'bearer' : 'none'),
     apiKey: mcp.apiKey || '',
     enabled: mcp.enabled !== false,
     userConfig: mcp.userConfig || {},
@@ -28,12 +29,18 @@ function normalizeSkill(skill, mcpResolver) {
   if (serverIds.length > 0 && mcpResolver) {
     mcps = serverIds.map((id) => {
       const server = mcpResolver(id);
+      // Preserve authMode & apiKey from the skill's own mcp entry (user may have set per-plugin auth)
+      const skillMcp = Array.isArray(skill.mcps) ? skill.mcps.find(m => m.id === id) : null;
       if (server) {
-        return normalizeMcp({ id: server.id, name: server.name, url: server.url, description: server.description || '', icon: server.icon || '🔌', apiKey: server.apiKey || '', enabled: server.enabled !== false, userConfig: {} });
+        return normalizeMcp({
+          id: server.id, name: server.name, url: server.url, description: server.description || '',
+          icon: server.icon || '🔌', enabled: server.enabled !== false, userConfig: {},
+          authMode: skillMcp?.authMode || undefined,
+          apiKey: skillMcp?.apiKey || server.apiKey || '',
+        });
       }
       // Fallback: try to find in existing mcps array for embedded (non-linked) MCPs
-      const existing = Array.isArray(skill.mcps) ? skill.mcps.find(m => m.id === id) : null;
-      return existing ? normalizeMcp(existing) : { id, name: 'Linked MCP', url: '', description: '', icon: '🔌', apiKey: '', enabled: true, userConfig: {} };
+      return skillMcp ? normalizeMcp(skillMcp) : { id, name: 'Linked MCP', url: '', description: '', icon: '🔌', authMode: 'none', apiKey: '', enabled: true, userConfig: {} };
     });
   } else if (Array.isArray(skill.mcps)) {
     mcps = skill.mcps.map(normalizeMcp);
