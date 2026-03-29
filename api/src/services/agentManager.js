@@ -1176,10 +1176,10 @@ export class AgentManager {
     const shouldCompact = isTopLevelUserMessage || isNewDelegationTask;
     if (shouldCompact) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
-    if (!managesContext) {
 
       if (agent._compactionArmed === undefined) {
         agent._compactionArmed = true;
+    if (!managesContext) {
       }
       if (!agent._compactionArmed && nonSummaryMessages.length <= compactReset) {
         agent._compactionArmed = true;
@@ -1203,12 +1203,14 @@ export class AgentManager {
     messages.push({ role: 'user', content: userMessage });
 
     // ── Safety net: also compact if token budget is exceeded ──
+    if (!managesContext) {
     // Skip during tool-result continuations to avoid breaking mid-task context
+    } // end !managesContext — skip compaction and history injection
     if (shouldCompact) {
       const estimatedTokens = this._estimateTokens(messages);
       // For large contexts, allow up to 80% usage before triggering; smaller contexts stay at 75%
-      const safetyRatio = contextLimit >= 128000 ? 0.80 : 0.75;
       if (estimatedTokens > contextLimit * safetyRatio && realMessages.length > maxRecent) {
+    if (!managesContext) {
     } // end !managesContext — skip compaction and history
         // Emergency compact: keep fewer messages (scaled down)
         const emergencyKeep = Math.max(6, Math.floor(maxRecent * 0.6));
@@ -1217,7 +1219,6 @@ export class AgentManager {
         await this._compactHistory(agent, emergencyKeep);
         agent._compactionArmed = false;
         // Rebuild messages with compacted history
-    if (!managesContext) {
         messages.length = 0;
         if (systemContent) {
           messages.push({ role: 'system', content: systemContent });
@@ -1238,6 +1239,7 @@ export class AgentManager {
     };
     if (messageMeta) {
       historyEntry.type = messageMeta.type;
+    } // end !managesContext safety net
       if (messageMeta.toolResults) historyEntry.toolResults = messageMeta.toolResults;
       if (messageMeta.delegationResults) historyEntry.delegationResults = messageMeta.delegationResults;
       if (messageMeta.fromAgent) historyEntry.fromAgent = messageMeta.fromAgent;
@@ -1245,7 +1247,6 @@ export class AgentManager {
     agent.conversationHistory.push(historyEntry);
 
     let fullResponse = '';
-    } // end !managesContext safety net
 
     try {
       const llmConfig = this.resolveLlmConfig(agent);
