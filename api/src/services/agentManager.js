@@ -1245,11 +1245,11 @@ export class AgentManager {
     agent.conversationHistory.push(historyEntry);
 
     let fullResponse = '';
+    } // end !managesContext safety net
 
     try {
       const llmConfig = this.resolveLlmConfig(agent);
       const provider = createProvider({
-    } // end !managesContext safety net
         provider: llmConfig.provider,
         model: llmConfig.model,
         endpoint: llmConfig.endpoint,
