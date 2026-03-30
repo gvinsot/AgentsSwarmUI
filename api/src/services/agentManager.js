@@ -2449,11 +2449,11 @@ export class AgentManager {
         let task = agent.todoList?.find(t => t.id === taskId);
         if (!task) task = agent.todoList?.find(t => t.id.startsWith(taskId));
         let taskAgentId = agentId;
-        // Also search across all agents (for tasks assigned to this agent but owned by another)
+        // Also search across all agents (task may be in a different agent's todoList)
         if (!task) {
           for (const [creatorId, creatorAgent] of this.agents) {
             const found = creatorAgent.todoList?.find(t => t.id === taskId || t.id.startsWith(taskId));
-            if (found && (found.assignee === agentId || creatorId === agentId)) {
+            if (found) {
               task = found;
               taskAgentId = creatorId;
               break;
@@ -3525,13 +3525,15 @@ export class AgentManager {
         );
         fieldValue = found ? 'true' : 'false';
         const result = cond.operator === 'neq' ? !found : found;
-        console.log(`[Workflow] Condition: idle_agent_available role="${role}" project="${task.project}" => ${result}`);
+        if (result) console.log(`[Workflow] Condition: idle_agent_available role="${role}" project="${task.project}" => true`);
         return result;
       }
       default: fieldValue = '';
     }
     const result = cond.operator === 'neq' ? fieldValue !== cond.value : fieldValue === cond.value;
-    console.log(`[Workflow] Condition: ${cond.field} ${cond.operator} "${cond.value}" => fieldValue="${fieldValue}" result=${result} (assignee=${task.assignee || 'none'}, agentName=${assigneeAgent?.name || 'N/A'}, agentStatus=${assigneeAgent?.status || 'N/A'})`);
+    if (result) {
+      console.log(`[Workflow] Condition: ${cond.field} ${cond.operator} "${cond.value}" => fieldValue="${fieldValue}" result=true (assignee=${task.assignee || 'none'}, agentName=${assigneeAgent?.name || 'N/A'}, agentStatus=${assigneeAgent?.status || 'N/A'})`);
+    }
     return result;
   }
 
