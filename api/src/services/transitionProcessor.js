@@ -302,6 +302,10 @@ Execute the instructions above and update the task status accordingly.`;
       } else if (isDecide) {
         // Instructions mode: agent handles status changes itself via @update_task
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'decide');
+        // Release the execution lock early — the agent has already processed tools
+        // and moved the task via @update_task. Holding the lock blocks on_enter
+        // transitions for the new column (e.g. test → deploy).
+        _executionLocks.delete(lockKey);
         console.log(`[Workflow] Instructions completed for "${task.text.slice(0, 60)}" via ${agent.name}`);
       } else {
         // Refine mode — replace the task description with the refined version
