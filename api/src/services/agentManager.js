@@ -1112,7 +1112,7 @@ export class AgentManager {
         if (isTopLevel) this._chatLocks.delete(id);
         try {
           if (streamCallback) streamCallback(`\n⚠️ *Context limit exceeded — compacting conversation and retrying...*\n`);
-          const reactiveCtxLimit = agent.contextLength || 8192;
+          const reactiveCtxLimit = this.resolveLlmConfig(agent).contextLength || agent.contextLength || 8192;
           const reactiveKeep = Math.max(6, Math.floor(this._compactionThresholds(reactiveCtxLimit).maxRecent * 0.5));
           await this._compactHistory(agent, reactiveKeep);
           agent._compactionArmed = false;
@@ -1363,7 +1363,7 @@ export class AgentManager {
       console.log(`🧠 [Managed Context] "${agent.name}": model manages its own memory/compaction — skipping history \& compaction`);
     }
 
-    const contextLimit = agent.contextLength || 8192;
+    const contextLimit = earlyLlmConfig.contextLength || agent.contextLength || 8192;
     const { maxRecent, compactTrigger, compactReset, safetyRatio } = this._compactionThresholds(contextLimit);
 
     const isTopLevelUserMessage = delegationDepth === 0 && !messageMeta;
@@ -4545,7 +4545,7 @@ export class AgentManager {
       return;
     }
 
-    const contextLimit = agent.contextLength || 8192;
+    const contextLimit = this.resolveLlmConfig(agent).contextLength || agent.contextLength || 8192;
 
     // Scale limits based on context size
     // Per-message truncation: from 2k chars (small ctx) to 8k chars (256k ctx)
