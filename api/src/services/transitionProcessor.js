@@ -73,7 +73,7 @@ export async function processTransition(task, agentManager, io) {
   const lockKey = `${task.agentId}:${task.id}`;
   if (!isLightweightMode && !_acquireExecutionLock(lockKey)) {
     console.log(`[Workflow] Skipping duplicate processTransition for "${task.text?.slice(0, 60)}" — already in progress`);
-    return;
+    return { skipped: 'lock-held' };
   }
 
   console.log(`[Workflow] processTransition called: task="${task.text?.slice(0, 60)}" from="${task.status}" to="${targetStatus}" mode="${mode}" role="${transitionRole || 'none'}" agentId="${task.agentId}"`);

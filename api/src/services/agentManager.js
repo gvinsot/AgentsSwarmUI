@@ -3702,12 +3702,12 @@ export class AgentManager {
             console.log(`[Workflow] Action: run_agent mode="${action.mode}" role="${action.role}" target="${action.targetStatus}"`);
             try {
               const result = await processTransition(enrichedTask, this, this.io);
-              // If agent was busy, mark task for periodic on_enter retry
-              if (result?.skipped === 'no-idle-agent') {
+              // If agent was busy or lock held, mark task for periodic on_enter retry
+              if (result?.skipped) {
                 const actualTaskForFlag = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
                 if (actualTaskForFlag) {
                   actualTaskForFlag._pendingOnEnter = true;
-                  console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry (no idle agent)`);
+                  console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry (${result.skipped})`);
                   saveAgent(this.agents.get(task.agentId));
                 }
                 stopActionChain = true;
@@ -4873,8 +4873,8 @@ export class AgentManager {
                 console.log(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'}: run_agent mode="${action.mode}" role="${action.role}"`);
                 processTransition(enrichedTask, this, this.io)
                   .then(result => {
-                    // Clear _pendingOnEnter if agent ran successfully
-                    if (isOnEnterRetry && result?.skipped !== 'no-idle-agent') {
+                    // Clear _pendingOnEnter if agent ran successfully (not skipped)
+                    if (isOnEnterRetry && !result?.skipped) {
                       const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
                       if (actualTask) {
                         delete actualTask._pendingOnEnter;
