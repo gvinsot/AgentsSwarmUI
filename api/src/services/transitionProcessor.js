@@ -108,7 +108,7 @@ export async function processTransition(task, agentManager, io) {
       if (!agent) {
         console.log(`[Workflow] Execute mode: assignee not available — task stays pending (will retry when assignee is idle)`);
         _executionLocks.delete(lockKey);
-        return;
+        return { skipped: 'no-idle-agent' };
       }
     } else {
       // Non-execute modes: find agent by role (scoped to task owner)
@@ -134,7 +134,7 @@ export async function processTransition(task, agentManager, io) {
     if (!agent) {
       console.log(`[Workflow] No idle agent found for role "${transitionRole || 'any'}" — task stays pending (will be picked up when an agent becomes available)`);
       _executionLocks.delete(lockKey);
-      return;
+      return { skipped: 'no-idle-agent' };
     }
 
     // Store the executing agent ID on the task for stop functionality

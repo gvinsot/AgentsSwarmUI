@@ -3701,7 +3701,18 @@ export class AgentManager {
             };
             console.log(`[Workflow] Action: run_agent mode="${action.mode}" role="${action.role}" target="${action.targetStatus}"`);
             try {
-              await processTransition(enrichedTask, this, this.io);
+              const result = await processTransition(enrichedTask, this, this.io);
+              // If agent was busy, mark task for periodic on_enter retry
+              if (result?.skipped === 'no-idle-agent') {
+                const actualTaskForFlag = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
+                if (actualTaskForFlag) {
+                  actualTaskForFlag._pendingOnEnter = true;
+                  console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry (no idle agent)`);
+                  saveAgent(this.agents.get(task.agentId));
+                }
+                stopActionChain = true;
+                break;
+              }
               // Re-read the task after processTransition (it may have been updated)
               const freshAgent = this.agents.get(task.agentId);
               const freshTask = freshAgent?.todoList?.find(t => t.id === task.id);
@@ -3834,6 +3845,8 @@ export class AgentManager {
     const prevStatus = task.status;
     if (prevStatus === status) return task; // No-op: skip same-status transitions
     task.status = status;
+    // Clear pending on_enter flag — task is moving to a new column
+    delete task._pendingOnEnter;
     const now = new Date().toISOString();
     if (status === 'done') task.completedAt = now;
     if (status === 'in_progress') task.startedAt = now;
@@ -4363,10 +4376,10 @@ export class AgentManager {
   _compactionThresholds(contextLimit) {
     if (contextLimit >= 200000) {
       // 200k+ contexts (e.g. 256k): keep a lot more history
-      return { maxRecent: 40, compactTrigger: 55, compactReset: 45, safetyRatio: 0.80 };
+      return { maxRecent: 80, compactTrigger: 110, compactReset: 90, safetyRatio: 0.80 };
     } else if (contextLimit >= 128000) {
       // 128k contexts: generous history
-      return { maxRecent: 30, compactTrigger: 42, compactReset: 35, safetyRatio: 0.80 };
+      return { maxRecent: 40, compactTrigger: 55, compactReset: 45, safetyRatio: 0.80 };
     } else if (contextLimit >= 32000) {
       // 32k contexts: moderate history
       return { maxRecent: 16, compactTrigger: 24, compactReset: 20, safetyRatio: 0.75 };
@@ -4753,10 +4766,11 @@ export class AgentManager {
           .filter(t => this._validTransition(t))
           .filter(t => {
             if (!t) return false;
-            // Only condition-based transitions need periodic re-evaluation.
-            // on_enter transitions fire once via _checkAutoRefine when a task
-            // enters the status — re-checking them here causes infinite loops.
+            // Condition-based transitions need periodic re-evaluation.
             if (t.trigger === 'condition' && (t.conditions || []).length > 0) return true;
+            // on_enter transitions are also included — but only evaluated for
+            // tasks flagged _pendingOnEnter (agent was busy when first triggered).
+            if (t.trigger === 'on_enter') return true;
             return false;
           });
         if (condTransitions.length > 0) {
@@ -4788,6 +4802,9 @@ export class AgentManager {
           }
 
           for (const transition of matching) {
+            // on_enter transitions in the periodic loop: only retry for tasks flagged _pendingOnEnter
+            if (transition.trigger === 'on_enter' && !task._pendingOnEnter) continue;
+
             const conditions = transition.conditions || [];
             const allMet = conditions.length === 0 || conditions.every(cond =>
               this._evaluateCondition(cond, { ...task, agentId })
@@ -4850,9 +4867,21 @@ export class AgentManager {
                     rejectTarget: action.rejectTarget || null,
                   }
                 };
-                console.log(`[Workflow] Condition re-check: run_agent mode="${action.mode}" role="${action.role}"`);
+                const isOnEnterRetry = transition.trigger === 'on_enter';
+                console.log(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'}: run_agent mode="${action.mode}" role="${action.role}"`);
                 processTransition(enrichedTask, this, this.io)
-                  .catch(err => console.error(`[Workflow] Condition re-check error:`, err.message))
+                  .then(result => {
+                    // Clear _pendingOnEnter if agent ran successfully
+                    if (isOnEnterRetry && result?.skipped !== 'no-idle-agent') {
+                      const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
+                      if (actualTask) {
+                        delete actualTask._pendingOnEnter;
+                        saveAgent(this.agents.get(agentId));
+                        console.log(`[Workflow] Cleared _pendingOnEnter for "${(task.text || '').slice(0, 60)}"`);
+                      }
+                    }
+                  })
+                  .catch(err => console.error(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'} error:`, err.message))
                   .finally(() => {
                     this._conditionProcessing.delete(lockKey);
                   });
