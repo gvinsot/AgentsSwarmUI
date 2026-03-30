@@ -3706,17 +3706,19 @@ export class AgentManager {
               if (result?.skipped) {
                 const actualTaskForFlag = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
                 if (actualTaskForFlag) {
-                  actualTaskForFlag._pendingOnEnter = true;
-                  console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry (${result.skipped})`);
+                  // Store the column status so we only clear the flag for the right column
+                  actualTaskForFlag._pendingOnEnter = actualTaskForFlag.status;
+                  console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry in "${actualTaskForFlag.status}" (${result.skipped})`);
                   saveAgent(this.agents.get(task.agentId));
                 }
                 stopActionChain = true;
                 break;
               }
-              // Agent executed — clear the flag if it was set
+              // Agent executed — clear the flag only if it was set for THIS column
+              // (a nested _checkAutoRefine may have set it for a different column)
               if (result?.executed) {
                 const actualTaskForClear = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
-                if (actualTaskForClear && actualTaskForClear._pendingOnEnter) {
+                if (actualTaskForClear && actualTaskForClear._pendingOnEnter === originalStatus) {
                   delete actualTaskForClear._pendingOnEnter;
                   saveAgent(this.agents.get(task.agentId));
                 }
@@ -4813,7 +4815,8 @@ export class AgentManager {
 
           for (const transition of matching) {
             // on_enter transitions in the periodic loop: only retry for tasks flagged _pendingOnEnter
-            if (transition.trigger === 'on_enter' && !task._pendingOnEnter) continue;
+            // and only when the flag matches the current column (it stores the status string)
+            if (transition.trigger === 'on_enter' && task._pendingOnEnter !== task.status) continue;
 
             const conditions = transition.conditions || [];
             const allMet = conditions.length === 0 || conditions.every(cond =>
@@ -4878,16 +4881,21 @@ export class AgentManager {
                   }
                 };
                 const isOnEnterRetry = transition.trigger === 'on_enter';
+                // Capture the status we're processing BEFORE the async call
+                // (task is a live reference — the agent may change task.status during execution)
+                const processingStatus = task.status;
                 console.log(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'}: run_agent mode="${action.mode}" role="${action.role}"`);
                 processTransition(enrichedTask, this, this.io)
                   .then(result => {
-                    // Clear _pendingOnEnter ONLY if the agent actually executed (not just "not skipped")
+                    // Clear _pendingOnEnter ONLY if the agent actually executed AND
+                    // the flag is still for the column we were processing (a nested
+                    // _checkAutoRefine may have set a new flag for the next column).
                     if (isOnEnterRetry && result?.executed) {
                       const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
-                      if (actualTask) {
+                      if (actualTask && actualTask._pendingOnEnter === processingStatus) {
                         delete actualTask._pendingOnEnter;
                         saveAgent(this.agents.get(agentId));
-                        console.log(`[Workflow] Cleared _pendingOnEnter for "${(task.text || '').slice(0, 60)}" (agent executed successfully)`);
+                        console.log(`[Workflow] Cleared _pendingOnEnter for "${(task.text || '').slice(0, 60)}" in "${processingStatus}" (agent executed successfully)`);
                       }
                     } else if (isOnEnterRetry && result?.skipped) {
                       console.log(`[Workflow] on_enter retry still pending for "${(task.text || '').slice(0, 60)}" (${result.skipped})`);
