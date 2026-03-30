@@ -4736,6 +4736,7 @@ export class AgentManager {
                     mode: action.mode || 'execute',
                     instructions: action.instructions || '',
                     to: action.targetStatus || null,
+                    rejectTarget: action.rejectTarget || null,
                   }
                 };
                 console.log(`[Workflow] Condition re-check: run_agent mode="${action.mode}" role="${action.role}"`);
