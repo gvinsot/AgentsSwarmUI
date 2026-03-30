@@ -2437,7 +2437,7 @@ export class AgentManager {
 
       // ── Handle @update_task() — update own task status ──────────────
       if (call.tool === 'update_task') {
-        const [taskId, newStatus] = call.args;
+        const [taskId, newStatus, details] = call.args;
         // Find the task (in this agent's todoList or across all agents if assigned)
         let task = agent.todoList?.find(t => t.id === taskId);
         if (!task) task = agent.todoList?.find(t => t.id.startsWith(taskId));
@@ -2459,14 +2459,30 @@ export class AgentManager {
           results.push({ tool: 'update_task', args: call.args, success: false, error: `Task not found: ${taskId}.${hint}` });
           continue;
         }
+        // Append details to the task description if provided
+        if (details && details.trim()) {
+          const separator = '\n\n---\n';
+          const detailBlock = `**[${agent.name}]** ${details.trim()}`;
+          task.text = (task.text || '') + separator + detailBlock;
+          if (!task.history) task.history = [];
+          task.history.push({
+            status: task.status,
+            at: new Date().toISOString(),
+            by: agent.name,
+            type: 'edit',
+            field: 'text',
+            oldValue: null,
+            newValue: detailBlock,
+          });
+        }
         // Use setTaskStatus for proper history tracking and workflow triggers
         const updated = this.setTaskStatus(taskAgentId, task.id, newStatus, { skipAutoRefine: false, by: agent.name });
         if (!updated) {
           results.push({ tool: 'update_task', args: call.args, success: false, error: `Cannot move task to "${newStatus}" (blocked by guard or same status).` });
           continue;
         }
-        console.log(`📋 [Task] Agent "${agent.name}" updated task "${task.text.slice(0, 50)}" → ${newStatus}`);
-        results.push({ tool: 'update_task', args: call.args, success: true, result: `Task "${task.text}" updated to ${newStatus}` });
+        console.log(`📋 [Task] Agent "${agent.name}" updated task "${task.text.slice(0, 50)}" → ${newStatus}${details ? ' (with details)' : ''}`);
+        results.push({ tool: 'update_task', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" updated to ${newStatus}${details ? ' with details appended' : ''}` });
         continue;
       }
 

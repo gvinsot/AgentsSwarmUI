@@ -35,12 +35,13 @@ You can interact with project files using these commands. Use the exact format s
   Use this to check what tasks are assigned to you and their current state.
   Example: @list_my_tasks()
 
-@update_task(taskId, status) - Update the status of one of your tasks
+@update_task(taskId, status, details) - Update the status of one of your tasks
   The status can be any workflow column ID (e.g., backlog, pending, code, build, test, deploy, done) or a system status (in_progress, error).
-  Use this to move a task between workflow columns or mark it as in_progress/error.
+  The details parameter is optional. When provided, the details text is appended to the task description.
+  Use this to move a task between workflow columns, optionally adding context (e.g., error details, build output).
   Example: @update_task(abc-123, build)
   Example: @update_task(abc-123, done)
-  Example: @update_task(abc-123, error)
+  Example: @update_task(abc-123, pending, Build failed: missing dependency libfoo)
 
 @check_status() - Check your own detailed status including project assignment, task counts, and metrics
   Use this to see which project you are working on and your current state.
@@ -494,7 +495,7 @@ function jsonToToolCall(name, args) {
     case 'git_commit_push':
       return { tool: 'git_commit_push', args: [args.message || args.msg || ''] };
     case 'update_task':
-      return { tool: 'update_task', args: [args.taskId || args.task_id || args.id || '', args.status || ''] };
+      return { tool: 'update_task', args: [args.taskId || args.task_id || args.id || '', args.status || '', args.details || args.detail || args.message || ''] };
     case 'link_commit':
       return { tool: 'link_commit', args: [args.taskId || args.task_id || args.id || '', args.commitHash || args.commit_hash || args.hash || '', args.message || args.msg || ''] };
     case 'list_my_tasks':
@@ -615,8 +616,8 @@ export function parseToolCalls(response) {
 
   const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'git_commit_push', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete'];
   const READ_FILE_TOOLS = ['read_file'];  // 1-arg or 3-arg (path, startLine, endLine)
-  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files', 'update_task'];
-  const THREE_ARG_TOOLS = ['mcp_call', 'link_commit'];
+  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files'];
+  const THREE_ARG_TOOLS = ['mcp_call', 'link_commit', 'update_task'];
   const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...READ_FILE_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');
   let startMatch;

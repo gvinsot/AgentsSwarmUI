@@ -238,6 +238,7 @@ Instructions:
 ${instructions}
 
 You can change the task status using @update_task(${task.id}, <new_status>) where <new_status> is a workflow column ID.
+You can also append details to the task description: @update_task(${task.id}, <new_status>, <details>).
 Execute the instructions above and update the task status accordingly.`;
       messagePrefix = '';
       console.log(`[Workflow] Instructions mode: "${task.text.slice(0, 80)}" via ${agent.name}`);
