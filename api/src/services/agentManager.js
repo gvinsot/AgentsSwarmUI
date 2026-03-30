@@ -1535,7 +1535,7 @@ export class AgentManager {
           const hasErrorReports = toolResults.some(r => r.isErrorReport);
           const hasRealErrors = toolResults.some(r => !r.success && !r.isErrorReport);
           const hasSuccessfulCommit = toolResults.some(r => r.tool === 'git_commit_push' && r.success);
-          let continuationPrompt = 'Continue with your task based on these results.';
+          let continuationPrompt = '[/TOOL RESULTS]';
           if (hasErrorReports) {
             continuationPrompt = 'You reported an error. The error has been escalated to the manager. Summarize what you attempted and what went wrong so the manager can help.';
           } else if (hasRealErrors) {
