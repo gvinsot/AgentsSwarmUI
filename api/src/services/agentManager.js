@@ -3729,10 +3729,18 @@ export class AgentManager {
     if (status === 'error') {
       task.errorFromStatus = prevStatus;
     }
+    // Track which column the task was in before entering in_progress (for board display)
+    if (status === 'in_progress') {
+      task.inProgressFromStatus = prevStatus;
+    }
     // Clear error metadata when moving out of error (e.g. manual retry)
     if (prevStatus === 'error' && status !== 'error') {
       delete task.errorFromStatus;
       delete task.error;
+    }
+    // Clear in_progress metadata when moving out of in_progress
+    if (prevStatus === 'in_progress' && status !== 'in_progress') {
+      delete task.inProgressFromStatus;
     }
     if (!task.history) task.history = [];
     task.history.push({ from: prevStatus, status, at: now, by: by || 'user' });

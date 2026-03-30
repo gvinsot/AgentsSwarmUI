@@ -492,7 +492,8 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
   const isError = task.status === 'error';
   const sourceMeta = task.source ? (SOURCE_META[task.source.type] || SOURCE_META.api) : null;
-  const currentStatus = statusOptions.find(s => s.value === (task.status || 'pending')) || statusOptions[0];
+  const currentStatus = statusOptions.find(s => s.value === task.status) || statusOptions[0];
+  const lastStatusId = statusOptions[statusOptions.length - 1]?.value;
 
   return (
     <div
@@ -511,7 +512,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                   border transition-colors hover:opacity-80
                   ${isError
                     ? 'bg-red-500/15 text-red-300 border-red-500/30'
-                    : task.status === 'done'
+                    : task.status === lastStatusId
                       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                       : task.status === 'in_progress'
                         ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
@@ -2118,16 +2119,20 @@ export default function TasksBoard({ agents, onRefresh, user }) {
     });
   }, [allTasks, agentFilter, projectFilter, search]);
 
-  // Group by column — error tasks stay in the column they were in before the error
+  // Group by column — error/in_progress are internal execution states, not workflow columns.
+  // Use errorFromStatus / inProgressFromStatus to keep tasks visible in their originating column.
   const tasksByColumn = useMemo(() => {
     const groups = {};
+    const fallbackColId = columns[0]?.id;
     columns.forEach(col => {
       groups[col.id] = filteredTasks.filter(t => {
         if (t.status === 'error') {
-          // Use errorFromStatus to keep the task in its original column; default to in_progress for legacy data
-          return (t.errorFromStatus || 'in_progress') === col.id;
+          return (t.errorFromStatus || fallbackColId) === col.id;
         }
-        return col.statuses.includes(t.status || 'pending');
+        if (t.status === 'in_progress') {
+          return (t.inProgressFromStatus || fallbackColId) === col.id;
+        }
+        return col.statuses.includes(t.status || fallbackColId);
       });
     });
     return groups;
@@ -2146,11 +2151,13 @@ export default function TasksBoard({ agents, onRefresh, user }) {
     }
   }, [onRefresh]);
 
+  const lastColId = columns[columns.length - 1]?.id;
+
   const handleClearDone = useCallback(async () => {
-    const doneTasks = allTasks.filter(t => t.status === 'done');
+    const doneTasks = allTasks.filter(t => t.status === lastColId);
     await Promise.all(doneTasks.map(t => api.deleteTask(t.agentId, t.id)));
     onRefresh();
-  }, [allTasks, onRefresh]);
+  }, [allTasks, onRefresh, lastColId]);
 
   const handleDrop = useCallback(async (e, col) => {
     let agentId, taskId;
@@ -2161,9 +2168,12 @@ export default function TasksBoard({ agents, onRefresh, user }) {
       const task = allTasks.find(t => t.id === taskId && t.agentId === agentId);
       if (!task) return;
       // Check if task is already in this column (including error tasks in their original column)
+      const fallbackColId = columns[0]?.id;
       const isAlreadyInColumn = task.status === 'error'
-        ? (task.errorFromStatus || 'in_progress') === col.id
-        : col.statuses.includes(task.status || 'pending');
+        ? (task.errorFromStatus || fallbackColId) === col.id
+        : task.status === 'in_progress'
+          ? (task.inProgressFromStatus || fallbackColId) === col.id
+          : col.statuses.includes(task.status || fallbackColId);
       if (isAlreadyInColumn) return;
       await api.setTaskStatus(agentId, taskId, col.dropStatus);
       onRefresh();
@@ -2172,12 +2182,15 @@ export default function TasksBoard({ agents, onRefresh, user }) {
     }
   }, [allTasks, onRefresh]);
 
-  const totalByStatus = useMemo(() => ({
-    pending: allTasks.filter(t => t.status === 'pending' || !t.status).length,
-    error: allTasks.filter(t => t.status === 'error').length,
-    in_progress: allTasks.filter(t => t.status === 'in_progress').length,
-    done: allTasks.filter(t => t.status === 'done').length,
-  }), [allTasks]);
+  const totalByStatus = useMemo(() => {
+    const lastColId = columns[columns.length - 1]?.id;
+    return {
+      waiting: allTasks.filter(t => t.status !== 'error' && t.status !== 'in_progress' && t.status !== lastColId).length,
+      error: allTasks.filter(t => t.status === 'error').length,
+      in_progress: allTasks.filter(t => t.status === 'in_progress').length,
+      done: allTasks.filter(t => t.status === lastColId).length,
+    };
+  }, [allTasks, columns]);
 
   const activeFilters = [agentFilter, projectFilter, search].filter(Boolean).length;
 
@@ -2312,7 +2325,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
 
         {/* Stats */}
         <div className="ml-auto flex items-center gap-3 text-xs text-dark-500">
-          <span>{totalByStatus.pending + totalByStatus.error} pending</span>
+          <span>{totalByStatus.waiting + totalByStatus.error} pending</span>
           <span className="text-amber-400/70">{totalByStatus.in_progress} active</span>
           <span className="text-emerald-400/70">{totalByStatus.done} done</span>
           {totalByStatus.error > 0 && (
@@ -2356,7 +2369,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
               onStop={handleStopAction}
               onDrop={handleDrop}
               onOpen={setSelectedTask}
-              onClearAll={col.id === 'done' ? handleClearDone : undefined}
+              onClearAll={col.id === lastColId ? handleClearDone : undefined}
               onAddTask={() => { setCreateDefaultStatus(col.id); setCreateOpen(true); }}
               showAgent={col.showAgent}
               showCreator={col.showCreator}
