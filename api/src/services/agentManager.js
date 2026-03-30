@@ -925,6 +925,20 @@ export class AgentManager {
       }
     }
 
+    // Clear actionRunning flag on any task executed by this agent (across all creators)
+    // so the UI immediately reflects the stop
+    for (const [, creatorAgent] of this.agents) {
+      if (!creatorAgent.todoList) continue;
+      for (const t of creatorAgent.todoList) {
+        if (t.actionRunning && t.actionRunningAgentId === id) {
+          t.actionRunning = false;
+          delete t.actionRunningAgentId;
+          saveAgent(creatorAgent);
+          this.io?.to(`agent:${creatorAgent.id}`)?.emit('task:updated', { agentId: creatorAgent.id, task: t });
+        }
+      }
+    }
+
     // Reset agent state
     agent.currentThinking = '';
     agent.currentTask = null;
