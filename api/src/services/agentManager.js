@@ -3702,7 +3702,7 @@ export class AgentManager {
             console.log(`[Workflow] Action: run_agent mode="${action.mode}" role="${action.role}" target="${action.targetStatus}"`);
             try {
               const result = await processTransition(enrichedTask, this, this.io);
-              // If agent was busy or lock held, mark task for periodic on_enter retry
+              // If transition didn't execute (lock held, no idle agent), flag for periodic retry
               if (result?.skipped) {
                 const actualTaskForFlag = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
                 if (actualTaskForFlag) {
@@ -3712,6 +3712,14 @@ export class AgentManager {
                 }
                 stopActionChain = true;
                 break;
+              }
+              // Agent executed — clear the flag if it was set
+              if (result?.executed) {
+                const actualTaskForClear = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
+                if (actualTaskForClear && actualTaskForClear._pendingOnEnter) {
+                  delete actualTaskForClear._pendingOnEnter;
+                  saveAgent(this.agents.get(task.agentId));
+                }
               }
               // Re-read the task after processTransition (it may have been updated)
               const freshAgent = this.agents.get(task.agentId);
@@ -4873,14 +4881,16 @@ export class AgentManager {
                 console.log(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'}: run_agent mode="${action.mode}" role="${action.role}"`);
                 processTransition(enrichedTask, this, this.io)
                   .then(result => {
-                    // Clear _pendingOnEnter if agent ran successfully (not skipped)
-                    if (isOnEnterRetry && !result?.skipped) {
+                    // Clear _pendingOnEnter ONLY if the agent actually executed (not just "not skipped")
+                    if (isOnEnterRetry && result?.executed) {
                       const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
                       if (actualTask) {
                         delete actualTask._pendingOnEnter;
                         saveAgent(this.agents.get(agentId));
-                        console.log(`[Workflow] Cleared _pendingOnEnter for "${(task.text || '').slice(0, 60)}"`);
+                        console.log(`[Workflow] Cleared _pendingOnEnter for "${(task.text || '').slice(0, 60)}" (agent executed successfully)`);
                       }
+                    } else if (isOnEnterRetry && result?.skipped) {
+                      console.log(`[Workflow] on_enter retry still pending for "${(task.text || '').slice(0, 60)}" (${result.skipped})`);
                     }
                   })
                   .catch(err => console.error(`[Workflow] ${isOnEnterRetry ? 'on_enter retry' : 'Condition re-check'} error:`, err.message))

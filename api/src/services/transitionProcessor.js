@@ -315,7 +315,7 @@ Execute the instructions above and update the task status accordingly.`;
         }
       }
 
-      console.log(`[Workflow] Done: "${task.text.slice(0, 80)}" via ${agent.name}${targetStatus ? ` -> ${targetStatus}` : ''}`);
+      console.log(`[Workflow] Done: "${task.text.slice(0, 80)}" via ${agent.name} (mode=${actionMode})`);
     } finally {
       io.emit('agent:stream:end', {
         agentId: agent.id,
@@ -325,6 +325,7 @@ Execute the instructions above and update the task status accordingly.`;
       // Emit agent:updated so the frontend gets the updated conversation history
       agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
     }
+    return { executed: true };
   } catch (err) {
     console.error(`[Workflow] Error processing "${task.text}":`, err.message, err.stack);
     try {
