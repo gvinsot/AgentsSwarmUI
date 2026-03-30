@@ -191,6 +191,12 @@ export class AgentManager {
     for (const config of configs) {
       this.llmConfigs.set(config.id, config);
     }
+    // Emit agent:updated for all agents referencing an LLM config so cards refresh
+    for (const agent of this.agents.values()) {
+      if (agent.llmConfigId) {
+        this._emit('agent:updated', this._sanitize(agent));
+      }
+    }
   }
 
   getLlmConfigs() {
@@ -5276,7 +5282,16 @@ export class AgentManager {
         sanitizedMcpAuth[serverId] = { hasApiKey: !!conf?.apiKey };
       }
     }
-    return { ...rest, hasApiKey: !!apiKey, mcpAuth: sanitizedMcpAuth };
+    const sanitized = { ...rest, hasApiKey: !!apiKey, mcpAuth: sanitizedMcpAuth };
+    // Resolve display provider/model from LLM config so cards show the current LLM
+    if (agent.llmConfigId) {
+      const config = this.llmConfigs.get(agent.llmConfigId);
+      if (config) {
+        sanitized.provider = config.provider;
+        sanitized.model = config.model;
+      }
+    }
+    return sanitized;
   }
 
   _emit(event, data) {
