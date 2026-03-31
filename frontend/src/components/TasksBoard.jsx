@@ -1835,8 +1835,8 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                               {ACTION_OPTIONS.filter(o => !o.jira || jiraEnabled).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
 
-                            {/* Role selector for assign_agent and run_agent (except execute — uses task's assigned agent) */}
-                            {(action.type === 'assign_agent' || (action.type === 'run_agent' && action.mode !== 'execute')) && (
+                            {/* Role selector for assign_agent and run_agent */}
+                            {(action.type === 'assign_agent' || action.type === 'run_agent') && (
                               <select value={action.role || ''}
                                 onChange={e => updateAction(idx, ai, { role: e.target.value })}
                                 className="px-1.5 py-0.5 bg-dark-700 border border-dark-600 rounded text-[10px] text-dark-200">
@@ -1893,12 +1893,12 @@ function WorkflowEditor({ workflow, agents, jiraStatus, onClose, onSave }) {
                           {action.type === 'run_agent' && action.mode !== 'title' && action.mode !== 'set_type' && (
                             <textarea value={action.instructions || ''}
                               onChange={e => updateAction(idx, ai, { instructions: e.target.value })}
-                              placeholder={action.mode === 'decide'
+                              placeholder={action.mode === 'decide' || action.mode === 'execute'
                                 ? "Instructions for the agent... (e.g., 'Run build_stack. If success, move task to test. If failure, move to backlog.')"
                                 : action.mode === 'refine'
                                 ? "Refinement instructions... (e.g., 'Add acceptance criteria and break into sub-tasks')"
                                 : "Extra instructions (optional)... (e.g., 'Focus on unit tests')"}
-                              className={`w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none ${action.mode === 'decide' ? 'h-24' : 'h-14'}`}
+                              className={`w-full bg-dark-900 border border-dark-600 rounded px-2 py-1.5 text-xs text-dark-200 placeholder-dark-500 resize-none ${action.mode === 'decide' || action.mode === 'execute' ? 'h-24' : 'h-14'}`}
                             />
                           )}
 
@@ -2207,13 +2207,13 @@ export default function TasksBoard({ agents, onRefresh, user }) {
   const columns = useMemo(() => workflow ? buildColumns(workflow.columns) : [], [workflow]);
   const statusOptions = useMemo(() => workflow ? buildStatusOptions(workflow.columns) : [], [workflow]);
 
-  // Map column IDs to their "Instructions (agent)" actions from transitions
+  // Map column IDs to their "Instructions/Execute (agent)" actions from transitions
   const columnInstructionsMap = useMemo(() => {
     if (!workflow?.transitions) return {};
     const map = {};
     workflow.transitions.forEach((tr, tIdx) => {
       (tr.actions || []).forEach((act, aIdx) => {
-        if (act.type === 'run_agent' && act.mode === 'decide') {
+        if (act.type === 'run_agent' && (act.mode === 'decide' || act.mode === 'execute')) {
           const colId = tr.from;
           if (!map[colId]) map[colId] = [];
           map[colId].push({

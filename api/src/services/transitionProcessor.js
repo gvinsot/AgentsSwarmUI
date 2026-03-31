@@ -98,15 +98,22 @@ export async function processTransition(task, agentManager, io) {
     let agent = null;
 
     if (isExecution) {
-      // Execute mode: use the task's assignee ONLY — never fallback to creator
-      const assignee = task.assignee ? agentManager.agents.get(task.assignee) : null;
-      if (assignee && assignee.enabled !== false && assignee.status === 'idle') {
-        agent = assignee;
-        console.log(`[Workflow] Execute mode: using idle assignee "${agent.name}" (${agent.id})`);
+      // Execute mode: prefer role-based agent selection (like instructions mode)
+      if (transitionRole) {
+        agent = findAgentByRole(agentManager, transitionRole, taskOwnerId);
+        if (agent) console.log(`[Workflow] Execute mode: found agent by role "${transitionRole}": ${agent.name} (${agent.id})`);
       }
-      // If assignee is not idle, don't fallback — task will be picked up when assignee becomes available
+      // Fallback to the task's assignee
       if (!agent) {
-        console.log(`[Workflow] Execute mode: assignee not available — task stays pending (will retry when assignee is idle)`);
+        const assignee = task.assignee ? agentManager.agents.get(task.assignee) : null;
+        if (assignee && assignee.enabled !== false && assignee.status === 'idle') {
+          agent = assignee;
+          console.log(`[Workflow] Execute mode: using idle assignee "${agent.name}" (${agent.id})`);
+        }
+      }
+      // If no agent available, task stays pending
+      if (!agent) {
+        console.log(`[Workflow] Execute mode: no agent available — task stays pending (will retry when an agent is idle)`);
         _executionLocks.delete(lockKey);
         return { skipped: 'no-idle-agent' };
       }
@@ -232,7 +239,24 @@ export async function processTransition(task, agentManager, io) {
       if (task.status !== 'in_progress') {
         agentManager.setTaskStatus(task.agentId, task.id, 'in_progress', { skipAutoRefine: true, by: agent.name });
       }
-      prompt = task.text;
+      if (instructions) {
+        // When instructions are provided, behave like instructions mode — send structured context
+        prompt = `You have been assigned instructions for the following task.
+
+Task ID: ${task.id}
+Task title: ${task.text}
+Current status: ${task.status}
+${task.error ? `Previous error: ${task.error}` : ''}
+
+Instructions:
+${instructions}
+
+You can change the task status using @update_task(${task.id}, <new_status>) where <new_status> is a workflow column ID.
+You can also append details to the task description: @update_task(${task.id}, <new_status>, <details>).
+Execute the instructions above and update the task status accordingly.`;
+      } else {
+        prompt = task.text;
+      }
       messagePrefix = '';
       console.log(`[Workflow] Executing "${task.text.slice(0, 80)}" via ${agent.name} (role: ${agent.role})`);
     } else if (isDecide) {
@@ -304,14 +328,14 @@ Execute the instructions above and update the task status accordingly.`;
       // Determine action mode label for history
       const actionMode = isExecution ? 'execute' : isDecide ? 'decide' : 'refine';
 
-      if (isExecution) {
-        // Save execution chat log to task history
+      if (isExecution && instructions) {
+        // Execute with instructions: agent handles status changes itself via @update_task (like instructions mode)
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'execute');
-
-        // Wait for agent to signal completion via @task_execution_complete (or enter reminder loop)
-        // This blocks the action chain until the agent explicitly finishes the task.
-        // Pass null as targetStatus — execute mode stays in the current column;
-        // the next change_status action in the chain handles the move.
+        _executionLocks.delete(lockKey);
+        console.log(`[Workflow] Execute (with instructions) completed for "${task.text.slice(0, 60)}" via ${agent.name}`);
+      } else if (isExecution) {
+        // Execute without instructions: wait for agent to signal completion via @task_execution_complete
+        agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'execute');
         console.log(`[Workflow] Execution response received for "${task.text.slice(0, 60)}" — waiting for task_execution_complete`);
         await agentManager._waitForExecutionComplete(task.agentId, task.id, agent.id, agent.name, null, task.text);
       } else if (isDecide) {
