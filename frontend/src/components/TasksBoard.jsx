@@ -10,17 +10,18 @@ import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import AllCommitsDiffModal from './AllCommitsDiffModal';
+import { useTheme } from '../contexts/ThemeContext';
 
 // ── Color mapping (hex → Tailwind classes) ──────────────────────────────────
 
 const COLOR_MAP = {
-  '#a855f7': { dot: 'bg-purple-500',  headerText: 'text-purple-300', countCls: 'bg-purple-500/20 text-purple-300', dropRing: 'ring-purple-500/40 bg-purple-500/5', headerActive: 'border-purple-500/60', statusDot: 'bg-purple-400', statusText: 'text-purple-300' },
-  '#6b7280': { dot: 'bg-gray-500',    headerText: 'text-gray-300',   countCls: 'bg-gray-500/20 text-gray-300',     dropRing: 'ring-gray-500/40 bg-gray-500/5',     headerActive: 'border-gray-500/60',   statusDot: 'bg-gray-400',   statusText: 'text-gray-300' },
-  '#3b82f6': { dot: 'bg-blue-500',    headerText: 'text-blue-300',   countCls: 'bg-blue-500/20 text-blue-300',     dropRing: 'ring-blue-500/40 bg-blue-500/5',     headerActive: 'border-blue-500/60',   statusDot: 'bg-blue-400',   statusText: 'text-blue-300' },
-  '#eab308': { dot: 'bg-amber-400',   headerText: 'text-amber-300',  countCls: 'bg-amber-500/20 text-amber-300',   dropRing: 'ring-amber-500/40 bg-amber-500/5',   headerActive: 'border-amber-400/60',  statusDot: 'bg-amber-400',  statusText: 'text-amber-300' },
-  '#22c55e': { dot: 'bg-emerald-400', headerText: 'text-emerald-300',countCls: 'bg-emerald-500/20 text-emerald-300',dropRing: 'ring-emerald-500/40 bg-emerald-500/5',headerActive: 'border-emerald-400/60', statusDot: 'bg-emerald-400',statusText: 'text-emerald-300' },
-  '#ef4444': { dot: 'bg-red-400',     headerText: 'text-red-300',    countCls: 'bg-red-500/20 text-red-300',       dropRing: 'ring-red-500/40 bg-red-500/5',       headerActive: 'border-red-400/60',    statusDot: 'bg-red-400',    statusText: 'text-red-300' },
-  '#64748b': { dot: 'bg-slate-500',   headerText: 'text-dark-300',   countCls: 'bg-dark-700 text-dark-400',        dropRing: 'ring-slate-500/40 bg-slate-500/5',   headerActive: 'border-slate-500/60',  statusDot: 'bg-slate-400',  statusText: 'text-slate-300' },
+  '#a855f7': { dot: 'bg-purple-500',  headerText: 'text-purple-300', headerTextLight: 'text-purple-700', countCls: 'bg-purple-500/20 text-purple-300', countClsLight: 'bg-purple-500/20 text-purple-700', dropRing: 'ring-purple-500/40 bg-purple-500/5', headerActive: 'border-purple-500/60', statusDot: 'bg-purple-400', statusText: 'text-purple-300' },
+  '#6b7280': { dot: 'bg-gray-500',    headerText: 'text-gray-300',   headerTextLight: 'text-gray-700',   countCls: 'bg-gray-500/20 text-gray-300',     countClsLight: 'bg-gray-500/20 text-gray-700',     dropRing: 'ring-gray-500/40 bg-gray-500/5',     headerActive: 'border-gray-500/60',   statusDot: 'bg-gray-400',   statusText: 'text-gray-300' },
+  '#3b82f6': { dot: 'bg-blue-500',    headerText: 'text-blue-300',   headerTextLight: 'text-blue-700',   countCls: 'bg-blue-500/20 text-blue-300',     countClsLight: 'bg-blue-500/20 text-blue-700',     dropRing: 'ring-blue-500/40 bg-blue-500/5',     headerActive: 'border-blue-500/60',   statusDot: 'bg-blue-400',   statusText: 'text-blue-300' },
+  '#eab308': { dot: 'bg-amber-400',   headerText: 'text-amber-300',  headerTextLight: 'text-amber-700',  countCls: 'bg-amber-500/20 text-amber-300',   countClsLight: 'bg-amber-500/20 text-amber-700',   dropRing: 'ring-amber-500/40 bg-amber-500/5',   headerActive: 'border-amber-400/60',  statusDot: 'bg-amber-400',  statusText: 'text-amber-300' },
+  '#22c55e': { dot: 'bg-emerald-400', headerText: 'text-emerald-300',headerTextLight: 'text-emerald-700',countCls: 'bg-emerald-500/20 text-emerald-300',countClsLight: 'bg-emerald-500/20 text-emerald-700',dropRing: 'ring-emerald-500/40 bg-emerald-500/5',headerActive: 'border-emerald-400/60', statusDot: 'bg-emerald-400',statusText: 'text-emerald-300' },
+  '#ef4444': { dot: 'bg-red-400',     headerText: 'text-red-300',    headerTextLight: 'text-red-700',    countCls: 'bg-red-500/20 text-red-300',       countClsLight: 'bg-red-500/20 text-red-700',       dropRing: 'ring-red-500/40 bg-red-500/5',       headerActive: 'border-red-400/60',    statusDot: 'bg-red-400',    statusText: 'text-red-300' },
+  '#64748b': { dot: 'bg-slate-500',   headerText: 'text-dark-300',   headerTextLight: 'text-slate-700',  countCls: 'bg-dark-700 text-dark-400',        countClsLight: 'bg-slate-500/20 text-slate-700',   dropRing: 'ring-slate-500/40 bg-slate-500/5',   headerActive: 'border-slate-500/60',  statusDot: 'bg-slate-400',  statusText: 'text-slate-300' },
 };
 
 const DEFAULT_COLOR = COLOR_MAP['#6b7280'];
@@ -39,7 +40,9 @@ function buildColumns(workflowColumns) {
       dropStatus: col.id,
       dot: c.dot,
       headerText: c.headerText,
+      headerTextLight: c.headerTextLight,
       countCls: c.countCls,
+      countClsLight: c.countClsLight,
       dropRing: c.dropRing,
       headerActive: c.headerActive,
       showAgent: col.showAgent || false,
@@ -1467,6 +1470,8 @@ function InstructionsEditModal({ columnLabel, instructions, agents, onClose, onS
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
 function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDragStart }) {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -1483,7 +1488,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
       >
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${col.dot}`} />
-          <span className={`text-sm font-semibold ${col.headerText}`}>{col.label}</span>
+          <span className={`text-sm font-semibold ${isLight ? col.headerTextLight : col.headerText}`}>{col.label}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {hasInstructions && (
@@ -1504,7 +1509,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${col.countCls}`}>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isLight ? col.countClsLight : col.countCls}`}>
             {tasks.length}
           </span>
         </div>
