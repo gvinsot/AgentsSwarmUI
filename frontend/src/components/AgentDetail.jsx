@@ -116,7 +116,7 @@ export function cleanToolSyntax(text) {
   cleaned = cleaned.replace(/\n?\[Executing: @(?:read_file|write_file|list_dir|search_files|run_command|append_file)\([^)]*\)\.{3}\]\n?/gi, '');
 
   // Use balanced parser to find and replace @tool(...) calls
-  const ALL_TOOLS = 'read_file|write_file|append_file|list_dir|search_files|run_command|report_error';
+  const ALL_TOOLS = 'read_file|write_file|append_file|list_dir|search_files|run_command|report_error|git_commit_push|task_execution_complete|list_my_tasks|check_status|list_projects|mcp_call|update_task|link_commit';
   const toolPattern = new RegExp(`@(${ALL_TOOLS})\\s*\\(`, 'gi');
   let m;
   // Process from end to start so replacements don't shift indices
@@ -162,6 +162,45 @@ export function cleanToolSyntax(text) {
     } else if (toolName === 'report_error') {
       const desc = _stripWrapperQuotes(argsString);
       replacement = `\n> 🚨 **Error reported:** ${desc}\n`;
+    } else if (toolName === 'git_commit_push') {
+      const msg = _stripWrapperQuotes(argsString);
+      replacement = `\n> ✓ **Git commit & push:** ${msg}\n`;
+    } else if (toolName === 'task_execution_complete') {
+      const summary = _stripWrapperQuotes(argsString);
+      replacement = `\n> ✅ **Task complete:** ${summary}\n`;
+    } else if (toolName === 'list_my_tasks' || toolName === 'check_status' || toolName === 'list_projects') {
+      // Internal status checks — remove from display entirely
+      replacement = '';
+    } else if (toolName === 'mcp_call') {
+      const commaIdx = _findTopLevelCommaUI(argsString);
+      if (commaIdx !== -1) {
+        const server = _stripWrapperQuotes(argsString.slice(0, commaIdx));
+        const rest = argsString.slice(commaIdx + 1).trim();
+        const commaIdx2 = _findTopLevelCommaUI(rest);
+        const tool = commaIdx2 !== -1 ? _stripWrapperQuotes(rest.slice(0, commaIdx2)) : _stripWrapperQuotes(rest);
+        replacement = `\n> 🔌 **MCP:** ${tool} on \`${server}\`\n`;
+      } else {
+        replacement = `\n> 🔌 **MCP call:** ${_stripWrapperQuotes(argsString)}\n`;
+      }
+    } else if (toolName === 'update_task') {
+      const commaIdx = _findTopLevelCommaUI(argsString);
+      if (commaIdx !== -1) {
+        const rest = argsString.slice(commaIdx + 1).trim();
+        const commaIdx2 = _findTopLevelCommaUI(rest);
+        const status = commaIdx2 !== -1 ? _stripWrapperQuotes(rest.slice(0, commaIdx2)) : _stripWrapperQuotes(rest);
+        replacement = `\n> 📋 **Task updated** → ${status}\n`;
+      } else {
+        replacement = `\n> 📋 **Task updated**\n`;
+      }
+    } else if (toolName === 'link_commit') {
+      const commaIdx = _findTopLevelCommaUI(argsString);
+      if (commaIdx !== -1) {
+        const rest = argsString.slice(commaIdx + 1).trim();
+        const hash = _stripWrapperQuotes(rest.split(',')[0] || rest);
+        replacement = `\n> 🔗 **Commit linked:** \`${hash.slice(0, 7)}\`\n`;
+      } else {
+        replacement = `\n> 🔗 **Commit linked**\n`;
+      }
     }
 
     if (replacement) {

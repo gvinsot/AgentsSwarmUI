@@ -965,8 +965,14 @@ export const chatMethods = {
     {
       const toolResults = await this._processToolCalls(id, responseForParsing, streamCallback, delegationDepth);
       if (toolResults.length > 0) {
+        const hasTerminal = toolResults.some(r => r.isTerminal);
         const nonTerminal = toolResults.filter(r => !r.isTerminal);
-        if (nonTerminal.length === 0) {
+        // If any tool signaled terminal (e.g. @task_execution_complete), stop
+        // the continuation loop even if there were other non-terminal results
+        // (e.g. git_commit_push). Those tools already executed; sending their
+        // output back to the LLM only causes it to loop and re-call the same
+        // terminal tool repeatedly.
+        if (hasTerminal || nonTerminal.length === 0) {
           return {};
         }
         const resultsSummary = nonTerminal.map(r => {

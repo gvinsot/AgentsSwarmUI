@@ -11,6 +11,11 @@ export const toolsMethods = {
     if (!agent) return [];
 
     const toolCalls = parseToolCalls(response);
+
+    // Dedup: track which idempotent tools have already been processed in this response
+    let taskExecutionCompleteDone = false;
+    let listMyTasksDone = false;
+    let checkStatusDone = false;
     
     console.log(`\n🔧 [Tools] Parsing response from "${agent.name}" (depth=${depth}, length=${response.length})`);
     
@@ -54,6 +59,11 @@ export const toolsMethods = {
     for (const call of toolCalls) {
       // ── @task_execution_complete() ──
       if (call.tool === 'task_execution_complete') {
+        if (taskExecutionCompleteDone) {
+          console.log(`[Dedup] Skipping duplicate @task_execution_complete from "${agent.name}"`);
+          continue;
+        }
+        taskExecutionCompleteDone = true;
         const comment = call.args[0] || '';
         let inProgressTask = null;
         for (const [, ownerAgent] of this.agents) {
@@ -195,6 +205,11 @@ export const toolsMethods = {
 
       // ── @list_my_tasks() ──
       if (call.tool === 'list_my_tasks') {
+        if (listMyTasksDone) {
+          console.log(`[Dedup] Skipping duplicate @list_my_tasks from "${agent.name}"`);
+          continue;
+        }
+        listMyTasksDone = true;
         const tasks = agent.todoList || [];
         const header = `Agent: ${agent.name} | Project: ${agent.project || 'none'} | Status: ${agent.status}`;
         if (tasks.length === 0) {
@@ -209,6 +224,11 @@ export const toolsMethods = {
 
       // ── @check_status() ──
       if (call.tool === 'check_status') {
+        if (checkStatusDone) {
+          console.log(`[Dedup] Skipping duplicate @check_status from "${agent.name}"`);
+          continue;
+        }
+        checkStatusDone = true;
         const { AgentManager } = await import('./index.js');
         const todoList = agent.todoList || [];
         const pendingTasks = todoList.filter(t => t.status === 'pending').length;
