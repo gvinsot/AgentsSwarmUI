@@ -3,7 +3,8 @@ import {
   Search, Trash2, Clock, X, AlertTriangle,
   Edit3, Save, Check, Tag, Calendar, ChevronDown, ChevronRight, Plus, Settings,
   ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare, FolderKanban, Code, Loader2, Square,
-  Bug, Sparkles, Wrench, BookOpen, ArrowUpCircle, HelpCircle, Layers
+  Bug, Sparkles, Wrench, BookOpen, ArrowUpCircle, HelpCircle, Layers,
+  ArrowUpDown, Flag, Sun
 } from 'lucide-react';
 import { api } from '../api';
 import ReactMarkdown from 'react-markdown';
@@ -96,6 +97,55 @@ const TASK_TYPES = [
 ];
 
 const TASK_TYPE_MAP = Object.fromEntries(TASK_TYPES.map(t => [t.value, t]));
+
+// ── Priority definitions ──────────────────────────────────────────────────────
+
+const PRIORITIES = [
+  { value: 'critical', label: 'Critique',  sortOrder: 0, cls: 'text-red-400 bg-red-500/10 ring-red-500/20',    dotCls: 'bg-red-400' },
+  { value: 'high',     label: 'Haute',     sortOrder: 1, cls: 'text-orange-400 bg-orange-500/10 ring-orange-500/20', dotCls: 'bg-orange-400' },
+  { value: 'medium',   label: 'Moyenne',   sortOrder: 2, cls: 'text-amber-400 bg-amber-500/10 ring-amber-500/20',   dotCls: 'bg-amber-400' },
+  { value: 'low',      label: 'Basse',     sortOrder: 3, cls: 'text-sky-400 bg-sky-500/10 ring-sky-500/20',      dotCls: 'bg-sky-400' },
+];
+
+const PRIORITY_MAP = Object.fromEntries(PRIORITIES.map(p => [p.value, p]));
+
+// ── Sort helpers ─────────────────────────────────────────────────────────────
+
+function isToday(iso) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+}
+
+const SORT_OPTIONS = [
+  { value: 'date_desc',     label: 'Date (recent)' },
+  { value: 'date_asc',      label: 'Date (oldest)' },
+  { value: 'priority_asc',  label: 'Priority (high first)' },
+  { value: 'priority_desc', label: 'Priority (low first)' },
+];
+
+function sortTasks(tasks, sortBy) {
+  const sorted = [...tasks];
+  switch (sortBy) {
+    case 'date_asc':
+      return sorted.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    case 'date_desc':
+      return sorted.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    case 'priority_asc': {
+      const order = (t) => PRIORITY_MAP[t.priority]?.sortOrder ?? 99;
+      return sorted.sort((a, b) => order(a) - order(b));
+    }
+    case 'priority_desc': {
+      const order = (t) => PRIORITY_MAP[t.priority]?.sortOrder ?? -1;
+      return sorted.sort((a, b) => order(b) - order(a));
+    }
+    default:
+      return sorted;
+  }
+}
 
 // ── CreateTaskModal ──────────────────────────────────────────────────────────
 
@@ -631,9 +681,9 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                     td: ({ children }) => <td className="border border-dark-600 px-2 py-1">{children}</td>,
                     ul: ({ children }) => <ul className="list-disc list-inside space-y-1">{children}</ul>,
                     ol: ({ children }) => <ol className="list-decimal list-inside space-y-1">{children}</ol>,
-                    h1: ({ children }) => <h1 className="text-lg font-bold text-white mt-3 mb-1">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-base font-bold text-white mt-3 mb-1">{children}</h2>,
-                    h3: ({ children }) => <h3 className="text-sm font-bold text-white mt-2 mb-1">{children}</h3>,
+                    h1: ({ children }) => <h1 className="text-lg font-bold text-dark-100 mt-3 mb-1">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-base font-bold text-dark-100 mt-3 mb-1">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-sm font-bold text-dark-100 mt-2 mb-1">{children}</h3>,
                     blockquote: ({ children }) => <blockquote className="border-l-2 border-purple-500 pl-3 my-2 text-dark-400 italic">{children}</blockquote>,
                     p: ({ children }) => <p className="my-1">{children}</p>,
                     hr: () => <hr className="border-dark-600 my-3" />,
@@ -1047,7 +1097,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                         }
                       }}
                       className="w-full text-left px-3 py-1.5 text-xs text-dark-200
-                        hover:bg-dark-700 hover:text-white transition-colors flex items-center gap-2"
+                        hover:bg-dark-700 hover:text-dark-100 transition-colors flex items-center gap-2"
                     >
                       {a.icon} {a.name}
                       <span className="text-dark-500 ml-auto text-[10px]">{a.role}</span>
@@ -1074,6 +1124,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreator, showProject, showTaskType }) {
   const isError = task.status === 'error';
+  const today = isToday(task.createdAt);
   const isDraggingRef = useRef(false);
 
   const sourceMeta = task.source ? (SOURCE_META[task.source.type] || SOURCE_META.api) : null;
@@ -1097,7 +1148,9 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
         transition-all hover:shadow-lg hover:shadow-black/20
         ${isError
           ? 'border-red-500/40 bg-red-500/5 hover:border-red-500/60'
-          : 'border-dark-700 hover:border-dark-500'
+          : today
+            ? 'border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60 ring-1 ring-amber-500/20'
+            : 'border-dark-700 hover:border-dark-500'
         }`}
     >
       {/* Task text */}
@@ -1118,6 +1171,12 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1 mb-2.5">
+        {task.priority && PRIORITY_MAP[task.priority] && (
+          <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium ring-1 ${PRIORITY_MAP[task.priority].cls}`}>
+            <Flag className="w-2.5 h-2.5" />
+            {PRIORITY_MAP[task.priority].label}
+          </span>
+        )}
         {showProject && task.project && (
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-violet-500/10 text-violet-400 ring-1 ring-violet-500/20">
             {task.project}
@@ -1163,6 +1222,12 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
         <span className="flex items-center gap-1 text-xs text-dark-500">
           <Clock className="w-3 h-3" />
           {timeAgo(task.createdAt)}
+          {today && (
+            <span className="flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25">
+              <Sun className="w-2.5 h-2.5" />
+              Today
+            </span>
+          )}
         </span>
         <div className="flex items-center gap-1">
           {task.actionRunning && (
@@ -2073,6 +2138,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [agentFilter, setAgentFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('date_desc');
   const [selectedTask, setSelectedTask] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDefaultStatus, setCreateDefaultStatus] = useState(null);
@@ -2216,7 +2282,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
     const groups = {};
     const fallbackColId = columns[0]?.id;
     columns.forEach(col => {
-      groups[col.id] = filteredTasks.filter(t => {
+      const colTasks = filteredTasks.filter(t => {
         if (t.status === 'error') {
           return (t.errorFromStatus || fallbackColId) === col.id;
         }
@@ -2225,9 +2291,10 @@ export default function TasksBoard({ agents, onRefresh, user }) {
         }
         return col.statuses.includes(t.status || fallbackColId);
       });
+      groups[col.id] = sortTasks(colTasks, sortBy);
     });
     return groups;
-  }, [filteredTasks, columns]);
+  }, [filteredTasks, columns, sortBy]);
 
   const handleDelete = useCallback(async (task) => {
     await api.deleteTask(task.agentId, task.id);
@@ -2401,6 +2468,21 @@ export default function TasksBoard({ agents, onRefresh, user }) {
             {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         )}
+
+        {/* Sort */}
+        <div className="flex items-center gap-1.5">
+          <ArrowUpDown className="w-3.5 h-3.5 text-dark-400" />
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="px-3 py-1.5 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
+              focus:outline-none focus:border-indigo-500 transition-colors"
+          >
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
 
         {/* Clear filters */}
         {activeFilters > 0 && (
