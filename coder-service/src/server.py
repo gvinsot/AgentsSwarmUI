@@ -963,10 +963,13 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 except ProcessLookupError:
                     pass
                 logger.warning(f"Expired token detected in stream: {line[:120]}")
-                refreshed = await _refresh_oauth_token()
+                if agent_user:
+                    refreshed = await _refresh_agent_token(agent_user)
+                else:
+                    refreshed = await _refresh_oauth_token()
                 if refreshed:
                     yield {"type": "status", "content": "Token refreshed, retrying..."}
-                    async for ev in stream_claude_events(prompt, system_prompt):
+                    async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
                         yield ev
                 else:
                     login_url = await _get_login_url()
@@ -982,6 +985,13 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                     proc.terminate()
                 except ProcessLookupError:
                     pass
+                if agent_user:
+                    refreshed = await _refresh_agent_token(agent_user)
+                    if refreshed:
+                        yield {"type": "status", "content": "Agent token refreshed, retrying..."}
+                        async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
+                            yield ev
+                        return
                 login_url = await _get_login_url()
                 if login_url:
                     yield {
