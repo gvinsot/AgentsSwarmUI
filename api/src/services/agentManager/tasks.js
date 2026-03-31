@@ -450,11 +450,12 @@ export const tasksMethods = {
         // If the task was manually stopped, do NOT auto-resume it.
         // Move it back to pending so the user can decide when to restart.
         if (inProgressTask._executionStopped) {
-          delete inProgressTask._executionStopped;
           console.log(`🛑 [TaskLoop] Skipping auto-resume for "${inProgressTask.text.slice(0, 60)}" — was manually stopped`);
           this.setTaskStatus(inProgressCreatorId, inProgressTask.id, 'pending', { skipAutoRefine: true, by: 'user-stop' });
           continue;
         }
+        // Skip if _waitForExecutionComplete is already monitoring this task
+        if (inProgressTask._executionWatching) continue;
         this._loopProcessing.add(agentId);
         console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has in_progress task "${inProgressTask.text.slice(0, 60)}" — resuming`);
         this._resumeInProgressTask(inProgressCreatorId, this.agents.get(inProgressCreatorId), inProgressTask).finally(() => {
@@ -533,11 +534,16 @@ export const tasksMethods = {
       return 'moved';
     }
 
+    // Mark the task so the 5-second task loop doesn't re-send the original
+    // message (which causes a full reasoning reset).
+    if (freshTask) freshTask._executionWatching = true;
+
     console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing "${taskText.slice(0, 60)}" — starting reminder loop`);
     const REMINDER_INTERVAL_MS = 5 * 60 * 1000;
     const MAX_REMINDERS = 12;
     let reminded = 0;
 
+    try {
     while (reminded < MAX_REMINDERS) {
       await new Promise(resolve => setTimeout(resolve, REMINDER_INTERVAL_MS));
 
@@ -621,6 +627,11 @@ export const tasksMethods = {
     }
 
     return 'unknown';
+    } finally {
+      // Always clear the watching flag so the task loop can resume if needed
+      const watched = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
+      if (watched) delete watched._executionWatching;
+    }
   },
 
   async _resumeInProgressTask(agentId, agent, task) {
@@ -672,7 +683,18 @@ export const tasksMethods = {
       startMsgIdx = executor.conversationHistory.length;
       executionStartedAt = new Date().toISOString();
 
-      const result = await this.sendMessage(executorId, task.text, streamCallback);
+      // Check if the agent already started working on this task (has the task
+      // text in its conversation history).  If so, send a continuation nudge
+      // instead of the original message, which would cause a full reasoning reset.
+      const taskPrefix = task.text.slice(0, 80);
+      const alreadySent = executor.conversationHistory.some(
+        msg => msg.role === 'user' && typeof msg.content === 'string' && msg.content.includes(taskPrefix)
+      );
+      const messageToSend = alreadySent
+        ? `[SYSTEM REMINDER] You have an in-progress task that needs to be completed:\n"${task.text.slice(0, 300)}"\n\nContinue where you left off. When you are done, call @task_execution_complete(summary of what was done).`
+        : task.text;
+
+      const result = await this.sendMessage(executorId, messageToSend, streamCallback);
 
       this._saveExecutionLog(agentId, task.id, executorId, startMsgIdx, executionStartedAt, true);
 
