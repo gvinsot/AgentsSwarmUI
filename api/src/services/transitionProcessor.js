@@ -138,11 +138,26 @@ export async function processTransition(task, agentManager, io) {
     }
 
     // Store the executing agent ID on the task for stop functionality
+    // Also update assignee to reflect which agent is currently working on this task
     const creatorAgentForFlag = agentManager.agents.get(task.agentId);
     const actualTaskForFlag = creatorAgentForFlag?.todoList?.find(t => t.id === task.id);
     if (actualTaskForFlag) {
       actualTaskForFlag.actionRunning = true;
       actualTaskForFlag.actionRunningAgentId = agent.id;
+      // Update assignee to the agent performing this action
+      if (actualTaskForFlag.assignee !== agent.id) {
+        const previousAssignee = actualTaskForFlag.assignee;
+        actualTaskForFlag.assignee = agent.id;
+        if (!actualTaskForFlag.history) actualTaskForFlag.history = [];
+        actualTaskForFlag.history.push({
+          status: actualTaskForFlag.status,
+          at: new Date().toISOString(),
+          by: 'workflow',
+          type: 'reassign',
+          assignee: agent.id,
+        });
+        console.log(`[Workflow] Updated assignee: "${previousAssignee || 'none'}" → "${agent.id}" (${agent.name}) for task "${task.text?.slice(0, 60)}"`);
+      }
       saveAgent(creatorAgentForFlag);
       io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task: actualTaskForFlag });
     }
