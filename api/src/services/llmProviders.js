@@ -770,14 +770,20 @@ export class VLLMProvider {
 
     const response = await this.client.chat.completions.create(params);
 
+    const usage = {
+      inputTokens: response.usage?.prompt_tokens || 0,
+      outputTokens: response.usage?.completion_tokens || 0
+    };
+    // Forward cost_usd extension (e.g. from coder-service / Claude Paid Plan)
+    if (response.usage?.cost_usd != null) {
+      usage.costUsd = response.usage.cost_usd;
+    }
+
     return {
       content: response.choices[0]?.message?.content || '',
       model: this.model,
       provider: 'vllm',
-      usage: {
-        inputTokens: response.usage?.prompt_tokens || 0,
-        outputTokens: response.usage?.completion_tokens || 0
-      }
+      usage
     };
   }
 
@@ -815,13 +821,18 @@ export class VLLMProvider {
       }
 
       if (chunk.usage) {
+        const usage = {
+          inputTokens: chunk.usage.prompt_tokens || 0,
+          outputTokens: chunk.usage.completion_tokens || 0
+        };
+        // Forward cost_usd extension (e.g. from coder-service / Claude Paid Plan)
+        if (chunk.usage.cost_usd != null) {
+          usage.costUsd = chunk.usage.cost_usd;
+        }
         yield {
           type: 'done',
           finishReason: vllmFinishReason || 'stop',
-          usage: {
-            inputTokens: chunk.usage.prompt_tokens || 0,
-            outputTokens: chunk.usage.completion_tokens || 0
-          }
+          usage
         };
       }
     }

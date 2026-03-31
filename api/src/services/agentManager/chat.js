@@ -590,7 +590,12 @@ export const chatMethods = {
         if (chunk.usage) {
           agent.metrics.totalTokensIn += chunk.usage.inputTokens;
           agent.metrics.totalTokensOut += chunk.usage.outputTokens;
-          this._recordUsage(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0);
+          if (chunk.usage.costUsd != null && chunk.usage.costUsd > 0) {
+            // Use actual cost reported by provider (e.g. Claude Paid Plan via coder-service)
+            this._recordUsageDirect(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0, chunk.usage.costUsd);
+          } else {
+            this._recordUsage(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0);
+          }
         }
         if (chunk.finishReason) {
           finishReason = chunk.finishReason;
@@ -636,7 +641,11 @@ export const chatMethods = {
           if (chunk.usage) {
             agent.metrics.totalTokensIn += chunk.usage.inputTokens;
             agent.metrics.totalTokensOut += chunk.usage.outputTokens;
-            this._recordUsage(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0);
+            if (chunk.usage.costUsd != null && chunk.usage.costUsd > 0) {
+              this._recordUsageDirect(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0, chunk.usage.costUsd);
+            } else {
+              this._recordUsage(agent, chunk.usage.inputTokens || 0, chunk.usage.outputTokens || 0);
+            }
           }
           if (chunk.finishReason) {
             finishReason = chunk.finishReason;

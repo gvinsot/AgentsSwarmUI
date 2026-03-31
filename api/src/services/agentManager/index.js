@@ -172,6 +172,20 @@ export class AgentManager {
     }
   }
 
+  _recordUsageDirect(agent, inputTokens, outputTokens, costUsd) {
+    // Record usage with the actual cost reported by the provider (e.g. Claude Paid Plan via coder-service).
+    // This bypasses the token-based cost calculation used by _recordUsage.
+    const userId = agent.ownerId || null;
+    const resolved = this.resolveLlmConfig(agent);
+    const provider = resolved.configName || resolved.provider || 'unknown';
+    const model = resolved.model || 'unknown';
+    try {
+      recordTokenUsage(agent.id, agent.name, provider, model, inputTokens, outputTokens, costUsd, userId);
+    } catch (err) {
+      console.warn("Failed to record direct token usage:", err.message);
+    }
+  }
+
   _getLlmConfigsCached() {
     if (this._llmConfigsCache && Date.now() - this._llmConfigsCacheTime < 60000) {
       return this._llmConfigsCache;
