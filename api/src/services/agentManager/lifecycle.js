@@ -713,11 +713,27 @@ export const lifecycleMethods = {
       }
     }
 
+    // Find the current in_progress task for this agent
+    let taskId = null;
+    let taskTitle = null;
+    const ownTask = agent.todoList?.find(t => t.status === 'in_progress' && (!t.assignee || t.assignee === agentId));
+    if (ownTask) {
+      taskId = ownTask.id;
+      taskTitle = ownTask.text?.slice(0, 200) || null;
+    } else {
+      for (const [, otherAgent] of this.agents) {
+        const delegated = otherAgent.todoList?.find(t => t.status === 'in_progress' && t.assignee === agentId);
+        if (delegated) { taskId = delegated.id; taskTitle = delegated.text?.slice(0, 200) || null; break; }
+      }
+    }
+
     const entry = {
       id: uuidv4(),
       type,
       message,
       error: errorDetail,
+      taskId: taskId || null,
+      taskTitle: taskTitle || null,
       timestamp: now.toISOString()
     };
 

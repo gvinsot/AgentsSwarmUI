@@ -3,7 +3,7 @@ import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
   FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
-  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key, CheckCircle
+  Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key, CheckCircle, ListTodo
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
@@ -2341,6 +2341,12 @@ function ActionLogsTab({ agent, onRefresh }) {
                       : log.message
                     }
                   </p>
+                  {log.taskTitle && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <ListTodo className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                      <span className="text-xs text-purple-300/80 truncate">{log.taskTitle}</span>
+                    </div>
+                  )}
                   {log.error && (
                     <pre className="text-xs text-red-300/80 mt-1 whitespace-pre-wrap break-words bg-red-500/5 rounded p-2">
                       {log.error}
