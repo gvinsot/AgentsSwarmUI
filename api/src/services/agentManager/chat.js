@@ -39,7 +39,13 @@ export const chatMethods = {
     }
 
     this.setStatus(id, 'busy');
-    agent.currentThinking = '';
+    // Only reset thinking for top-level or delegation messages, NOT for
+    // recursive tool-result / nudge calls — those are continuations of the
+    // same thought process and resetting causes the frontend to flash and
+    // the LLM to lose its reasoning context.
+    if (!messageMeta || messageMeta.type === 'delegation-task') {
+      agent.currentThinking = '';
+    }
 
     if (messageMeta?.type === 'delegation-task') {
       agent.currentTask = (userMessage || '').replace(/^\[TASK from [^\]]+\]:\s*/i, '').slice(0, 200) || null;
@@ -990,7 +996,7 @@ export const chatMethods = {
         const hasErrorReports = nonTerminal.some(r => r.isErrorReport);
         const hasRealErrors = nonTerminal.some(r => !r.success && !r.isErrorReport);
         const hasSuccessfulCommit = nonTerminal.some(r => r.tool === 'git_commit_push' && r.success);
-        let continuationPrompt = '\n';
+        let continuationPrompt = '\nThese are the results of the tools YOU just called. Continue your work based on these results. Do NOT re-explain your plan or re-call the same tools — use the output above and proceed to the next step.';
         if (hasErrorReports) {
           continuationPrompt = '\nYou reported an error. The error has been escalated to the manager. Summarize what you attempted and what went wrong so the manager can help.';
         } else if (hasRealErrors) {
