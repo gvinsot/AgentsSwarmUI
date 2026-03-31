@@ -214,12 +214,12 @@ export function realtimeRoutes(agentManager) {
     }
 
     // Resolve API key and model from LLM config (llmConfigId) when available,
-    // falling back to agent-level fields and environment variables.
+    // falling back to agent-level apiKey field.
     const llmConfig = agentManager.resolveLlmConfig(agent);
-    const apiKey = llmConfig.apiKey || agent.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = llmConfig.apiKey || agent.apiKey;
     if (!apiKey) {
       return res.status(500).json({
-        error: 'No OpenAI API key configured. Set OPENAI_API_KEY in .env or in agent settings.',
+        error: 'No OpenAI API key configured. Set an API key in the LLM Configuration assigned to this voice agent.',
       });
     }
 
