@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   X, Send, Trash2, Plus, Settings, MessageSquare,
-  CheckSquare, FileText, ArrowRightLeft, RotateCcw,
+  FileText, ArrowRightLeft, RotateCcw,
   ChevronDown, ChevronRight, Edit3, Save, Clock, Zap, AlertCircle, FolderCode, StopCircle, Terminal, Users,
   Play, PlayCircle, ArrowRight, Scissors, Activity, Wrench, ArrowLeft, Loader, XCircle, RotateCw, ArrowDownToLine, Eraser, Key, CheckCircle
 } from 'lucide-react';
@@ -37,7 +37,6 @@ const TASK_STATUS_META = {
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'tasks', label: 'Tasks', icon: CheckSquare },
   { id: 'rag', label: 'RAG', icon: FileText },
   { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
   { id: 'plugins', label: 'Plugins', icon: Wrench },
@@ -602,9 +601,6 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               onToggleAutoScroll={() => setAutoScroll(s => !s)}
             />
           )
-        )}
-        {activeTab === 'tasks' && (
-          <TaskTab key={agent.id} agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'rag' && (
           <RagTab agent={agent} onRefresh={onRefresh} />
@@ -2339,7 +2335,12 @@ function ActionLogsTab({ agent, onRefresh }) {
                       {new Date(log.timestamp).toLocaleString()}
                     </span>
                   </div>
-                  <p className="text-sm text-dark-300 mt-0.5">{log.message}</p>
+                  <p className="text-sm text-dark-300 mt-0.5">
+                    {log.type === 'busy' && log.message.includes(' — ')
+                      ? <>{log.message.split(' — ')[0]} — <span className="text-dark-200 font-medium">{log.message.split(' — ').slice(1).join(' — ')}</span></>
+                      : log.message
+                    }
+                  </p>
                   {log.error && (
                     <pre className="text-xs text-red-300/80 mt-1 whitespace-pre-wrap break-words bg-red-500/5 rounded p-2">
                       {log.error}

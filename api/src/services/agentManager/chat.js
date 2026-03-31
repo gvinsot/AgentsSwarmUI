@@ -350,6 +350,7 @@ export const chatMethods = {
     systemContent += `\nIMPORTANT: Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.`;
     systemContent += `\n${TOOL_DEFINITIONS}`;
     systemContent += `\nAlways use these tools to read, analyze, and modify code. Do not just discuss - take action!`;
+    systemContent += `\n\nIMPORTANT CONTINUATION RULE: When you receive a message starting with "[TOOL RESULTS", these are the results of tools YOU previously called. Do NOT restart your reasoning from scratch. Do NOT re-call the same tools. Analyze the results and proceed to the NEXT step of your plan.`;
 
     if (agent.provider === 'ollama') {
       systemContent += `\n\nCRITICAL: You must NEVER use built-in function calls or native tool calls (such as repo_browser, code_sandbox, or any tool_call syntax). Always respond in plain text only. When you need to interact with code, use ONLY the @read_file, @write_file, @list_dir, @search_files, @run_command text commands described above.`;
@@ -1007,7 +1008,7 @@ export const chatMethods = {
 
         const continuedResponse = await this.sendMessage(
           id,
-          `\n${resultsSummary}\n\n${continuationPrompt}`,
+          `[TOOL RESULTS — DO NOT RESTART YOUR REASONING]\n${resultsSummary}\n\n${continuationPrompt}`,
           streamCallback,
           delegationDepth,
           { type: 'tool-result', toolResults: nonTerminal.map(r => ({ tool: r.tool, args: r.args, success: r.success, result: r.result || undefined, error: r.success ? undefined : r.error, isErrorReport: r.isErrorReport || false })) }

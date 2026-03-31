@@ -575,7 +575,8 @@ export const lifecycleMethods = {
     }
 
     if (status === 'busy' && prev !== 'busy') {
-      this.addActionLog(id, 'busy', detail || 'Agent started working');
+      const taskInfo = agent.currentTask ? ` — ${agent.currentTask.slice(0, 150)}` : '';
+      this.addActionLog(id, 'busy', (detail || 'Agent started working') + taskInfo);
     } else if (status === 'idle' && prev !== 'idle') {
       this.addActionLog(id, 'idle', detail || 'Agent finished working');
       this._recheckConditionalTransitions();

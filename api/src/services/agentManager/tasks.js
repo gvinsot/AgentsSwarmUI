@@ -446,6 +446,14 @@ export const tasksMethods = {
       }
       if (inProgressTask) {
         if (this._workflowManagedStatuses?.has('in_progress')) continue;
+        // If the task was manually stopped, do NOT auto-resume it.
+        // Move it back to pending so the user can decide when to restart.
+        if (inProgressTask._executionStopped) {
+          delete inProgressTask._executionStopped;
+          console.log(`🛑 [TaskLoop] Skipping auto-resume for "${inProgressTask.text.slice(0, 60)}" — was manually stopped`);
+          this.setTaskStatus(inProgressCreatorId, inProgressTask.id, 'pending', { skipAutoRefine: true, by: 'user-stop' });
+          continue;
+        }
         this._loopProcessing.add(agentId);
         console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has in_progress task "${inProgressTask.text.slice(0, 60)}" — resuming`);
         this._resumeInProgressTask(inProgressCreatorId, this.agents.get(inProgressCreatorId), inProgressTask).finally(() => {
