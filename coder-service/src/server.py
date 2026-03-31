@@ -966,9 +966,21 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
             except json.JSONDecodeError:
                 pass
 
-            # Detect auth errors — only on non-JSON lines (raw stderr) or
-            # JSON events that are NOT normal conversation messages.
-            if not is_json_event or (isinstance(event, dict) and event.get("type") in ("system", "error")):
+            # Detect auth errors — only on non-JSON lines (raw stderr),
+            # JSON events of type "system"/"error", or synthetic CLI messages
+            # (model="<synthetic>").  Normal model responses are skipped to
+            # avoid false positives when the conversation text mentions auth.
+            check_auth = not is_json_event
+            if is_json_event and isinstance(event, dict):
+                etype = event.get("type", "")
+                if etype in ("system", "error"):
+                    check_auth = True
+                elif etype == "assistant":
+                    msg = event.get("message", {})
+                    if isinstance(msg, dict) and msg.get("model") == "<synthetic>":
+                        check_auth = True
+
+            if check_auth:
                 line_lower = line.lower()
                 if "token has expired" in line_lower or ("authentication_error" in line_lower and "401" in line_lower):
                     try:
