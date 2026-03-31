@@ -955,61 +955,71 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
             if not line:
                 continue
 
-            # Detect auth errors in stream
-            line_lower = line.lower()
-            if "token has expired" in line_lower or ("authentication_error" in line_lower and "401" in line_lower):
-                try:
-                    proc.terminate()
-                except ProcessLookupError:
-                    pass
-                logger.warning(f"Expired token detected in stream: {line[:120]}")
-                if agent_user:
-                    refreshed = await _refresh_agent_token(agent_user)
-                else:
-                    refreshed = await _refresh_oauth_token()
-                if refreshed:
-                    yield {"type": "status", "content": "Token refreshed, retrying..."}
-                    async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
-                        yield ev
-                else:
-                    login_url = await _get_login_url()
-                    yield {
-                        "type": "error",
-                        "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
-                        "login_url": login_url,
-                    }
-                return
-
-            if "not logged in" in line_lower:
-                try:
-                    proc.terminate()
-                except ProcessLookupError:
-                    pass
-                if agent_user:
-                    refreshed = await _refresh_agent_token(agent_user)
-                    if refreshed:
-                        yield {"type": "status", "content": "Agent token refreshed, retrying..."}
-                        async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
-                            yield ev
-                        return
-                login_url = await _get_login_url()
-                if login_url:
-                    yield {
-                        "type": "error",
-                        "content": f"Not authenticated. Open this URL: {login_url} — then send the verification code as your next message.",
-                        "login_url": login_url,
-                    }
-                else:
-                    yield {
-                        "type": "error",
-                        "content": "Not authenticated. Call POST /auth/login to start, or POST a token to /auth/token.",
-                    }
-                return
-
+            # Try to parse JSON first — auth checks on raw text cause false
+            # positives when the CLI includes auth-related words inside normal
+            # conversation events (e.g. <synthetic> model messages).
+            is_json_event = False
+            event = None
             try:
                 event = json.loads(line)
+                is_json_event = True
             except json.JSONDecodeError:
-                # Non-JSON output, yield as-is
+                pass
+
+            # Detect auth errors — only on non-JSON lines (raw stderr) or
+            # JSON events that are NOT normal conversation messages.
+            if not is_json_event or (isinstance(event, dict) and event.get("type") in ("system", "error")):
+                line_lower = line.lower()
+                if "token has expired" in line_lower or ("authentication_error" in line_lower and "401" in line_lower):
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
+                    logger.warning(f"Expired token detected in stream: {line[:120]}")
+                    if agent_user:
+                        refreshed = await _refresh_agent_token(agent_user)
+                    else:
+                        refreshed = await _refresh_oauth_token()
+                    if refreshed:
+                        yield {"type": "status", "content": "Token refreshed, retrying..."}
+                        async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
+                            yield ev
+                    else:
+                        login_url = await _get_login_url()
+                        yield {
+                            "type": "error",
+                            "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
+                            "login_url": login_url,
+                        }
+                    return
+
+                if "not logged in" in line_lower:
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
+                    if agent_user:
+                        refreshed = await _refresh_agent_token(agent_user)
+                        if refreshed:
+                            yield {"type": "status", "content": "Agent token refreshed, retrying..."}
+                            async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id):
+                                yield ev
+                            return
+                    login_url = await _get_login_url()
+                    if login_url:
+                        yield {
+                            "type": "error",
+                            "content": f"Not authenticated. Open this URL: {login_url} — then send the verification code as your next message.",
+                            "login_url": login_url,
+                        }
+                    else:
+                        yield {
+                            "type": "error",
+                            "content": "Not authenticated. Call POST /auth/login to start, or POST a token to /auth/token.",
+                        }
+                    return
+
+            if not is_json_event:
                 yield {"type": "text", "content": line}
                 continue
 
