@@ -779,15 +779,22 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
         )
     except asyncio.TimeoutError:
         if proc and proc.returncode is None:
-            proc.terminate()
             try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                proc.kill()
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+            else:
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    proc.kill()
         return {"status": "timeout", "output": "", "error": f"Execution timeout after {TIMEOUT}s"}
     except asyncio.CancelledError:
         if proc and proc.returncode is None:
-            proc.terminate()
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
         raise
 
     stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
@@ -951,7 +958,10 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
             # Detect auth errors in stream
             line_lower = line.lower()
             if "token has expired" in line_lower or ("authentication_error" in line_lower and "401" in line_lower):
-                proc.terminate()
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
                 logger.warning(f"Expired token detected in stream: {line[:120]}")
                 refreshed = await _refresh_oauth_token()
                 if refreshed:
@@ -968,7 +978,10 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 return
 
             if "not logged in" in line_lower:
-                proc.terminate()
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
                 login_url = await _get_login_url()
                 if login_url:
                     yield {
@@ -1029,7 +1042,10 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 error_str = str(error_msg)
                 # Auto-refresh on expired token error
                 if "token has expired" in error_str.lower() or "oauth token" in error_str.lower():
-                    proc.terminate()
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
                     logger.warning(f"Token expired mid-stream: {error_str}")
                     refreshed = await _refresh_oauth_token()
                     if refreshed:
@@ -1053,10 +1069,16 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                     logger.debug(f"Unhandled event type: {event_type}")
 
     except asyncio.CancelledError:
-        proc.terminate()
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
         raise
     finally:
-        await proc.wait()
+        try:
+            await proc.wait()
+        except asyncio.CancelledError:
+            pass
 
     if proc.returncode != 0:
         stderr = await proc.stderr.read()
