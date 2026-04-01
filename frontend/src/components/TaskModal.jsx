@@ -309,7 +309,7 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Type</label>
                     <select
-                      className="w-full bg-gray-800 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:outline-none"
+                      className="w-full bg-gray-800 border border-white/10 rounded px-3 py-2.5 text-base sm:px-2 sm:py-1.5 sm:text-sm text-white focus:outline-none"
                       value={editType}
                       onChange={e => setEditType(e.target.value)}
                     >
@@ -322,7 +322,7 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Assignee</label>
                     <select
-                      className="w-full bg-gray-800 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:outline-none"
+                      className="w-full bg-gray-800 border border-white/10 rounded px-3 py-2.5 text-base sm:px-2 sm:py-1.5 sm:text-sm text-white focus:outline-none"
                       value={editAssignee}
                       onChange={e => setEditAssignee(e.target.value)}
                     >
@@ -338,7 +338,7 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Status</label>
                   <select
-                    className="w-full bg-gray-800 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:outline-none"
+                    className="w-full bg-gray-800 border border-white/10 rounded px-3 py-2.5 text-base sm:px-2 sm:py-1.5 sm:text-sm text-white focus:outline-none"
                     value={editColumn}
                     onChange={e => setEditColumn(e.target.value)}
                   >
