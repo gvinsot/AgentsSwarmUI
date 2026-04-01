@@ -600,6 +600,10 @@ export const tasksMethods = {
 
     let startMsgIdx = executor.conversationHistory.length;
     let executionStartedAt = new Date().toISOString();
+    // Ensure startedAt is set for managesContext history scoping
+    if (!task.startedAt) {
+      task.startedAt = executionStartedAt;
+    }
 
     try {
       let targetStatus = 'done';

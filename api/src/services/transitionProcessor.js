@@ -196,6 +196,10 @@ export async function processTransition(task, agentManager, io) {
     if (actualTaskForFlag) {
       actualTaskForFlag.actionRunning = true;
       actualTaskForFlag.actionRunningAgentId = agent.id;
+      // Mark when execution started — used by managesContext to scope history
+      if (!actualTaskForFlag.startedAt) {
+        actualTaskForFlag.startedAt = new Date().toISOString();
+      }
       // Update assignee to the agent performing this action
       if (actualTaskForFlag.assignee !== agent.id) {
         const previousAssignee = actualTaskForFlag.assignee;
