@@ -1,11 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   X, Users, ListTodo, Activity, Clock, CheckCircle, AlertCircle,
-  FolderGit2, Bug, Sparkles, BarChart3
+  FolderGit2, Bug, Sparkles, BarChart3, FileText, Save, Loader2
 } from 'lucide-react';
 import ProjectStats from './ProjectStats';
+import { api } from '../api';
 
-export default function ProjectDetailModal({ project, onClose }) {
+export default function ProjectDetailModal({ project, projectContext, onClose, onRefresh }) {
   // Close on Escape key
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -18,6 +19,32 @@ export default function ProjectDetailModal({ project, onClose }) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  // Project context editing state
+  const [ctxDescription, setCtxDescription] = useState(projectContext?.description || '');
+  const [ctxRules, setCtxRules] = useState(projectContext?.rules || '');
+  const [ctxSaving, setCtxSaving] = useState(false);
+  const [ctxSaved, setCtxSaved] = useState(false);
+
+  useEffect(() => {
+    setCtxDescription(projectContext?.description || '');
+    setCtxRules(projectContext?.rules || '');
+  }, [projectContext]);
+
+  const handleSaveContext = async () => {
+    setCtxSaving(true);
+    setCtxSaved(false);
+    try {
+      await api.saveProjectContext(project.name, ctxDescription, ctxRules);
+      setCtxSaved(true);
+      if (onRefresh) onRefresh();
+      setTimeout(() => setCtxSaved(false), 2000);
+    } catch (err) {
+      console.error('Failed to save project context:', err);
+    } finally {
+      setCtxSaving(false);
+    }
+  };
 
   if (!project) return null;
 
@@ -83,6 +110,52 @@ export default function ProjectDetailModal({ project, onClose }) {
               />
             </div>
           </div>
+
+          {/* Project Context */}
+          <Section title="Project Context (RAG)" icon={<FileText size={16} className="text-cyan-400" />}>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-dark-400 mb-1">Description</label>
+                <textarea
+                  value={ctxDescription}
+                  onChange={e => setCtxDescription(e.target.value)}
+                  placeholder="Describe this project: tech stack, architecture, key patterns..."
+                  rows={3}
+                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white placeholder-dark-500 resize-y focus:outline-none focus:border-cyan-500/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-dark-400 mb-1">Rules &amp; Instructions</label>
+                <textarea
+                  value={ctxRules}
+                  onChange={e => setCtxRules(e.target.value)}
+                  placeholder="Define rules agents must follow when working on this project..."
+                  rows={4}
+                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white placeholder-dark-500 resize-y focus:outline-none focus:border-cyan-500/50"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSaveContext}
+                  disabled={ctxSaving}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+                >
+                  {ctxSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {ctxSaving ? 'Saving...' : 'Save Context'}
+                </button>
+                {ctxSaved && (
+                  <span className="text-xs text-green-400 flex items-center gap-1">
+                    <CheckCircle size={12} /> Saved
+                  </span>
+                )}
+                {projectContext?.updatedAt && (
+                  <span className="text-xs text-dark-500 ml-auto">
+                    Last updated: {new Date(projectContext.updatedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          </Section>
 
           {/* Agents Section */}
           <Section title="Assigned Agents" icon={<Users size={16} className="text-blue-400" />}>

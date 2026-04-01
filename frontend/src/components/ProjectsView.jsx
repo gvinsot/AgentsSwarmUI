@@ -16,7 +16,7 @@ function formatDuration(ms) {
   return `${days}d ${remainHours}h`;
 }
 
-export default function ProjectsView({ agents = [], onSelectProject }) {
+export default function ProjectsView({ agents = [], projectContexts = [], onRefresh }) {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [selectedProject, setSelectedProject] = useState(null);
@@ -56,7 +56,7 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
       const waiting = p.tasks.filter(t => ['error', 'backlog'].includes(t.status || 'backlog')).length;
       const bugs = p.tasks.filter(t => (t.type || 'bug') === 'bug').length;
       const features = p.tasks.filter(t => t.type === 'feature').length;
-      p.stats = { total, done, active, waiting, bugs, features, completion: total ? Math.round((done / total) * 100) : 0 };
+      p.stats = { total, done, active, inProgress: active, waiting, pending: waiting, bugs, features, completion: total ? Math.round((done / total) * 100) : 0 };
     }
 
     let result = Array.from(projectMap.values());
@@ -105,7 +105,9 @@ export default function ProjectsView({ agents = [], onSelectProject }) {
       {selectedProject && (
         <ProjectDetailModal
           project={projects.find(p => p.name === selectedProject)}
+          projectContext={projectContexts.find(c => c.name === selectedProject)}
           onClose={() => setSelectedProject(null)}
+          onRefresh={onRefresh}
         />
       )}
 
