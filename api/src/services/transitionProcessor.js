@@ -1,6 +1,50 @@
 import { getSettings, getWorkflowForBoard } from './configManager.js';
 import { saveAgent, saveTaskToDb } from './database.js';
 
+/**
+ * Strip tool calls (@tool(...) and <tool_call> blocks) from an LLM response
+ * so that only the descriptive text remains. Used when storing refined descriptions.
+ */
+export function stripToolCalls(text) {
+  if (!text) return text;
+  // Remove <tool_call>...</tool_call> blocks
+  let cleaned = text.replace(/<tool_call>\s*[\s\S]*?\s*<\/tool_call>/gi, '');
+  // Remove @tool(...) calls with balanced parentheses
+  const TOOL_NAMES = [
+    'read_file', 'write_file', 'append_file', 'list_dir', 'search_files',
+    'run_command', 'report_error', 'git_commit_push', 'mcp_call', 'link_commit',
+    'update_task', 'list_my_tasks', 'list_projects', 'check_status',
+    'task_execution_complete', 'get_action_status', 'build_stack', 'test_stack',
+    'deploy_stack', 'list_stacks', 'list_containers', 'list_computers',
+    'search_logs', 'get_log_metadata',
+  ];
+  const toolPattern = new RegExp(`@(${TOOL_NAMES.join('|')})\\s*\\(`, 'gi');
+  let match;
+  // Process matches in reverse order to preserve indices
+  const removals = [];
+  while ((match = toolPattern.exec(cleaned)) !== null) {
+    const start = match.index;
+    const argsStart = start + match[0].length;
+    let depth = 1;
+    let i = argsStart;
+    while (i < cleaned.length && depth > 0) {
+      if (cleaned[i] === '(') depth++;
+      else if (cleaned[i] === ')') depth--;
+      i++;
+    }
+    if (depth === 0) {
+      removals.push({ start, end: i });
+    }
+  }
+  // Remove in reverse order
+  for (let r = removals.length - 1; r >= 0; r--) {
+    cleaned = cleaned.slice(0, removals[r].start) + cleaned.slice(removals[r].end);
+  }
+  // Clean up leftover whitespace (multiple blank lines → single blank line)
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
+}
+
 // Lock to prevent concurrent execution of the same task (lockKey → timestamp)
 // Uses a Map with TTL to prevent permanent deadlocks from crashed transitions.
 const _executionLocks = new Map();
@@ -349,7 +393,10 @@ Execute the instructions above and update the task status accordingly.`;
         // Refine mode — replace the task description with the refined version
         agentManager._saveExecutionLog(task.agentId, task.id, agent.id, _execStartMsgIdx, _execStartedAt, true, 'refine');
         if (response) {
-          agentManager.updateTaskText(task.agentId, task.id, response);
+          const cleanedResponse = stripToolCalls(response);
+          if (cleanedResponse) {
+            agentManager.updateTaskText(task.agentId, task.id, cleanedResponse);
+          }
         }
       }
 

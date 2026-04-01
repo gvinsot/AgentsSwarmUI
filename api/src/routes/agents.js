@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { globalTaskStore } from '../services/globalTaskStore.js';
 import { getWorkflowForBoard } from '../services/configManager.js';
 import { getAllBoards } from '../services/database.js';
+import { stripToolCalls } from '../services/transitionProcessor.js';
 
 // Schema for creating a new agent
 const createAgentSchema = z.object({
@@ -437,7 +438,7 @@ export function agentRoutes(agentManager) {
     try {
       const prompt = `Refine the following task description. Make it clearer, more actionable, and add acceptance criteria if missing.\n\nTask: ${task.text}\n\nReply ONLY with the improved description (no preamble, no explanation).`;
       const result = await agentManager.sendMessage(refineAgentId, prompt, () => {});
-      const refined = (result?.content || result || '').trim();
+      const refined = stripToolCalls((result?.content || result || '').trim());
       if (refined) {
         agentManager.updateTaskText(req.params.id, req.params.taskId, refined);
       }
