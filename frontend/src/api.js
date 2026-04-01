@@ -423,6 +423,17 @@ export const api = {
       body: JSON.stringify(patch)
     }).then(handleResponse),
 
+  // Reminder configuration
+  getReminderConfig: () =>
+    fetch(`${API_BASE}/settings/general/reminders`, { headers: getHeaders() }).then(handleResponse),
+
+  updateReminderConfig: (patch) =>
+    fetch(`${API_BASE}/settings/general/reminders`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(patch)
+    }).then(handleResponse),
+
   // Workflow (read-only — default board workflow)
   getWorkflow: () =>
     fetch(`${API_BASE}/settings/general/workflow`, { headers: getHeaders() }).then(handleResponse),

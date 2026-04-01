@@ -1191,6 +1191,48 @@ PUT /api/settings/general/workflow/:project
 GET /api/settings/general/workflows
 ```
 
+### Reminder Configuration
+
+#### Get Reminder Settings
+
+```
+GET /api/settings/general/reminders
+```
+
+**Response:**
+```json
+{
+  "intervalMinutes": 10,
+  "maxReminders": 12,
+  "cooldownMinutes": 2,
+  "envOverride": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `intervalMinutes` | Minutes between each reminder for incomplete tasks (default: 10) |
+| `maxReminders` | Maximum number of reminders before giving up (default: 12) |
+| `cooldownMinutes` | Minimum minutes between two consecutive reminders to the same agent (default: 2). Set to 0 to disable cooldown. |
+| `envOverride` | `true` if `TASK_REMINDER_INTERVAL_MINUTES` env var is set (overrides DB interval) |
+
+#### Update Reminder Settings
+
+```
+PUT /api/settings/general/reminders
+```
+
+**Body (all fields optional):**
+```json
+{
+  "intervalMinutes": 15,
+  "maxReminders": 6,
+  "cooldownMinutes": 3
+}
+```
+
+> **Note:** The `TASK_REMINDER_INTERVAL_MINUTES` environment variable takes priority over the DB-stored interval. When set, the `envOverride` flag in the response will be `true`.
+
 ---
 
 ## API Keys

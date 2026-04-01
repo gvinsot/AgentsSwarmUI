@@ -1,7 +1,7 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
 import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent } from '../database.js';
-import { getWorkflowForBoard, getAllBoardWorkflows } from '../configManager.js';
+import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { processTransition } from '../transitionProcessor.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
 
@@ -491,10 +491,11 @@ export const tasksMethods = {
     // message (which causes a full reasoning reset).
     if (freshTask) freshTask._executionWatching = true;
 
-    console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing "${taskText.slice(0, 60)}" — starting reminder loop`);
-    const REMINDER_INTERVAL_MS = 5 * 60 * 1000;
-    const MAX_REMINDERS = 12;
+    const reminderConfig = await getReminderConfig();
+    console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing "${taskText.slice(0, 60)}" — starting reminder loop (interval=${reminderConfig.intervalMinutes}min, cooldown=${reminderConfig.cooldownMinutes}min)`);
+    const { intervalMs: REMINDER_INTERVAL_MS, maxReminders: MAX_REMINDERS, cooldownMs: COOLDOWN_MS } = reminderConfig;
     let reminded = 0;
+    let lastReminderSentAt = 0;
 
     try {
     while (reminded < MAX_REMINDERS) {
@@ -534,7 +535,15 @@ export const tasksMethods = {
         return 'error';
       }
 
+      // Cooldown: skip if a reminder was sent too recently
+      const now = Date.now();
+      if (COOLDOWN_MS > 0 && lastReminderSentAt > 0 && (now - lastReminderSentAt) < COOLDOWN_MS) {
+        console.log(`🔔 [Execution] Cooldown active for "${executorName}" — skipping redundant reminder`);
+        continue;
+      }
+
       reminded++;
+      lastReminderSentAt = now;
       console.log(`🔔 [Execution] Reminding "${executorName}" to complete task (attempt ${reminded}/${MAX_REMINDERS})`);
 
       this._emit('agent:stream:start', { agentId: executorId });

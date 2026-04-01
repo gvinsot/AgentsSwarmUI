@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   X, Users, Plus, Trash2, Edit3, Shield, ShieldCheck, ShieldAlert,
   UserCheck, Eye, Save, AlertCircle, Crown, Settings, ToggleLeft, ToggleRight,
-  Cpu, EyeOff
+  Cpu, EyeOff, Bell
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -26,6 +26,11 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [customCurrency, setCustomCurrency] = useState('');
+
+  // Reminder config state
+  const [reminderConfig, setReminderConfig] = useState(null);
+  const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderSaving, setReminderSaving] = useState(false);
 
   // LLM Configs tab state
   const [llmConfigs, setLlmConfigs] = useState([]);
@@ -64,7 +69,19 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
     }
   }, [showToast]);
 
-  useEffect(() => { if (activeTab === 'settings') loadSettings(); }, [activeTab, loadSettings]);
+  const loadReminderConfig = useCallback(async () => {
+    try {
+      setReminderLoading(true);
+      const data = await api.getReminderConfig();
+      setReminderConfig(data);
+    } catch (err) {
+      showToast?.(`Failed to load reminder config: ${err.message}`, 'error');
+    } finally {
+      setReminderLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { if (activeTab === 'settings') { loadSettings(); loadReminderConfig(); } }, [activeTab, loadSettings, loadReminderConfig]);
 
   const loadLlmConfigs = useCallback(async () => {
     try {
@@ -119,11 +136,17 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
       setSettingsSaving(true);
       const updated = await api.updateSettings(settings);
       setSettings(updated);
+      if (reminderConfig) {
+        setReminderSaving(true);
+        const updatedReminder = await api.updateReminderConfig(reminderConfig);
+        setReminderConfig(updatedReminder);
+      }
       showToast?.('Settings saved', 'success');
     } catch (err) {
       showToast?.(`Failed to save settings: ${err.message}`, 'error');
     } finally {
       setSettingsSaving(false);
+      setReminderSaving(false);
     }
   };
 
@@ -360,15 +383,79 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                 )}
               </div>
 
+              {/* Task Reminders */}
+              <div className="p-5 bg-dark-800 rounded-xl border border-dark-700 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-dark-200 flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-amber-400" />
+                    Task Reminders
+                  </h4>
+                  <p className="text-xs text-dark-400 mt-1">
+                    Configure how agents are reminded to complete their active tasks.
+                  </p>
+                </div>
+                {reminderLoading ? (
+                  <div className="text-center py-4">
+                    <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  </div>
+                ) : reminderConfig ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs text-dark-400 mb-1">Interval (minutes)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        value={reminderConfig.intervalMinutes ?? 10}
+                        onChange={e => setReminderConfig(c => ({ ...c, intervalMinutes: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                        className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                      />
+                      <p className="text-[10px] text-dark-500 mt-1">Time between each reminder</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-dark-400 mb-1">Max reminders</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={reminderConfig.maxReminders ?? 12}
+                        onChange={e => setReminderConfig(c => ({ ...c, maxReminders: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                        className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                      />
+                      <p className="text-[10px] text-dark-500 mt-1">Max attempts before giving up</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-dark-400 mb-1">Cooldown (minutes)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="30"
+                        value={reminderConfig.cooldownMinutes ?? 2}
+                        onChange={e => setReminderConfig(c => ({ ...c, cooldownMinutes: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                        className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                      />
+                      <p className="text-[10px] text-dark-500 mt-1">Min wait after a reminder before next</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-dark-500">Failed to load reminder configuration</div>
+                )}
+                {reminderConfig?.envOverride && (
+                  <div className="text-xs px-3 py-2 rounded-lg bg-amber-900/20 text-amber-400 border border-amber-800/30">
+                    Interval is overridden by the TASK_REMINDER_INTERVAL_MINUTES environment variable.
+                  </div>
+                )}
+              </div>
+
               {/* Save button */}
               <div className="flex justify-end">
                 <button
                   onClick={handleSaveSettings}
-                  disabled={settingsSaving}
+                  disabled={settingsSaving || reminderSaving}
                   className="flex items-center gap-2 px-5 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {settingsSaving ? 'Saving...' : 'Save Settings'}
+                  {settingsSaving || reminderSaving ? 'Saving...' : 'Save Settings'}
                 </button>
               </div>
             </div>

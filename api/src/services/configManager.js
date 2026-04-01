@@ -6,6 +6,9 @@ const DEFAULTS = {
   ideasAgent: '',
   jiraEnabled: 'true',
   currency: '$',
+  taskReminderIntervalMinutes: '10',
+  taskReminderMaxCount: '12',
+  taskReminderCooldownMinutes: '2',
 };
 
 // ── Data directory configuration ────────────────────────────────────────────
@@ -47,6 +50,27 @@ export async function updateSettings(patch) {
   }
 
   return getSettings();
+}
+
+// ── Reminder configuration ───────────────────────────────────────────────────
+// Priority: env var > DB setting > default
+export async function getReminderConfig() {
+  const settings = await getSettings();
+  const intOrDefault = (val, def) => { const n = parseInt(val, 10); return Number.isNaN(n) ? def : n; };
+  const envInterval = process.env.TASK_REMINDER_INTERVAL_MINUTES;
+  const intervalMinutes = envInterval
+    ? intOrDefault(envInterval, 10)
+    : intOrDefault(settings.taskReminderIntervalMinutes, 10);
+  const maxReminders = intOrDefault(settings.taskReminderMaxCount, 12);
+  const cooldownMinutes = intOrDefault(settings.taskReminderCooldownMinutes, 2);
+
+  return {
+    intervalMs: Math.max(1, intervalMinutes) * 60 * 1000,
+    intervalMinutes: Math.max(1, intervalMinutes),
+    maxReminders: Math.max(1, maxReminders),
+    cooldownMs: Math.max(0, cooldownMinutes) * 60 * 1000,
+    cooldownMinutes: Math.max(0, cooldownMinutes),
+  };
 }
 
 // ── Workflow configuration (database-backed) ──────────────────────────────────
