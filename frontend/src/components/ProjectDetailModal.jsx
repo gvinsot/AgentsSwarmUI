@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
   X, Users, ListTodo, Activity, Clock, CheckCircle, AlertCircle,
-  FolderGit2, Bug, Sparkles, BarChart3, FileText, Save, Loader2
+  FolderGit2, Bug, Sparkles, BarChart3, FileText, Save, Loader2,
+  ExternalLink, GitCommit
 } from 'lucide-react';
 import ProjectStats from './ProjectStats';
+import GitHubActivityModal from './GitHubActivityModal';
 import { api } from '../api';
 
-export default function ProjectDetailModal({ project, projectContext, onClose, onRefresh }) {
+function GithubIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+    </svg>
+  );
+}
+
+export default function ProjectDetailModal({ project, projectContext, githubInfo, onClose, onRefresh }) {
   // Close on Escape key
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -23,19 +33,29 @@ export default function ProjectDetailModal({ project, projectContext, onClose, o
   // Project context editing state
   const [ctxDescription, setCtxDescription] = useState(projectContext?.description || '');
   const [ctxRules, setCtxRules] = useState(projectContext?.rules || '');
+  const [ctxGithubUrl, setCtxGithubUrl] = useState(projectContext?.githubUrl || '');
   const [ctxSaving, setCtxSaving] = useState(false);
   const [ctxSaved, setCtxSaved] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
     setCtxDescription(projectContext?.description || '');
     setCtxRules(projectContext?.rules || '');
+    setCtxGithubUrl(projectContext?.githubUrl || '');
   }, [projectContext]);
+
+  // Resolve GitHub URL: from starred repos or from project context
+  const resolvedGithubUrl = githubInfo?.htmlUrl || ctxGithubUrl || '';
+  const resolvedFullName = githubInfo?.fullName || (() => {
+    const m = resolvedGithubUrl.match(/github\.com\/([^/]+\/[^/]+)/);
+    return m ? m[1].replace(/\.git$/, '') : '';
+  })();
 
   const handleSaveContext = async () => {
     setCtxSaving(true);
     setCtxSaved(false);
     try {
-      await api.saveProjectContext(project.name, ctxDescription, ctxRules);
+      await api.saveProjectContext(project.name, ctxDescription, ctxRules, ctxGithubUrl);
       setCtxSaved(true);
       if (onRefresh) onRefresh();
       setTimeout(() => setCtxSaved(false), 2000);
@@ -77,15 +97,43 @@ export default function ProjectDetailModal({ project, projectContext, onClose, o
               {stats.completion}% complete
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* GitHub buttons */}
+            {resolvedGithubUrl && (
+              <>
+                <a
+                  href={resolvedGithubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-300 hover:text-white bg-dark-800 hover:bg-dark-700 border border-dark-600 rounded-lg transition-colors"
+                  title="Open on GitHub"
+                >
+                  <GithubIcon className="w-4 h-4" />
+                  <span className="hidden sm:inline">GitHub</span>
+                  <ExternalLink size={12} />
+                </a>
+                {resolvedFullName && (
+                  <button
+                    onClick={() => setShowActivity(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-300 hover:text-white bg-dark-800 hover:bg-dark-700 border border-dark-600 rounded-lg transition-colors"
+                    title="View GitHub activity"
+                  >
+                    <GitCommit size={14} />
+                    <span className="hidden sm:inline">Activity</span>
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        {/* Body — scrollable */}
+        {/* Body -- scrollable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -133,6 +181,38 @@ export default function ProjectDetailModal({ project, projectContext, onClose, o
                   rows={4}
                   className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white placeholder-dark-500 resize-y focus:outline-none focus:border-cyan-500/50"
                 />
+              </div>
+              {/* GitHub URL — editable only if not auto-detected from starred repos */}
+              <div>
+                <label className="block text-xs text-dark-400 mb-1">
+                  <span className="flex items-center gap-1">
+                    <GithubIcon className="w-3 h-3" />
+                    GitHub URL
+                    {githubInfo?.htmlUrl && (
+                      <span className="text-green-400 ml-1">(auto-detected)</span>
+                    )}
+                  </span>
+                </label>
+                {githubInfo?.htmlUrl ? (
+                  <div className="flex items-center gap-2 text-sm text-dark-300">
+                    <a
+                      href={githubInfo.htmlUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-purple-400 hover:text-purple-300 underline"
+                    >
+                      {githubInfo.fullName}
+                    </a>
+                  </div>
+                ) : (
+                  <input
+                    type="url"
+                    value={ctxGithubUrl}
+                    onChange={e => setCtxGithubUrl(e.target.value)}
+                    placeholder="https://github.com/owner/repo"
+                    className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white placeholder-dark-500 focus:outline-none focus:border-cyan-500/50"
+                  />
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -221,6 +301,15 @@ export default function ProjectDetailModal({ project, projectContext, onClose, o
           </Section>
         </div>
       </div>
+
+      {/* GitHub Activity sub-modal */}
+      {showActivity && resolvedFullName && (
+        <GitHubActivityModal
+          owner={resolvedFullName.split('/')[0]}
+          repo={resolvedFullName.split('/')[1]}
+          onClose={() => setShowActivity(false)}
+        />
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ const projectNameSchema = z.string()
 const contextBodySchema = z.object({
   description: z.string().max(10000).optional().default(''),
   rules: z.string().max(10000).optional().default(''),
+  githubUrl: z.string().url().max(500).optional().or(z.literal('')).default(''),
 });
 
 export function projectContextRoutes() {
@@ -44,8 +45,8 @@ export function projectContextRoutes() {
   router.put('/:name', async (req, res) => {
     try {
       const name = projectNameSchema.parse(req.params.name);
-      const { description, rules } = contextBodySchema.parse(req.body || {});
-      const ctx = { name, description, rules, updatedAt: new Date().toISOString() };
+      const { description, rules, githubUrl } = contextBodySchema.parse(req.body || {});
+      const ctx = { name, description, rules, githubUrl: githubUrl || '', updatedAt: new Date().toISOString() };
       await saveProjectContext(ctx);
       res.json(ctx);
     } catch (err) {

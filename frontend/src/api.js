@@ -383,16 +383,22 @@ export const api = {
   getProjectContexts: () =>
     fetch(`${API_BASE}/project-contexts`, { headers: getHeaders() }).then(handleResponse),
 
-  saveProjectContext: (name, description, rules) =>
+  saveProjectContext: (name, description, rules, githubUrl) =>
     fetch(`${API_BASE}/project-contexts/${encodeURIComponent(name)}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify({ description, rules })
+      body: JSON.stringify({ description, rules, ...(githubUrl !== undefined && { githubUrl }) })
     }).then(handleResponse),
 
   deleteProjectContext: (name) =>
     fetch(`${API_BASE}/project-contexts/${encodeURIComponent(name)}`, {
       method: 'DELETE',
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  // GitHub activity (commits + tags for a repo)
+  getGitHubActivity: (owner, repo) =>
+    fetch(`${API_BASE}/projects/github-activity/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
       headers: getHeaders()
     }).then(handleResponse),
 

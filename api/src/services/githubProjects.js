@@ -94,7 +94,9 @@ async function _fetchStarredRepos(token, user) {
             fullName: repo.full_name,
             sshUrl: repo.ssh_url,
             httpsUrl: repo.clone_url,
+            htmlUrl: repo.html_url,
             description: repo.description || '',
+            defaultBranch: repo.default_branch || 'main',
           });
         }
 
