@@ -1156,6 +1156,8 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
   const isDraggingRef = useRef(false);
   const touchDragRef = useRef(null);
   const cardRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+  const longPressArmedRef = useRef(false);
 
   const sourceMeta = task.source ? (SOURCE_META[task.source.type] || SOURCE_META.api) : null;
 
@@ -1165,6 +1167,12 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
     if (!el) return;
 
     const handleTouchMove = (e) => {
+      // If long-press timer is still pending, cancel it if user moves (they're scrolling)
+      if (longPressTimerRef.current && !longPressArmedRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+        return;
+      }
       if (!touchDragRef.current) return;
       const touch = e.touches[0];
       const dx = touch.clientX - touchDragRef.current.startX;
@@ -1231,14 +1239,38 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
       }}
       onTouchStart={(e) => {
         const touch = e.touches[0];
-        touchDragRef.current = {
-          startX: touch.clientX,
-          startY: touch.clientY,
-          started: false,
-          ghost: null,
-        };
+        const startX = touch.clientX;
+        const startY = touch.clientY;
+        longPressArmedRef.current = false;
+        // Wait 1.5s before arming drag — prevents accidental drags on mobile
+        longPressTimerRef.current = setTimeout(() => {
+          longPressArmedRef.current = true;
+          touchDragRef.current = {
+            startX,
+            startY,
+            started: false,
+            ghost: null,
+          };
+          // Visual feedback: subtle scale pulse to indicate drag is armed
+          if (cardRef.current) {
+            cardRef.current.style.transform = 'scale(0.97)';
+            cardRef.current.style.transition = 'transform 0.15s ease';
+          }
+        }, 1500);
       }}
       onTouchEnd={(e) => {
+        // Clear long-press timer if still pending
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        // Reset visual feedback from long-press arming
+        if (cardRef.current) {
+          cardRef.current.style.transform = '';
+          cardRef.current.style.transition = '';
+        }
+        longPressArmedRef.current = false;
+
         if (!touchDragRef.current) return;
 
         // Restore original card opacity
