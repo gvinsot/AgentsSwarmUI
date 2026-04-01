@@ -67,9 +67,6 @@ export const tasksMethods = {
     delete task._pendingOnEnter;
     const now = new Date().toISOString();
     if (status === 'done') task.completedAt = now;
-    if (this._isActiveTaskStatus(status) && !this._isActiveTaskStatus(prevStatus)) {
-      task.startedAt = now;
-    }
     if (status === 'error') {
       task.errorFromStatus = prevStatus;
     }
@@ -82,7 +79,10 @@ export const tasksMethods = {
     saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     if (by !== 'jira-sync') onTaskStatusChanged(task, status, this);
-    if (!skipAutoRefine && status !== 'error') this._checkAutoRefine({ ...task, agentId }, { by: by || 'user' });
+    // Only trigger workflow transitions when the change comes from the system, not manual user drag & drop
+    if (!skipAutoRefine && status !== 'error' && by && by !== 'user') {
+      this._checkAutoRefine({ ...task, agentId }, { by });
+    }
     return task;
   },
 
@@ -427,11 +427,13 @@ export const tasksMethods = {
       if (agent.status !== 'idle') continue;
       if (this._loopProcessing.has(agentId)) continue;
 
-      // Check for active tasks (any non-inactive status) that need resuming
+      // Only resume tasks that were genuinely started by the execution system
+      // (startedAt is set when a workflow transition triggers execution).
+      // Simply dragging a task to a column does NOT set startedAt.
       let activeTask = null;
       let activeCreatorId = null;
       const ownActive = agent.todoList?.find(t =>
-        this._isActiveTaskStatus(t.status) && (!t.assignee || t.assignee === agentId)
+        this._isActiveTaskStatus(t.status) && t.startedAt && (!t.assignee || t.assignee === agentId)
       );
       if (ownActive) {
         activeTask = ownActive;
@@ -439,31 +441,25 @@ export const tasksMethods = {
       } else {
         for (const [oid, oa] of this.agents) {
           if (oid === agentId || !oa.todoList) continue;
-          const found = oa.todoList.find(t => this._isActiveTaskStatus(t.status) && t.assignee === agentId);
+          const found = oa.todoList.find(t => this._isActiveTaskStatus(t.status) && t.startedAt && t.assignee === agentId);
           if (found) { activeTask = found; activeCreatorId = oid; break; }
         }
       }
       if (activeTask) {
         if (this._workflowManagedStatuses?.has(activeTask.status)) continue;
-        // If the task was manually stopped, do NOT auto-resume it.
-        // Move it back to pending so the user can decide when to restart.
         if (activeTask._executionStopped) {
           console.log(`🛑 [TaskLoop] Skipping auto-resume for "${activeTask.text.slice(0, 60)}" — was manually stopped`);
           this.setTaskStatus(activeCreatorId, activeTask.id, 'backlog', { skipAutoRefine: true, by: 'user-stop' });
           continue;
         }
-        // Skip if _waitForExecutionComplete is already monitoring this task
         if (activeTask._executionWatching) continue;
         this._loopProcessing.add(agentId);
-        console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has active task "${activeTask.text.slice(0, 60)}" (${activeTask.status}) — resuming`);
+        console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has started task "${activeTask.text.slice(0, 60)}" (${activeTask.status}) — resuming`);
         this._resumeActiveTask(activeCreatorId, this.agents.get(activeCreatorId), activeTask).finally(() => {
           this._loopProcessing.delete(agentId);
         });
         continue;
       }
-
-      // No active task to resume — task execution is now driven by workflow
-      // transitions (run_agent actions) rather than polling for a specific status.
     }
   },
 
