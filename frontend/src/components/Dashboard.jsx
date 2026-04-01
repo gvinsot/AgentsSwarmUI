@@ -84,6 +84,13 @@ export default function Dashboard({
     setTimeout(() => setRequestedTab(null), 100);
   }, []);
 
+  const handleNavigateToAgent = useCallback((agentId) => {
+    setActiveView('agents');
+    setSelectedAgent(agentId);
+    setRequestedTab('chat');
+    setTimeout(() => setRequestedTab(null), 100);
+  }, [setActiveView]);
+
   // Sort agents with 'Swarm Leaders' role first
   const sortedAgents = [...agents].sort((a, b) => {
     if (a.role === 'Swarm Leaders' && b.role !== 'Swarm Leaders') return -1;
@@ -292,7 +299,7 @@ export default function Dashboard({
         <div className="flex-1 flex max-w-[1800px] mx-auto w-full min-h-0 overflow-hidden">
           {activeView === 'tasks' && (
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} />
+              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} onNavigateToAgent={handleNavigateToAgent} />
             </div>
           )}
           {activeView === 'projects' && (

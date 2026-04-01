@@ -446,7 +446,7 @@ function ExecutionLogEntry({ entry, index }) {
 
 // ── TaskDetailModal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDelete, statusOptions }) {
+function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDelete, statusOptions, onNavigateToAgent }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(task.text);
   const [editTitle, setEditTitle] = useState(task.title || '');
@@ -919,8 +919,11 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
                     const assignee = task.assignee ? agents.find(a => a.id === task.assignee) : null;
                     if (assignee) {
                       return (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium
-                          bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20${onNavigateToAgent ? ' cursor-pointer hover:bg-blue-500/20 transition-colors' : ''}`}
+                          onClick={onNavigateToAgent ? () => { onNavigateToAgent(assignee.id); onClose(); } : undefined}
+                          title={onNavigateToAgent ? `Open ${assignee.name}'s chat` : undefined}
+                        >
                           {assignee.icon} {assignee.name}
                         </span>
                       );
@@ -1150,7 +1153,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 // ── TaskCard ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreator, showProject, showTaskType, onTouchDragStart }) {
+function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreator, showProject, showTaskType, onTouchDragStart, onNavigateToAgent }) {
   const isError = task.status === 'error';
   const today = isToday(task.createdAt);
   const isDraggingRef = useRef(false);
@@ -1364,7 +1367,11 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
           </span>
         )}
         {showAgent && task.assigneeName && (
-          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+          <span
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20${task.assignee && onNavigateToAgent ? ' cursor-pointer hover:bg-cyan-500/20 transition-colors' : ''}`}
+            onClick={task.assignee && onNavigateToAgent ? (e) => { e.stopPropagation(); onNavigateToAgent(task.assignee); } : undefined}
+            title={task.assignee && onNavigateToAgent ? `Open ${task.assigneeName}'s chat` : undefined}
+          >
             <User className="w-2.5 h-2.5" />
             {`${task.assigneeIcon || ''} ${task.assigneeName}`.trim()}
           </span>
@@ -1499,7 +1506,7 @@ function InstructionsEditModal({ columnLabel, instructions, agents, onClose, onS
 
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDragStart }) {
+function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDragStart, onNavigateToAgent }) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
@@ -1581,6 +1588,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
             showProject={showProject}
             showTaskType={showTaskType}
             onTouchDragStart={onTouchDragStart}
+            onNavigateToAgent={onNavigateToAgent}
           />
         ))}
         {tasks.length === 0 && (
@@ -2304,7 +2312,7 @@ function BoardTabs({ boards, activeBoardId, onSelect, onCreate, onRename, onDele
 
 // ── TasksBoard (multi-board) ────────────────────────────────────────────────
 
-export default function TasksBoard({ agents, onRefresh, user }) {
+export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [agentFilter, setAgentFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -2740,6 +2748,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
               showProject={col.showProject}
               showTaskType={col.showTaskType}
               onTouchDragStart={() => {}}
+              onNavigateToAgent={onNavigateToAgent}
             />
           ))}
         </div>
@@ -2778,6 +2787,7 @@ export default function TasksBoard({ agents, onRefresh, user }) {
           onClose={() => setSelectedTask(null)}
           onRefresh={onRefresh}
           onDelete={handleDelete}
+          onNavigateToAgent={onNavigateToAgent}
         />
       )}
 
