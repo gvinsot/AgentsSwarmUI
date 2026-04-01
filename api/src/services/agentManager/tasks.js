@@ -476,9 +476,13 @@ export const tasksMethods = {
       const comment = freshTask._executionComment || '';
       delete freshTask._executionCompleted;
       delete freshTask._executionComment;
-      const completionStatus = resolveCompletionStatus();
-      this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: !targetStatus, by: executorName });
-      console.log(`✅ [Execution] task_execution_complete for "${taskText.slice(0, 60)}" -> ${completionStatus}${comment ? ` (${comment.slice(0, 80)})` : ''}`);
+      if (targetStatus) {
+        const completionStatus = resolveCompletionStatus();
+        this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: false, by: executorName });
+        console.log(`✅ [Execution] task_execution_complete for "${taskText.slice(0, 60)}" -> ${completionStatus}${comment ? ` (${comment.slice(0, 80)})` : ''}`);
+      } else {
+        console.log(`✅ [Execution] task_execution_complete for "${taskText.slice(0, 60)}" (no targetStatus — action chain continues)${comment ? ` (${comment.slice(0, 80)})` : ''}`);
+      }
       return 'completed';
     }
 
@@ -510,9 +514,13 @@ export const tasksMethods = {
         const comment = currentTask._executionComment || '';
         delete currentTask._executionCompleted;
         delete currentTask._executionComment;
-        const completionStatus = resolveCompletionStatus();
-        this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: !targetStatus, by: executorName });
-        console.log(`✅ [Execution] Completed during wait: "${taskText.slice(0, 60)}" -> ${completionStatus}`);
+        if (targetStatus) {
+          const completionStatus = resolveCompletionStatus();
+          this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: false, by: executorName });
+          console.log(`✅ [Execution] Completed during wait: "${taskText.slice(0, 60)}" -> ${completionStatus}`);
+        } else {
+          console.log(`✅ [Execution] Completed during wait: "${taskText.slice(0, 60)}" (no targetStatus — action chain continues)`);
+        }
         return 'completed';
       }
       if (!this._isActiveTaskStatus(currentTask.status)) {
@@ -572,9 +580,13 @@ export const tasksMethods = {
         const comment = afterReminder._executionComment || '';
         delete afterReminder._executionCompleted;
         delete afterReminder._executionComment;
-        const completionStatus = resolveCompletionStatus();
-        this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: !targetStatus, by: executorName });
-        console.log(`✅ [Execution] Completed after reminder: "${taskText.slice(0, 60)}" -> ${completionStatus}`);
+        if (targetStatus) {
+          const completionStatus = resolveCompletionStatus();
+          this.setTaskStatus(creatorAgentId, taskId, completionStatus, { skipAutoRefine: false, by: executorName });
+          console.log(`✅ [Execution] Completed after reminder: "${taskText.slice(0, 60)}" -> ${completionStatus}`);
+        } else {
+          console.log(`✅ [Execution] Completed after reminder: "${taskText.slice(0, 60)}" (no targetStatus — action chain continues)`);
+        }
         return 'completed';
       }
     }
@@ -615,20 +627,27 @@ export const tasksMethods = {
     }
 
     try {
-      let targetStatus = 'done';
+      let targetStatus = null;
       try {
         const workflow = await getWorkflowForBoard(task.boardId);
         const transition = workflow.transitions.find(t => {
           if (t.from !== task.status) return false;
           if (this._validTransition(t)) {
-            return (t.actions || []).some(a => a.type === 'run_agent' && a.targetStatus);
+            return (t.actions || []).some(a => a.type === 'run_agent');
           }
           return t.autoRefine && (t.mode === 'execute' || t.mode === 'decide' || t.agent);
         });
         if (transition) {
           if (this._validTransition(transition)) {
+            // Use explicit targetStatus if set on the run_agent action
             const runAction = (transition.actions || []).find(a => a.type === 'run_agent' && a.targetStatus);
-            if (runAction?.targetStatus) targetStatus = runAction.targetStatus;
+            if (runAction?.targetStatus) {
+              targetStatus = runAction.targetStatus;
+            } else {
+              // Fallback: use the change_status target from the same transition
+              const changeAction = (transition.actions || []).find(a => a.type === 'change_status' && a.target);
+              if (changeAction) targetStatus = changeAction.target;
+            }
           } else if (transition.to) {
             targetStatus = transition.to;
           }

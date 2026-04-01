@@ -103,7 +103,7 @@ function findAgentByRole(agentManager, role, ownerId = null) {
  * The `task._transition` object carries: { agent (role), to (target status or null), instructions, mode }
  */
 export async function processTransition(task, agentManager, io) {
-  const targetStatus = task._transition?.to ?? 'backlog';
+  const targetStatus = task._transition?.to || null;
   const transitionRole = task._transition?.agent;
   const mode = task._transition?.mode;
   const instructions = task._transition?.instructions || '';
