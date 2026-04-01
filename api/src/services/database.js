@@ -196,9 +196,6 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
 
       _dbConnected = true;
 
-      // Migrate tasks from agent JSONB to dedicated table (one-time)
-      await migrateTasksFromAgents();
-
       // Populate caches
       await loadSettingsCache();
       await refreshTokenSummaryCache();
@@ -1036,31 +1033,6 @@ function rowToTask(row) {
   };
 }
 
-/** Migrate tasks from agent JSONB data into the tasks table (one-time) */
-export async function migrateTasksFromAgents() {
-  if (!pool) return;
-  try {
-    // Check if migration is needed: if tasks table is empty but agents have todoList data
-    const taskCount = await pool.query('SELECT COUNT(*) as count FROM tasks');
-    if (parseInt(taskCount.rows[0].count, 10) > 0) return; // already migrated
-
-    const agents = await pool.query('SELECT id, data FROM agents');
-    let migrated = 0;
-    for (const row of agents.rows) {
-      const agent = row.data;
-      if (!agent.todoList || agent.todoList.length === 0) continue;
-      for (const task of agent.todoList) {
-        await saveTaskToDb({ ...task, agentId: row.id });
-        migrated++;
-      }
-    }
-    if (migrated > 0) {
-      console.log(`✅ Migrated ${migrated} tasks from agent JSONB to tasks table`);
-    }
-  } catch (err) {
-    console.error('Failed to migrate tasks:', err.message);
-  }
-}
 
 export function getPool() {
   return pool;
