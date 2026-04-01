@@ -386,7 +386,12 @@ export const chatMethods = {
     const isNewDelegationTask = messageMeta?.type === 'delegation-task';
     const shouldCompact = isTopLevelUserMessage || isNewDelegationTask;
 
-    if (shouldCompact && !managesContext) {
+    // Determine if agent is currently executing a task (has an active task with startedAt)
+    const activeTask = (agent.todoList || []).find(t => this._isActiveTaskStatus(t.status) && t.startedAt);
+    const isTaskExecution = !!activeTask;
+
+    // Proactive compaction: only in chat mode (no active task), non-managed context
+    if (shouldCompact && !managesContext && !isTaskExecution) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
 
       if (agent._compactionArmed === undefined) {
@@ -407,7 +412,6 @@ export const chatMethods = {
     if (managesContext) {
       // Model manages its own context — only include history relevant to the current task.
       // Find the active task and include messages from when it started.
-      const activeTask = (agent.todoList || []).find(t => this._isActiveTaskStatus(t.status) && t.startedAt);
       if (activeTask) {
         const taskStartTime = new Date(activeTask.startedAt).getTime();
         const startIdx = agent.conversationHistory.findIndex(
@@ -418,16 +422,34 @@ export const chatMethods = {
         }
       }
       // If no active task, send no history — the agent starts fresh
+    } else if (isTaskExecution) {
+      // Task mode: only include messages from when the task started
+      const taskStartTime = new Date(activeTask.startedAt).getTime();
+      const startIdx = agent.conversationHistory.findIndex(
+        m => m.timestamp && new Date(m.timestamp).getTime() >= taskStartTime
+      );
+      if (startIdx >= 0) {
+        messages.push(...agent.conversationHistory.slice(startIdx));
+      } else {
+        // Fallback: send recent messages if no timestamp match
+        const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
+        const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
+        if (summary) messages.push(summary);
+        messages.push(...realMessages.slice(-maxRecent));
+      }
+      console.log(`📋 [Task Context] "${agent.name}": task execution — sending ${messages.length - 1} messages from task start (of ${agent.conversationHistory.length} total)`);
     } else {
+      // Chat mode: send the FULL conversation history
       const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
       const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
       if (summary) messages.push(summary);
-      messages.push(...realMessages.slice(-maxRecent));
+      messages.push(...realMessages);
     }
 
     messages.push({ role: 'user', content: userMessage });
 
-    if (shouldCompact && !managesContext) {
+    // Safety token check: only in chat mode (non-task), non-managed context
+    if (shouldCompact && !managesContext && !isTaskExecution) {
       const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
       const estimatedTokens = this._estimateTokens(messages);
       if (estimatedTokens > contextLimit * safetyRatio && realMessages.length > maxRecent) {
@@ -443,7 +465,7 @@ export const chatMethods = {
         const newSummary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
         const newReal = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
         if (newSummary) messages.push(newSummary);
-        messages.push(...newReal.slice(-maxRecent));
+        messages.push(...newReal);
         messages.push({ role: 'user', content: userMessage });
       }
     }
