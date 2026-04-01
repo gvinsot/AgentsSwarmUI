@@ -48,11 +48,13 @@ export class AgentManager {
         agent.todoList = dbTasks;
         for (const task of agent.todoList) {
           if (task.status === undefined) {
-            task.status = task.done ? 'done' : 'pending';
+            task.status = task.done ? 'done' : 'backlog';
             delete task.done;
           }
-          if (task.status === 'in_progress') {
-            task.status = 'pending';
+          // Reset active tasks to pending on server restart
+          const INACTIVE = new Set(['done', 'backlog', 'error']);
+          if (!INACTIVE.has(task.status)) {
+            task.status = 'backlog';
           }
         }
         if (agent.mcpServers.includes('mcp-swarm-manager')) {

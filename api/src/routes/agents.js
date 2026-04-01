@@ -288,7 +288,7 @@ export function agentRoutes(agentManager) {
       }
 
       // When no status is provided, resolve default from the board's first column
-      // so the task lands in the correct column (not hardcoded 'pending')
+      // so the task lands in the correct column
       if (!resolvedStatus && resolvedBoardId) {
         try {
           const wf = await getWorkflowForBoard(resolvedBoardId);
@@ -351,9 +351,9 @@ export function agentRoutes(agentManager) {
       task = agentManager.toggleTask(req.params.id, req.params.taskId);
     }
     if (!task) return res.status(404).json({ error: 'Not found' });
-    // If task moved OUT of in_progress, stop the agent
-    if (oldStatus === 'in_progress' && status && status !== 'in_progress' && agent?.status === 'busy') {
-      console.log(`\u{1F6D1} [Task] Task moved from in_progress to ${status} — stopping agent "${agent.name}"`);
+    // If task moved OUT of an active status, stop the agent
+    if (agentManager._isActiveTaskStatus(oldStatus) && status && !agentManager._isActiveTaskStatus(status) && agent?.status === 'busy') {
+      console.log(`\u{1F6D1} [Task] Task moved from ${oldStatus} to ${status} — stopping agent "${agent.name}"`);
       agentManager.stopAgent(req.params.id);
     }
     res.json(task);
@@ -376,16 +376,16 @@ export function agentRoutes(agentManager) {
   });
 
   router.delete('/:id/tasks/:taskId', requireAgentAccess, (req, res) => {
-    // Check if deleting an in_progress task
+    // Check if deleting an active task
     const agent = agentManager.agents.get(req.params.id);
     const taskToDelete = agent?.todoList?.find(t => t.id === req.params.taskId);
-    const wasInProgress = taskToDelete?.status === 'in_progress';
-    
+    const wasActive = taskToDelete && agentManager._isActiveTaskStatus(taskToDelete.status);
+
     const success = agentManager.deleteTask(req.params.id, req.params.taskId);
     if (!success) return res.status(404).json({ error: 'Not found' });
-    // If deleted task was in_progress, stop the agent
-    if (wasInProgress && agent?.status === 'busy') {
-      console.log(`\u{1F6D1} [Task] Task deleted while in_progress \u2014 stopping agent "${agent.name}"`);
+    // If deleted task was active, stop the agent
+    if (wasActive && agent?.status === 'busy') {
+      console.log(`\u{1F6D1} [Task] Task deleted while active \u2014 stopping agent "${agent.name}"`);
       agentManager.stopAgent(req.params.id);
     }
     res.json({ success: true });

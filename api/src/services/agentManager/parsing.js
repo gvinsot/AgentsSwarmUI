@@ -386,16 +386,6 @@ export const parsingMethods = {
 
       const createdTask = this.addTask(targetAgent.id, `[From ${leader.name}] ${delegation.task}`, leader.project || null, { type: 'agent', name: leader.name, id: leaderId });
 
-      if (createdTask) {
-        const t = targetAgent.todoList.find(t => t.id === createdTask.id);
-        if (t) {
-          t.status = 'in_progress';
-          t.startedAt = new Date().toISOString();
-          saveTaskToDb({ ...t, agentId: targetAgent.id });
-          this._emit('agent:updated', this._sanitize(targetAgent));
-        }
-      }
-
       let delegateStreamStarted = false;
       const agentResponse = await this.sendMessage(
         targetAgent.id,

@@ -40,7 +40,7 @@ export const workflowMethods = {
     for (const [creatorId, agent] of this.agents) {
       if (!agent.todoList) continue;
       for (const task of agent.todoList) {
-        if (task.status !== 'in_progress') continue;
+        if (!this._isActiveTaskStatus(task.status)) continue;
         if (creatorId === agentId) return true;
         if (task.assignee === agentId) return true;
       }
