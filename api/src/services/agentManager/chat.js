@@ -72,7 +72,7 @@ export const chatMethods = {
     const systemContent = await this._buildSystemPrompt(agent, id, delegationDepth);
     messages.push({ role: 'system', content: systemContent });
 
-    const { managesContext } = await this._assembleMessages(agent, messages, systemContent, userMessage, delegationDepth, messageMeta, streamCallback);
+    const { managesContext, isTaskExecution } = await this._assembleMessages(agent, messages, systemContent, userMessage, delegationDepth, messageMeta, streamCallback);
 
     const historyEntry = {
       role: 'user',
@@ -145,8 +145,9 @@ export const chatMethods = {
         return fullResponse;
       }
 
-      // ── Reactive compaction: context exceeded → compact and retry once ──
-      if (this._isContextExceededError(err.message) && !agent._compactionRetried && !managesContext) {
+      // ── Reactive compaction: context exceeded → compact and retry once (task mode only) ──
+      // In chat mode, full history must be preserved — context errors propagate to the user.
+      if (this._isContextExceededError(err.message) && !agent._compactionRetried && !managesContext && isTaskExecution) {
         console.log(`🗜️  [Reactive Compact] "${agent.name}": context exceeded — compacting and retrying`);
         agent._compactionRetried = true;
         this.addActionLog(id, 'warning', 'Context limit exceeded — compacting conversation and retrying');
@@ -390,8 +391,9 @@ export const chatMethods = {
     const activeTask = (agent.todoList || []).find(t => this._isActiveTaskStatus(t.status) && t.startedAt);
     const isTaskExecution = !!activeTask;
 
-    // Proactive compaction: only in chat mode (no active task), non-managed context
-    if (shouldCompact && !managesContext && !isTaskExecution) {
+    // Proactive compaction: only during task execution, non-managed context.
+    // Chat mode sends the FULL history — no compaction.
+    if (shouldCompact && !managesContext && isTaskExecution) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
 
       if (agent._compactionArmed === undefined) {
@@ -448,8 +450,9 @@ export const chatMethods = {
 
     messages.push({ role: 'user', content: userMessage });
 
-    // Safety token check: only in chat mode (non-task), non-managed context
-    if (shouldCompact && !managesContext && !isTaskExecution) {
+    // Safety token check: only during task execution, non-managed context.
+    // Chat mode sends the FULL history — no token-based compaction.
+    if (shouldCompact && !managesContext && isTaskExecution) {
       const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
       const estimatedTokens = this._estimateTokens(messages);
       if (estimatedTokens > contextLimit * safetyRatio && realMessages.length > maxRecent) {
@@ -470,7 +473,7 @@ export const chatMethods = {
       }
     }
 
-    return { managesContext };
+    return { managesContext, isTaskExecution };
   },
 
   async _streamAndContinue(agent, id, messages, llmConfig, streamCallback, abortController, delegationDepth) {
