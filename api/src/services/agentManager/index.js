@@ -1,5 +1,5 @@
 // ─── AgentManager: class shell + constructor + mixin assembly ─────────────────
-import { getAllAgents, saveAgent, setAgentOwner, getAllLlmConfigs, recordTokenUsage } from '../database.js';
+import { getAllAgents, saveAgent, setAgentOwner, getAllLlmConfigs, recordTokenUsage, getTasksByAgent } from '../database.js';
 
 import { lifecycleMethods } from './lifecycle.js';
 import { chatMethods } from './chat.js';
@@ -43,15 +43,16 @@ export class AgentManager {
         if (agent.projectChangedAt === undefined) {
           agent.projectChangedAt = agent.project ? (agent.updatedAt || agent.createdAt || null) : null;
         }
-        if (agent.todoList) {
-          for (const task of agent.todoList) {
-            if (task.status === undefined) {
-              task.status = task.done ? 'done' : 'pending';
-              delete task.done;
-            }
-            if (task.status === 'in_progress') {
-              task.status = 'pending';
-            }
+        // Load tasks from the dedicated tasks table (not from agent JSONB)
+        const dbTasks = await getTasksByAgent(agent.id);
+        agent.todoList = dbTasks;
+        for (const task of agent.todoList) {
+          if (task.status === undefined) {
+            task.status = task.done ? 'done' : 'pending';
+            delete task.done;
+          }
+          if (task.status === 'in_progress') {
+            task.status = 'pending';
           }
         }
         if (agent.mcpServers.includes('mcp-swarm-manager')) {

@@ -1,7 +1,7 @@
 // ─── Chat: sendMessage, _cleanMarkdown, _buildSystemPrompt, _assembleMessages,
 //     _streamAndContinue, _processLeaderCommands, _processPostResponseActions ──
 import { createProvider } from '../llmProviders.js';
-import { saveAgent } from '../database.js';
+import { saveAgent, saveTaskToDb } from '../database.js';
 import { TOOL_DEFINITIONS } from '../agentTools.js';
 import { getProjectGitUrl } from '../githubProjects.js';
 import { simplifyMcpSchema } from './helpers.js';
@@ -533,7 +533,7 @@ export const chatMethods = {
                 if (t) {
                   t.status = 'in_progress';
                   t.startedAt = new Date().toISOString();
-                  saveAgent(targetAgent);
+                  saveTaskToDb({ ...t, agentId: targetAgent.id });
                   this._emit('agent:updated', this._sanitize(targetAgent));
                 }
               }
@@ -561,7 +561,7 @@ export const chatMethods = {
                 if (t) {
                   t.status = 'done';
                   t.completedAt = new Date().toISOString();
-                  saveAgent(targetAgent);
+                  saveTaskToDb({ ...t, agentId: targetAgent.id });
                   this._emit('agent:updated', this._sanitize(targetAgent));
                 }
               }
@@ -576,7 +576,7 @@ export const chatMethods = {
                   t.status = 'error';
                   t.error = err.message;
                   t.completedAt = new Date().toISOString();
-                  saveAgent(targetAgent);
+                  saveTaskToDb({ ...t, agentId: targetAgent.id });
                   this._emit('agent:updated', this._sanitize(targetAgent));
                 }
               }
@@ -1159,7 +1159,7 @@ export const chatMethods = {
             if (t) {
               t.status = 'in_progress';
               t.startedAt = new Date().toISOString();
-              saveAgent(targetAgent);
+              saveTaskToDb({ ...t, agentId: targetAgent.id });
               this._emit('agent:updated', this._sanitize(targetAgent));
             }
           }
@@ -1187,7 +1187,7 @@ export const chatMethods = {
             if (t) {
               t.status = 'done';
               t.completedAt = new Date().toISOString();
-              saveAgent(targetAgent);
+              saveTaskToDb({ ...t, agentId: targetAgent.id });
               this._emit('agent:updated', this._sanitize(targetAgent));
             }
           }
@@ -1201,7 +1201,7 @@ export const chatMethods = {
               t.status = 'error';
               t.error = err.message;
               t.completedAt = new Date().toISOString();
-              saveAgent(targetAgent);
+              saveTaskToDb({ ...t, agentId: targetAgent.id });
               this._emit('agent:updated', this._sanitize(targetAgent));
             }
           }

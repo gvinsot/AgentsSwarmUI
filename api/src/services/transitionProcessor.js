@@ -1,5 +1,5 @@
 import { getSettings, getWorkflowForBoard } from './configManager.js';
-import { saveAgent } from './database.js';
+import { saveAgent, saveTaskToDb } from './database.js';
 
 // Lock to prevent concurrent execution of the same task (lockKey → timestamp)
 // Uses a Map with TTL to prevent permanent deadlocks from crashed transitions.
@@ -165,7 +165,7 @@ export async function processTransition(task, agentManager, io) {
         });
         console.log(`[Workflow] Updated assignee: "${previousAssignee || 'none'}" → "${agent.id}" (${agent.name}) for task "${task.text?.slice(0, 60)}"`);
       }
-      saveAgent(creatorAgentForFlag);
+      saveTaskToDb({ ...actualTaskForFlag, agentId: task.agentId });
       io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task: actualTaskForFlag });
     }
 
@@ -381,7 +381,7 @@ Execute the instructions above and update the task status accordingly.`;
       const actualTask = creatorAgent?.todoList?.find(t => t.id === task.id);
       if (actualTask) {
         actualTask.error = err.message;
-        saveAgent(creatorAgent);
+        saveTaskToDb({ ...actualTask, agentId: task.agentId });
       }
     } catch (e) {
       console.error(`[Workflow] Failed to set status after error:`, e.message);

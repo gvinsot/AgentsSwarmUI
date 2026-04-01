@@ -1,6 +1,6 @@
 // ─── Parsing: all _parse* methods, _listAvailableProjects, _executeSingleDelegation ──
 import { listStarredRepos } from '../githubProjects.js';
-import { saveAgent } from '../database.js';
+import { saveTaskToDb } from '../database.js';
 
 /** @this {import('./index.js').AgentManager} */
 export const parsingMethods = {
@@ -391,7 +391,7 @@ export const parsingMethods = {
         if (t) {
           t.status = 'in_progress';
           t.startedAt = new Date().toISOString();
-          saveAgent(targetAgent);
+          saveTaskToDb({ ...t, agentId: targetAgent.id });
           this._emit('agent:updated', this._sanitize(targetAgent));
         }
       }
@@ -418,7 +418,7 @@ export const parsingMethods = {
         if (t) {
           t.status = 'done';
           t.completedAt = new Date().toISOString();
-          saveAgent(targetAgent);
+          saveTaskToDb({ ...t, agentId: targetAgent.id });
           this._emit('agent:updated', this._sanitize(targetAgent));
         }
       }

@@ -1,6 +1,6 @@
 // ─── Workflow: _evaluateCondition, agentHasActiveTask, _checkAutoRefine,
 //     _validTransition, _recheckConditionalTransitions ─────────────────────────
-import { saveAgent } from '../database.js';
+import { saveAgent, saveTaskToDb } from '../database.js';
 import { processTransition } from '../transitionProcessor.js';
 import { getWorkflowForBoard, getAllBoardWorkflows } from '../configManager.js';
 
@@ -99,7 +99,7 @@ export const workflowMethods = {
           const actualTask = creatorAgent?.todoList?.find(t => t.id === task.id);
           if (actualTask) {
             actualTask.assignee = autoAgent.id;
-            saveAgent(creatorAgent);
+            saveTaskToDb({ ...actualTask, agentId: task.agentId });
           }
           this.io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task });
         }
@@ -161,7 +161,7 @@ export const workflowMethods = {
               const actualTask = creatorAgent?.todoList?.find(t => t.id === task.id);
               if (actualTask) {
                 actualTask.assignee = agent.id;
-                saveAgent(creatorAgent);
+                saveTaskToDb({ ...actualTask, agentId: task.agentId });
               }
               this.io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task });
               console.log(`[Workflow] Action: assigned "${(task.text || '').slice(0, 60)}" to "${agent.name}" (${minTasks} total tasks, role: ${action.role})`);
@@ -332,7 +332,7 @@ export const workflowMethods = {
                   const actualTask = agent.todoList.find(t => t.id === task.id);
                   if (actualTask) {
                     actualTask.assignee = foundAgent.id;
-                    saveAgent(agent);
+                    saveTaskToDb({ ...actualTask, agentId });
                   }
                   this.io?.to(`agent:${agentId}`)?.emit('task:updated', { agentId, task: { ...task, assignee: foundAgent.id } });
                   console.log(`[Workflow] Condition re-check: assigned "${(task.text || '').slice(0, 60)}" to "${foundAgent.name}" (${minTasks} tasks in column, role: ${action.role})`);

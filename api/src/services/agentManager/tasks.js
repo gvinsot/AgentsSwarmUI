@@ -1,6 +1,6 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveAgent } from '../database.js';
+import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows } from '../configManager.js';
 import { processTransition } from '../transitionProcessor.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
@@ -34,7 +34,7 @@ export const tasksMethods = {
       };
     }
     agent.todoList.push(newTask);
-    saveAgent(agent);
+    saveTaskToDb({ ...newTask, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     if (!skipAutoRefine) this._checkAutoRefine({ ...newTask, agentId });
     return newTask;
@@ -51,7 +51,7 @@ export const tasksMethods = {
     const now = new Date().toISOString();
     if (!task.history) task.history = [];
     task.history.push({ from: prevStatus, status: task.status, at: now, by: 'user' });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -97,7 +97,7 @@ export const tasksMethods = {
     }
     if (!task.history) task.history = [];
     task.history.push({ from: prevStatus, status, at: now, by: by || 'user' });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     if (by !== 'jira-sync') onTaskStatusChanged(task, status, this);
     if (!skipAutoRefine && status !== 'error') this._checkAutoRefine({ ...task, agentId }, { by: by || 'user' });
@@ -113,7 +113,7 @@ export const tasksMethods = {
     task.title = title;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'title', oldValue: oldTitle, newValue: title });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -127,7 +127,7 @@ export const tasksMethods = {
     task.text = text;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'text', oldValue: oldText, newValue: text });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -141,7 +141,7 @@ export const tasksMethods = {
     task.project = project;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'project', oldValue: oldProject, newValue: project });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -155,7 +155,7 @@ export const tasksMethods = {
     task.taskType = taskType || null;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by, type: 'edit', field: 'taskType', oldValue: oldType, newValue: taskType || null });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -175,7 +175,7 @@ export const tasksMethods = {
     } else {
       task.recurrence = null;
     }
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -234,7 +234,7 @@ export const tasksMethods = {
     if (!task.commits) task.commits = [];
     if (task.commits.some(c => c.hash === hash)) return task;
     task.commits.push({ hash, message: message || '', date: new Date().toISOString() });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -247,7 +247,7 @@ export const tasksMethods = {
     const before = task.commits.length;
     task.commits = task.commits.filter(c => c.hash !== hash);
     if (task.commits.length === before) return null;
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
   },
@@ -260,7 +260,7 @@ export const tasksMethods = {
     task.assignee = assigneeId;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'reassign', assignee: assigneeId });
-    saveAgent(agent);
+    saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     this._recheckConditionalTransitions();
     return task;
@@ -270,7 +270,7 @@ export const tasksMethods = {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.todoList = agent.todoList.filter(t => t.id !== taskId);
-    saveAgent(agent);
+    deleteTaskFromDb(taskId);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
   },
@@ -279,7 +279,7 @@ export const tasksMethods = {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.todoList = [];
-    saveAgent(agent);
+    deleteTasksByAgent(agentId);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
   },
@@ -292,14 +292,14 @@ export const tasksMethods = {
     if (!taskToTransfer) return null;
     const prevStatus = taskToTransfer.status;
     fromAgent.todoList = fromAgent.todoList.filter(t => t.id !== taskId);
-    saveAgent(fromAgent);
+    deleteTaskFromDb(taskId);
     this._emit('agent:updated', this._sanitize(fromAgent));
     const newTask = this.addTask(toAgentId, taskToTransfer.text, taskToTransfer.project, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus);
     if (newTask) {
       const actualTask = toAgent.todoList.find(t => t.id === newTask.id);
       if (actualTask) {
         actualTask.assignee = toAgentId;
-        saveAgent(toAgent);
+        saveTaskToDb({ ...actualTask, agentId: toAgentId });
       }
       this._checkAutoRefine({ ...newTask, assignee: toAgentId, agentId: toAgentId });
     }
@@ -329,7 +329,7 @@ export const tasksMethods = {
       }
     } else if (task.status === 'in_progress') {
       delete task._executionStopped;
-      saveAgent(agent);
+      saveTaskToDb({ ...task, agentId });
       this._checkAutoRefine({ ...task, agentId }, { by: 'resume' });
     } else {
       this.setTaskStatus(agentId, taskId, 'pending');
@@ -428,7 +428,7 @@ export const tasksMethods = {
           task.startedAt = null;
           if (!task.history) task.history = [];
           task.history.push({ from: 'done', status: resetStatus, at: new Date().toISOString(), by: 'recurrence' });
-          saveAgent(agent);
+          saveTaskToDb({ ...task, agentId });
           this._emit('agent:updated', this._sanitize(agent));
         }
       }
@@ -728,7 +728,7 @@ export const tasksMethods = {
         const actualTask = this.agents.get(agentId)?.todoList?.find(t => t.id === task.id);
         if (actualTask) {
           actualTask.error = err.message;
-          saveAgent(this.agents.get(agentId));
+          saveTaskToDb({ ...actualTask, agentId });
         }
       }
       if (executor.status === 'error') {
@@ -738,6 +738,30 @@ export const tasksMethods = {
       this._emit('agent:stream:end', { agentId: executorId });
       this._emit('agent:updated', this._sanitize(executor));
     }
+  },
+
+  /** Find a task by ID across all agents */
+  getTask(taskId) {
+    for (const [agentId, agent] of this.agents) {
+      if (!agent.todoList) continue;
+      const task = agent.todoList.find(t => t.id === taskId);
+      if (task) return { ...task, agentId };
+    }
+    return null;
+  },
+
+  /** Persist a task object to the database (used by routes/tasks.js) */
+  saveTasksToDb() {
+    // With the dedicated tasks table, individual task mutations already persist.
+    // This method exists for compatibility with routes/tasks.js which calls it
+    // after direct field updates. We save the specific task that was modified.
+    // Callers should use saveTaskToDb() directly when possible.
+  },
+
+  /** Save a single in-memory task to the DB (convenience for route handlers) */
+  saveTaskDirectly(task) {
+    if (!task || !task.agentId) return;
+    saveTaskToDb(task);
   },
 
   _enqueueAgentTask(agentId, taskFn) {
