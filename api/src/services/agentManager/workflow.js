@@ -52,6 +52,11 @@ export const workflowMethods = {
     return t && t.from && t.trigger && Array.isArray(t.actions);
   },
 
+  _columnExists(workflow, columnId) {
+    if (!workflow?.columns || !Array.isArray(workflow.columns)) return false;
+    return workflow.columns.some(c => c.id === columnId);
+  },
+
   _checkAutoRefine(task, { by = null } = {}) {
     console.log(`[Workflow] _checkAutoRefine: status="${task.status}" text="${(task.text || '').slice(0, 60)}" agentId="${task.agentId}" by="${by || 'unknown'}"`);
 
@@ -223,6 +228,10 @@ export const workflowMethods = {
 
           } else if (action.type === 'change_status') {
             if (action.target && action.target !== task.status) {
+              if (!this._columnExists(workflow, action.target)) {
+                console.warn(`[Workflow] Action: change_status SKIPPED — target column "${action.target}" does not exist for "${(task.text || '').slice(0, 60)}"`);
+                break;
+              }
               console.log(`[Workflow] Action: change_status "${task.status}" -> "${action.target}" for "${(task.text || '').slice(0, 60)}"`);
               const result = this.setTaskStatus(task.agentId, task.id, action.target, { skipAutoRefine: false, by: 'workflow' });
               if (!result) {
@@ -259,6 +268,7 @@ export const workflowMethods = {
 
     getAllBoardWorkflows().then(async (boardWorkflows) => {
       const boardTransMap = new Map();
+      const boardWorkflowMap = new Map();
       for (const { boardId, workflow } of boardWorkflows) {
         const condTransitions = workflow.transitions
           .filter(t => this._validTransition(t))
@@ -270,6 +280,7 @@ export const workflowMethods = {
           });
         if (condTransitions.length > 0) {
           boardTransMap.set(boardId, condTransitions);
+          boardWorkflowMap.set(boardId, workflow);
         }
       }
 
@@ -375,6 +386,13 @@ export const workflowMethods = {
                 break;
               } else if (action.type === 'change_status') {
                 if (action.target && action.target !== task.status) {
+                  const taskWorkflow = boardWorkflowMap.get(task.boardId) || (boardWorkflowMap.size === 1 ? [...boardWorkflowMap.values()][0] : null);
+                  if (!this._columnExists(taskWorkflow, action.target)) {
+                    console.warn(`[Workflow] Condition re-check: change_status SKIPPED — target column "${action.target}" does not exist for "${(task.text || '').slice(0, 60)}"`);
+                    this._conditionProcessing.delete(lockKey);
+                    didReturn = true;
+                    break;
+                  }
                   console.log(`[Workflow] Condition re-check: change_status "${task.status}" -> "${action.target}" for "${(task.text || '').slice(0, 60)}"`);
                   const result = this.setTaskStatus(agentId, task.id, action.target, { skipAutoRefine: false, by: 'workflow' });
                   if (!result) {
