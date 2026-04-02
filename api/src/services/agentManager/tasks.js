@@ -1,9 +1,35 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus } from '../database.js';
+import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus, getTaskById, getTasksByAgent, getActiveTasksByAgent, getActiveTaskForExecutor, getRecurringDoneTasks, hasActiveTask, updateTaskFields } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { processTransition } from '../transitionProcessor.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
+
+// ── Ephemeral task signals ──────────────────────────────────────────────────
+// Transient coordination flags between async coroutines (NOT persisted).
+// Replaces in-memory task._execution* properties.
+const _taskSignals = new Map(); // taskId -> { completed, comment, stopped, watching, pendingOnEnter }
+
+export function setTaskSignal(taskId, key, value) {
+  if (!_taskSignals.has(taskId)) _taskSignals.set(taskId, {});
+  _taskSignals.get(taskId)[key] = value;
+}
+
+export function getTaskSignal(taskId, key) {
+  return _taskSignals.get(taskId)?.[key];
+}
+
+export function clearTaskSignal(taskId, key) {
+  const signals = _taskSignals.get(taskId);
+  if (signals) {
+    delete signals[key];
+    if (Object.keys(signals).length === 0) _taskSignals.delete(taskId);
+  }
+}
+
+export function clearTaskSignals(taskId) {
+  _taskSignals.delete(taskId);
+}
 
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {

@@ -1214,6 +1214,218 @@ function rowToTask(row) {
 }
 
 
+// ── Additional task queries (replacing in-memory todoList lookups) ───────────
+
+/**
+ * Get active tasks (not done/backlog/error) for a given agent (as owner).
+ */
+export async function getActiveTasksByAgent(agentId) {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(
+      `SELECT * FROM tasks WHERE agent_id = $1 AND status NOT IN ('done','backlog','error') AND deleted_at IS NULL ORDER BY created_at`,
+      [agentId]
+    );
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get active tasks for agent:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get all tasks for a board.
+ */
+export async function getTasksByBoard(boardId) {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(
+      'SELECT * FROM tasks WHERE board_id = $1 AND deleted_at IS NULL ORDER BY created_at',
+      [boardId]
+    );
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get tasks for board:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get all tasks assigned to an agent (either as assignee or as owner when no assignee).
+ */
+export async function getTasksByAssignee(agentId) {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(
+      `SELECT * FROM tasks WHERE (assignee = $1 OR (assignee IS NULL AND agent_id = $1)) AND deleted_at IS NULL ORDER BY created_at`,
+      [agentId]
+    );
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get tasks by assignee:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Find the first active task (with startedAt) for a given executor agent.
+ * Checks both assignee and owner. Returns null if none found.
+ */
+export async function getActiveTaskForExecutor(agentId) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `SELECT * FROM tasks
+       WHERE (assignee = $1 OR (assignee IS NULL AND agent_id = $1))
+         AND status NOT IN ('done','backlog','error')
+         AND started_at IS NOT NULL
+         AND deleted_at IS NULL
+       ORDER BY started_at ASC LIMIT 1`,
+      [agentId]
+    );
+    return result.rows.length > 0 ? rowToTask(result.rows[0]) : null;
+  } catch (err) {
+    console.error('Failed to get active task for executor:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Check if an agent has any active task (optionally excluding one task).
+ * Returns true/false. Replaces the in-memory agentHasActiveTask cross-agent scan.
+ */
+export async function hasActiveTask(agentId, excludeTaskId = null) {
+  if (!pool) return false;
+  try {
+    const params = [agentId];
+    let excludeClause = '';
+    if (excludeTaskId) {
+      excludeClause = ' AND id != $2';
+      params.push(excludeTaskId);
+    }
+    const result = await pool.query(
+      `SELECT 1 FROM tasks
+       WHERE (assignee = $1 OR (assignee IS NULL AND agent_id = $1))
+         AND status NOT IN ('done','backlog','error')
+         AND deleted_at IS NULL${excludeClause}
+       LIMIT 1`,
+      params
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    console.error('Failed to check active task:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Count active tasks for an agent (for load-balancing).
+ */
+export async function countActiveTasksForAgent(agentId, excludeTaskId = null) {
+  if (!pool) return 0;
+  try {
+    const params = [agentId];
+    let excludeClause = '';
+    if (excludeTaskId) {
+      excludeClause = ' AND id != $2';
+      params.push(excludeTaskId);
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*)::int as count FROM tasks
+       WHERE (assignee = $1 OR (assignee IS NULL AND agent_id = $1))
+         AND status NOT IN ('done','backlog','error')
+         AND deleted_at IS NULL${excludeClause}`,
+      params
+    );
+    return result.rows[0]?.count || 0;
+  } catch (err) {
+    console.error('Failed to count active tasks:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get recurring tasks that are done and ready for reset.
+ */
+export async function getRecurringDoneTasks() {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(
+      `SELECT * FROM tasks
+       WHERE recurrence IS NOT NULL
+         AND status = 'done'
+         AND completed_at IS NOT NULL
+         AND deleted_at IS NULL`
+    );
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get recurring done tasks:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Find a task by Jira key (stored in source JSONB).
+ */
+export async function getTaskByJiraKey(jiraKey) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `SELECT * FROM tasks WHERE source->>'jiraKey' = $1 AND deleted_at IS NULL LIMIT 1`,
+      [jiraKey]
+    );
+    return result.rows.length > 0 ? rowToTask(result.rows[0]) : null;
+  } catch (err) {
+    console.error('Failed to get task by Jira key:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Update specific fields of a task. Returns the updated task.
+ */
+export async function updateTaskFields(taskId, fields) {
+  if (!pool) return null;
+  const allowed = [
+    'text', 'title', 'status', 'project', 'board_id', 'assignee',
+    'task_type', 'priority', 'due_date', 'source', 'recurrence',
+    'commits', 'history', 'error', 'completed_at', 'started_at',
+    'execution_status', 'completed_action_idx', 'action_running', 'action_running_agent_id',
+  ];
+  // Map camelCase to snake_case
+  const camelToSnake = {
+    boardId: 'board_id', taskType: 'task_type', dueDate: 'due_date',
+    completedAt: 'completed_at', startedAt: 'started_at',
+    executionStatus: 'execution_status', completedActionIdx: 'completed_action_idx',
+    actionRunning: 'action_running', actionRunningAgentId: 'action_running_agent_id',
+  };
+  const sets = [];
+  const values = [taskId];
+  let paramIdx = 2;
+  for (const [key, value] of Object.entries(fields)) {
+    const col = camelToSnake[key] || key;
+    if (!allowed.includes(col)) continue;
+    // JSON-serialize objects
+    const val = (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date))
+      ? JSON.stringify(value) : (Array.isArray(value) ? JSON.stringify(value) : value);
+    sets.push(`${col} = $${paramIdx}`);
+    values.push(val);
+    paramIdx++;
+  }
+  if (sets.length === 0) return null;
+  sets.push('updated_at = NOW()');
+  try {
+    const result = await pool.query(
+      `UPDATE tasks SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+      values
+    );
+    return result.rows.length > 0 ? rowToTask(result.rows[0]) : null;
+  } catch (err) {
+    console.error('Failed to update task fields:', err.message);
+    return null;
+  }
+}
+
 export function getPool() {
   return pool;
 }
