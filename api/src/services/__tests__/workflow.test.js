@@ -86,11 +86,13 @@ test('_completedActionIdx is cleaned up before change_status', async () => {
 
   // Simulate what change_status does: clean up then move
   delete task._completedActionIdx;
+  task.completedActionIdx = null;
   delete task._pendingOnEnter;
   task.status = 'code';
 
   // After: _completedActionIdx should be gone
   assert.equal(task._completedActionIdx, undefined);
+  assert.equal(task.completedActionIdx, null);
   assert.equal(task.status, 'code');
 });
 
@@ -146,23 +148,28 @@ test('action chain resume index tracks correctly', async () => {
   const mgr = await setup([{ name: 'A', role: 'dev' }]);
   const { task } = addTask(mgr, 'Chain test', 'refine');
 
-  // No completed actions yet
-  const startIdx0 = (typeof task._completedActionIdx === 'number') ? task._completedActionIdx + 1 : 0;
+  // No completed actions yet — uses completedActionIdx (DB-persisted) with _completedActionIdx fallback
+  const rawIdx0 = task.completedActionIdx ?? task._completedActionIdx;
+  const startIdx0 = (typeof rawIdx0 === 'number') ? rawIdx0 + 1 : 0;
   assert.equal(startIdx0, 0, 'should start at action 0');
 
-  // After action 0 completes
+  // After action 0 completes (both in-memory and DB-persisted)
   task._completedActionIdx = 0;
-  const startIdx1 = task._completedActionIdx + 1;
+  task.completedActionIdx = 0;
+  const startIdx1 = task.completedActionIdx + 1;
   assert.equal(startIdx1, 1, 'should resume at action 1');
 
   // After action 1 completes
   task._completedActionIdx = 1;
-  const startIdx2 = task._completedActionIdx + 1;
+  task.completedActionIdx = 1;
+  const startIdx2 = task.completedActionIdx + 1;
   assert.equal(startIdx2, 2, 'should resume at action 2');
 
   // Cleanup
   delete task._completedActionIdx;
-  const startIdxClean = (typeof task._completedActionIdx === 'number') ? task._completedActionIdx + 1 : 0;
+  task.completedActionIdx = null;
+  const rawIdxClean = task.completedActionIdx ?? task._completedActionIdx;
+  const startIdxClean = (typeof rawIdxClean === 'number') ? rawIdxClean + 1 : 0;
   assert.equal(startIdxClean, 0, 'should restart from 0 after cleanup');
 });
 
@@ -267,18 +274,78 @@ test('full refine→code chain: _completedActionIdx does not leak across transit
   const { task, agentId } = addTask(mgr, 'Full chain test', 'refine');
 
   // Simulate refine chain completing actions 0, 1, 2 (set_type, title, refine)
-  task._completedActionIdx = 0;
-  task._completedActionIdx = 1;
-  task._completedActionIdx = 2;
+  task._completedActionIdx = 0; task.completedActionIdx = 0;
+  task._completedActionIdx = 1; task.completedActionIdx = 1;
+  task._completedActionIdx = 2; task.completedActionIdx = 2;
 
   // Action 3 is change_status → code
   // Before moving: cleanup _completedActionIdx
   delete task._completedActionIdx;
+  task.completedActionIdx = null;
   delete task._pendingOnEnter;
   task.status = 'code';
 
   // Now code on_enter should start fresh
-  const startIdx = (typeof task._completedActionIdx === 'number') ? task._completedActionIdx + 1 : 0;
+  const rawIdx = task.completedActionIdx ?? task._completedActionIdx;
+  const startIdx = (typeof rawIdx === 'number') ? rawIdx + 1 : 0;
   assert.equal(startIdx, 0, 'code on_enter should start at action 0, not resume from refine chain');
   assert.equal(task.status, 'code');
+});
+
+test('executionStatus tracks watching/stopped lifecycle', async () => {
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task } = addTask(mgr, 'Execution status test', 'code');
+
+  // Initially no execution status
+  assert.equal(task.executionStatus, undefined);
+
+  // Mark as watching (when reminder loop starts)
+  task.executionStatus = 'watching';
+  task._executionWatching = true;
+  assert.equal(task.executionStatus, 'watching');
+
+  // Clear watching (when reminder loop ends)
+  task.executionStatus = null;
+  delete task._executionWatching;
+  assert.equal(task.executionStatus, null);
+
+  // Mark as stopped (when user stops execution)
+  task.executionStatus = 'stopped';
+  task._executionStopped = true;
+  assert.equal(task.executionStatus, 'stopped');
+
+  // Clear on re-execute
+  task.executionStatus = null;
+  delete task._executionStopped;
+  assert.equal(task.executionStatus, null);
+});
+
+test('_processNextPendingTasks skips tasks with executionStatus watching', async () => {
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Skip watching test', 'code', 'board-1', {
+    startedAt: new Date().toISOString(),
+  });
+
+  // Task marked as watching should be skipped
+  task.executionStatus = 'watching';
+  task._executionWatching = true;
+
+  const agent = mgr.agents.get(agentId);
+  assert.equal(agent.status, 'idle');
+  assert.ok(task.executionStatus === 'watching', 'task should be in watching status');
+});
+
+test('_processNextPendingTasks skips tasks with executionStatus stopped', async () => {
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Skip stopped test', 'code', 'board-1', {
+    startedAt: new Date().toISOString(),
+  });
+
+  // Task marked as stopped should trigger backlog move
+  task.executionStatus = 'stopped';
+  task._executionStopped = true;
+
+  const agent = mgr.agents.get(agentId);
+  assert.equal(agent.status, 'idle');
+  assert.ok(task.executionStatus === 'stopped', 'task should be in stopped status');
 });

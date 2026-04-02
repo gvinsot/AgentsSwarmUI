@@ -142,7 +142,8 @@ export const workflowMethods = {
         transitionsRan++;
 
         // Resume from the last completed action if this is a retry
-        const startActionIdx = (typeof task._completedActionIdx === 'number') ? task._completedActionIdx + 1 : 0;
+        const rawIdx = task.completedActionIdx ?? task._completedActionIdx;
+        const startActionIdx = (typeof rawIdx === 'number') ? rawIdx + 1 : 0;
         if (startActionIdx > 0) {
           console.log(`[Workflow] Resuming action chain from index ${startActionIdx}/${actions.length} for "${(task.text || '').slice(0, 60)}"`);
         }
@@ -218,9 +219,11 @@ export const workflowMethods = {
                 if (actualTaskForFlag) {
                   actualTaskForFlag._pendingOnEnter = actualTaskForFlag.status;
                   // Save which action index to resume from on retry
-                  actualTaskForFlag._completedActionIdx = actionIdx > 0 ? actionIdx - 1 : undefined;
+                  const resumeIdx = actionIdx > 0 ? actionIdx - 1 : undefined;
+                  actualTaskForFlag._completedActionIdx = resumeIdx;
+                  actualTaskForFlag.completedActionIdx = resumeIdx;
                   console.log(`[Workflow] Flagged task "${(task.text || '').slice(0, 60)}" for on_enter retry at action ${actionIdx}/${actions.length} (${result.skipped})`);
-                  saveAgent(this.agents.get(task.agentId));
+                  saveTaskToDb({ ...actualTaskForFlag, agentId: task.agentId });
                 }
                 stopActionChain = true;
                 break;
@@ -230,10 +233,11 @@ export const workflowMethods = {
                 if (actualTaskForClear) {
                   // Track completed action index for chain resume
                   actualTaskForClear._completedActionIdx = actionIdx;
+                  actualTaskForClear.completedActionIdx = actionIdx;
                   if (actualTaskForClear._pendingOnEnter === originalStatus) {
                     delete actualTaskForClear._pendingOnEnter;
                   }
-                  saveAgent(this.agents.get(task.agentId));
+                  saveTaskToDb({ ...actualTaskForClear, agentId: task.agentId });
                 }
               }
               const freshAgent = this.agents.get(task.agentId);
@@ -268,7 +272,9 @@ export const workflowMethods = {
               const taskBeforeMove = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
               if (taskBeforeMove) {
                 delete taskBeforeMove._completedActionIdx;
+                taskBeforeMove.completedActionIdx = null;
                 delete taskBeforeMove._pendingOnEnter;
+                saveTaskToDb({ ...taskBeforeMove, agentId: task.agentId });
               }
               console.log(`[Workflow] Action: change_status "${task.status}" -> "${action.target}" for "${(task.text || '').slice(0, 60)}"`);
               const result = this.setTaskStatus(task.agentId, task.id, action.target, { skipAutoRefine: false, by: 'workflow' });
@@ -283,9 +289,10 @@ export const workflowMethods = {
 
         // Clean up chain resume index when all actions completed or chain stopped normally
         const taskAfterChain = this.agents.get(task.agentId)?.todoList?.find(t => t.id === task.id);
-        if (taskAfterChain && typeof taskAfterChain._completedActionIdx === 'number') {
+        if (taskAfterChain && (typeof taskAfterChain._completedActionIdx === 'number' || typeof taskAfterChain.completedActionIdx === 'number')) {
           delete taskAfterChain._completedActionIdx;
-          saveAgent(this.agents.get(task.agentId));
+          taskAfterChain.completedActionIdx = null;
+          saveTaskToDb({ ...taskAfterChain, agentId: task.agentId });
         }
 
         if (stopActionChain) continue;

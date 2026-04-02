@@ -1,6 +1,6 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById } from '../database.js';
+import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { processTransition } from '../transitionProcessor.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
@@ -330,6 +330,8 @@ export const tasksMethods = {
     console.log(`[Workflow] Triggering execution for "${task.text.slice(0, 80)}" (status=${task.status})`);
 
     delete task._executionStopped;
+    task.executionStatus = null;
+    updateTaskExecutionStatus(task.id, null);
     if (this._isActiveTaskStatus(task.status)) {
       // Task is already in an active status — resume execution
       saveTaskToDb({ ...task, agentId });
@@ -452,45 +454,41 @@ export const tasksMethods = {
   _processNextPendingTasks() {
     this._recheckConditionalTransitions();
 
-    for (const [agentId, agent] of this.agents) {
-      if (agent.enabled === false) continue;
-      if (agent.status !== 'idle') continue;
-      if (this._loopProcessing.has(agentId)) continue;
+    // Use DB query to find tasks that need resume, instead of scanning in-memory state
+    getTasksForResume().then(dbTasks => {
+      for (const dbTask of dbTasks) {
+        const executorId = dbTask.assignee || dbTask.agentId;
+        const executor = this.agents.get(executorId);
+        if (!executor) continue;
+        if (executor.enabled === false) continue;
+        if (executor.status !== 'idle') continue;
+        if (this._loopProcessing.has(executorId)) continue;
 
-      // Only resume tasks that were genuinely started by the execution system
-      // (startedAt is set when a workflow transition triggers execution).
-      // Simply dragging a task to a column does NOT set startedAt.
-      let activeTask = null;
-      let activeCreatorId = null;
-      const ownActive = agent.todoList?.find(t =>
-        this._isActiveTaskStatus(t.status) && t.startedAt && (!t.assignee || t.assignee === agentId)
-      );
-      if (ownActive) {
-        activeTask = ownActive;
-        activeCreatorId = agentId;
-      } else {
-        for (const [oid, oa] of this.agents) {
-          if (oid === agentId || !oa.todoList) continue;
-          const found = oa.todoList.find(t => this._isActiveTaskStatus(t.status) && t.startedAt && t.assignee === agentId);
-          if (found) { activeTask = found; activeCreatorId = oid; break; }
-        }
-      }
-      if (activeTask) {
+        // Sync: find the in-memory task to operate on
+        const creatorAgent = this.agents.get(dbTask.agentId);
+        if (!creatorAgent) continue;
+        const activeTask = creatorAgent.todoList?.find(t => t.id === dbTask.id);
+        if (!activeTask) continue;
+        if (!this._isActiveTaskStatus(activeTask.status)) continue;
+
         if (this._workflowManagedStatuses?.has(activeTask.status)) continue;
-        if (activeTask._executionStopped) {
+
+        if (activeTask.executionStatus === 'stopped' || activeTask._executionStopped) {
           console.log(`🛑 [TaskLoop] Skipping auto-resume for "${activeTask.text.slice(0, 60)}" — was manually stopped`);
-          this.setTaskStatus(activeCreatorId, activeTask.id, 'backlog', { skipAutoRefine: true, by: 'user-stop' });
+          this.setTaskStatus(dbTask.agentId, activeTask.id, 'backlog', { skipAutoRefine: true, by: 'user-stop' });
           continue;
         }
-        if (activeTask._executionWatching) continue;
-        this._loopProcessing.add(agentId);
-        console.log(`🔄 [TaskLoop] Agent "${agent.name}" is idle but has started task "${activeTask.text.slice(0, 60)}" (${activeTask.status}) — resuming`);
-        this._resumeActiveTask(activeCreatorId, this.agents.get(activeCreatorId), activeTask).finally(() => {
-          this._loopProcessing.delete(agentId);
+        if (activeTask.executionStatus === 'watching' || activeTask._executionWatching) continue;
+
+        this._loopProcessing.add(executorId);
+        console.log(`🔄 [TaskLoop] Agent "${executor.name}" is idle but has started task "${activeTask.text.slice(0, 60)}" (${activeTask.status}) — resuming`);
+        this._resumeActiveTask(dbTask.agentId, creatorAgent, activeTask).finally(() => {
+          this._loopProcessing.delete(executorId);
         });
-        continue;
       }
-    }
+    }).catch(err => {
+      console.error('[TaskLoop] Failed to query tasks for resume:', err.message);
+    });
   },
 
   async _waitForExecutionComplete(creatorAgentId, taskId, executorId, executorName, targetStatus, taskText) {
@@ -526,7 +524,11 @@ export const tasksMethods = {
 
     // Mark the task so the 5-second task loop doesn't re-send the original
     // message (which causes a full reasoning reset).
-    if (freshTask) freshTask._executionWatching = true;
+    if (freshTask) {
+      freshTask._executionWatching = true;
+      freshTask.executionStatus = 'watching';
+      updateTaskExecutionStatus(taskId, 'watching');
+    }
 
     const reminderConfig = await getReminderConfig();
     console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing "${taskText.slice(0, 60)}" — starting reminder loop (interval=${reminderConfig.intervalMinutes}min, cooldown=${reminderConfig.cooldownMinutes}min)`);
@@ -637,7 +639,11 @@ export const tasksMethods = {
     } finally {
       // Always clear the watching flag so the task loop can resume if needed
       const watched = this.agents.get(creatorAgentId)?.todoList?.find(t => t.id === taskId);
-      if (watched) delete watched._executionWatching;
+      if (watched) {
+        delete watched._executionWatching;
+        watched.executionStatus = null;
+        updateTaskExecutionStatus(taskId, null);
+      }
     }
   },
 
@@ -727,6 +733,8 @@ export const tasksMethods = {
       if (isUserStop) {
         // User manually stopped — put task back to pending, don't treat as error
         task._executionStopped = true;
+        task.executionStatus = 'stopped';
+        updateTaskExecutionStatus(task.id, 'stopped');
         this.setTaskStatus(agentId, task.id, 'backlog', { skipAutoRefine: true, by: 'user-stop' });
       } else {
         this.setTaskStatus(agentId, task.id, 'error', { skipAutoRefine: true, by: executor.name });

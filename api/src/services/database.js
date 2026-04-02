@@ -173,6 +173,11 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Soft delete: add deleted_at column
       await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ').catch(() => {});
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_deleted ON tasks(deleted_at)').catch(() => {});
+      // Execution tracking columns (persisted instead of in-memory flags)
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_status TEXT').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_action_idx INTEGER').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS action_running BOOLEAN DEFAULT FALSE').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS action_running_agent_id UUID').catch(() => {});
       console.log('✅ Tasks table ready');
 
       // Create boards table if not exists
@@ -959,13 +964,15 @@ export async function saveTaskToDb(task) {
     await pool.query(
       `INSERT INTO tasks (id, agent_id, text, title, status, project, board_id, assignee,
                           task_type, priority, due_date, source, recurrence, commits, history,
-                          error, created_at, updated_at, completed_at, started_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),$18,$19)
+                          error, created_at, updated_at, completed_at, started_at,
+                          execution_status, completed_action_idx, action_running, action_running_agent_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),$18,$19,$20,$21,$22,$23)
        ON CONFLICT (id) DO UPDATE SET
          text = $3, title = $4, status = $5, project = $6, board_id = $7, assignee = $8,
          task_type = $9, priority = $10, due_date = $11, source = $12, recurrence = $13,
          commits = $14, history = $15, error = $16, updated_at = NOW(),
-         completed_at = $18, started_at = $19`,
+         completed_at = $18, started_at = $19,
+         execution_status = $20, completed_action_idx = $21, action_running = $22, action_running_agent_id = $23`,
       [
         task.id,
         task.agentId,
@@ -986,6 +993,10 @@ export async function saveTaskToDb(task) {
         task.createdAt || new Date().toISOString(),
         task.completedAt || null,
         task.startedAt || null,
+        task.executionStatus || null,
+        task.completedActionIdx != null ? task.completedActionIdx : null,
+        task.actionRunning || false,
+        task.actionRunningAgentId || null,
       ]
     );
   } catch (err) {
@@ -1068,6 +1079,91 @@ export async function deleteTasksByAgent(agentId) {
   }
 }
 
+/**
+ * Find tasks that need agent resume: active status, started, not currently watched,
+ * with their assignee agent idle and enabled.
+ */
+export async function getTasksForResume() {
+  if (!pool) return [];
+  try {
+    const result = await pool.query(`
+      SELECT t.*, a.data as agent_data
+      FROM tasks t
+      JOIN agents a ON COALESCE(t.assignee, t.agent_id) = a.id
+      WHERE t.deleted_at IS NULL
+        AND t.started_at IS NOT NULL
+        AND t.status NOT IN ('done', 'backlog', 'error')
+        AND (t.execution_status IS NULL OR t.execution_status != 'watching')
+        AND t.action_running = FALSE
+      ORDER BY t.started_at ASC
+    `);
+    return result.rows.map(row => ({
+      ...rowToTask(row),
+      _agentStatus: row.agent_data?.status || 'idle',
+      _agentEnabled: row.agent_data?.enabled !== false,
+    }));
+  } catch (err) {
+    console.error('Failed to get tasks for resume:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Clear execution flags for all tasks involving a given agent (as assignee or owner).
+ */
+export async function clearTaskExecutionFlags(agentId) {
+  if (!pool) return;
+  try {
+    await pool.query(`
+      UPDATE tasks SET
+        execution_status = NULL,
+        started_at = NULL,
+        completed_action_idx = NULL,
+        action_running = FALSE,
+        action_running_agent_id = NULL,
+        updated_at = NOW()
+      WHERE deleted_at IS NULL
+        AND (assignee = $1 OR agent_id = $1)
+        AND (started_at IS NOT NULL OR execution_status IS NOT NULL OR action_running = TRUE)
+    `, [agentId]);
+  } catch (err) {
+    console.error('Failed to clear task execution flags:', err.message);
+  }
+}
+
+/**
+ * Update only the execution_status of a task (lightweight update for watching/stopped transitions).
+ */
+export async function updateTaskExecutionStatus(taskId, executionStatus) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      'UPDATE tasks SET execution_status = $2, updated_at = NOW() WHERE id = $1',
+      [taskId, executionStatus || null]
+    );
+  } catch (err) {
+    console.error('Failed to update task execution status:', err.message);
+  }
+}
+
+/**
+ * Clear action_running flags for tasks assigned to a specific agent.
+ */
+export async function clearActionRunningForAgent(agentId) {
+  if (!pool) return;
+  try {
+    await pool.query(`
+      UPDATE tasks SET
+        action_running = FALSE,
+        action_running_agent_id = NULL,
+        updated_at = NOW()
+      WHERE action_running_agent_id = $1 AND action_running = TRUE
+    `, [agentId]);
+  } catch (err) {
+    console.error('Failed to clear action_running for agent:', err.message);
+  }
+}
+
 /** Convert a DB row to the in-memory task object format */
 function rowToTask(row) {
   return {
@@ -1092,6 +1188,10 @@ function rowToTask(row) {
     completedAt: row.completed_at?.toISOString?.() || row.completed_at || undefined,
     startedAt: row.started_at?.toISOString?.() || row.started_at || undefined,
     deletedAt: row.deleted_at?.toISOString?.() || row.deleted_at || undefined,
+    executionStatus: row.execution_status || undefined,
+    completedActionIdx: row.completed_action_idx != null ? row.completed_action_idx : undefined,
+    actionRunning: row.action_running || false,
+    actionRunningAgentId: row.action_running_agent_id || undefined,
   };
 }
 

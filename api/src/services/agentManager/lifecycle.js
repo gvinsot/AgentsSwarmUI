@@ -1,7 +1,7 @@
 // ─── Agent Lifecycle: CRUD, Getters, Status, Stats, Broadcast, Handoff, Logs,
 //     RAG, Skills, MCP, Voice, Conversation ────────────────────────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveAgent, deleteAgentFromDb, setAgentOwner } from '../database.js';
+import { saveAgent, deleteAgentFromDb, setAgentOwner, clearTaskExecutionFlags, clearActionRunningForAgent, saveTaskToDb } from '../database.js';
 import { transferUserFiles } from './helpers.js';
 
 /** @this {import('./index.js').AgentManager} */
@@ -621,17 +621,20 @@ export const lifecycleMethods = {
       for (const t of agent.todoList) {
         if (this._isActiveTaskStatus(t.status)) {
           t._executionStopped = true;
+          t.executionStatus = 'stopped';
+          saveTaskToDb({ ...t, agentId: id });
         }
       }
     }
 
+    // Clear actionRunning flags for tasks assigned to this agent
+    clearActionRunningForAgent(id);
     for (const [, creatorAgent] of this.agents) {
       if (!creatorAgent.todoList) continue;
       for (const t of creatorAgent.todoList) {
         if (t.actionRunning && t.actionRunningAgentId === id) {
           t.actionRunning = false;
           delete t.actionRunningAgentId;
-          saveAgent(creatorAgent);
           this.io?.to(`agent:${creatorAgent.id}`)?.emit('task:updated', { agentId: creatorAgent.id, task: t });
         }
       }
@@ -917,11 +920,15 @@ export const lifecycleMethods = {
           }
           delete task.startedAt;
           delete task._completedActionIdx;
+          task.completedActionIdx = null;
+          task.executionStatus = null;
           delete task.actionRunning;
           delete task.actionRunningAgentId;
         }
       }
     }
+    // Persist the cleared execution flags to DB
+    clearTaskExecutionFlags(agentId);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
