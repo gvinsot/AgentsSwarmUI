@@ -412,6 +412,112 @@ export const lifecycleMethods = {
     return { createdVsResolved, resolutionTimeEvolution, openOverTime };
   },
 
+  getAgentTimeSeries(projectFilter = null, days = 30) {
+    const tasks = this._collectTasks(projectFilter);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const toDay = (d) => d.toISOString().slice(0, 10);
+
+    const ACTIVE_STATES = new Set(['pending', 'in_progress', 'code', 'build', 'test', 'deploy', 'review']);
+
+    // Build a map: agentId -> agentName
+    const agentNames = {};
+    for (const agent of this.agents.values()) {
+      agentNames[agent.id] = agent.name || agent.id.slice(0, 8);
+    }
+
+    // dailyAgent: { "2026-03-20": { "agentId1": msTotal, "agentId2": msTotal } }
+    const dailyAgent = {};
+
+    for (const t of tasks) {
+      const agentId = t.assignee || t.agentId || t._agentId;
+      if (!agentId) continue;
+
+      // Build timeline from history entries
+      const events = [];
+      if (t.history?.length) {
+        for (const h of t.history) {
+          if (h.at) {
+            events.push({ at: new Date(h.at).getTime(), status: h.status || h.to || null });
+          }
+        }
+      }
+      // If task was started but has no history transitions, use startedAt -> completedAt/now
+      if (events.length === 0 && t.startedAt) {
+        const start = new Date(t.startedAt).getTime();
+        const end = t.completedAt ? new Date(t.completedAt).getTime() : now.getTime();
+        events.push({ at: start, status: t.status });
+        events.push({ at: end, status: 'done' });
+      }
+
+      if (events.length < 2) continue;
+      events.sort((a, b) => a.at - b.at);
+
+      // Walk through consecutive pairs and attribute active time
+      for (let i = 0; i < events.length - 1; i++) {
+        const state = events[i].status;
+        if (!state || !ACTIVE_STATES.has(state)) continue;
+
+        const start = Math.max(events[i].at, cutoff.getTime());
+        const end = Math.min(events[i + 1].at, now.getTime());
+        if (end <= start) continue;
+
+        // Distribute across days
+        let cursor = new Date(start);
+        while (cursor.getTime() < end) {
+          const dayStr = toDay(cursor);
+          const dayEnd = new Date(cursor);
+          dayEnd.setUTCHours(23, 59, 59, 999);
+          const segEnd = Math.min(dayEnd.getTime() + 1, end);
+          const ms = segEnd - cursor.getTime();
+
+          if (ms > 0) {
+            if (!dailyAgent[dayStr]) dailyAgent[dayStr] = {};
+            dailyAgent[dayStr][agentId] = (dailyAgent[dayStr][agentId] || 0) + ms;
+          }
+
+          // Move to next day
+          cursor = new Date(dayEnd.getTime() + 1);
+        }
+      }
+    }
+
+    // Build date range
+    const allDays = [];
+    for (let d = new Date(cutoff); d <= now; d.setDate(d.getDate() + 1)) {
+      allDays.push(d.toISOString().slice(0, 10));
+    }
+
+    // Collect all agents that appear
+    const agentSet = new Set();
+    for (const dayData of Object.values(dailyAgent)) {
+      for (const id of Object.keys(dayData)) agentSet.add(id);
+    }
+
+    const agents = Array.from(agentSet).map(id => ({
+      id,
+      name: agentNames[id] || id.slice(0, 8),
+    }));
+
+    const daily = allDays.map(date => {
+      const agentTimes = {};
+      for (const a of agents) {
+        agentTimes[a.id] = dailyAgent[date]?.[a.id] || 0;
+      }
+      return { date, agentTimes };
+    });
+
+    // Totals
+    let totalMs = 0;
+    for (const d of daily) {
+      for (const ms of Object.values(d.agentTimes)) totalMs += ms;
+    }
+    const daysWithData = daily.filter(d => Object.values(d.agentTimes).some(ms => ms > 0)).length;
+    const avgDailyMs = daysWithData > 0 ? Math.round(totalMs / daysWithData) : 0;
+
+    return { agents, daily, totalMs, avgDailyMs };
+  },
+
   getSwarmStatus(userId = null, role = null) {
     const allAgents = (userId && role) ? this._agentsForUser(userId, role) : Array.from(this.agents.values());
     const enabled = allAgents.filter(a => a.enabled !== false);

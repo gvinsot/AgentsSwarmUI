@@ -498,6 +498,13 @@ router.get("/tasks/stats/timeseries", (req, res) => {
   res.json(timeseries);
 });
 
+router.get("/tasks/stats/agent-time", (req, res) => {
+  const { project, days } = req.query;
+  const d = Math.min(Math.max(parseInt(days) || 30, 1), 365);
+  const agentTime = agentManager.getAgentTimeSeries(project || null, d);
+  res.json(agentTime);
+});
+
 router.get("/tasks/:id/history", (req, res) => {
   const history = globalTaskStore.getHistory(req.params.id);
   if (!history) return res.status(404).json({ error: "Not found" });

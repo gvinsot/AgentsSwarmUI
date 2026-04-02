@@ -488,6 +488,9 @@ export const api = {
   getProjectTimeSeries: (project, days = 30) =>
     fetch(`${API_BASE}/agents/tasks/stats/timeseries?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
 
+  getProjectAgentTime: (project, days = 30) =>
+    fetch(`${API_BASE}/agents/tasks/stats/agent-time?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
+
   // Jira
   getJiraStatus: () =>
     fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),
@@ -599,6 +602,14 @@ export const deleteTask = (taskId) =>
     headers: getHeaders(),
   }).then(handleResponse);
 
+/* ── Bulk move ─────────────────────────────────────────────────────────── */
+export const bulkMoveTasks = (taskIds, boardId, column) =>
+  fetch(`${API_BASE}/tasks/bulk-move`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ taskIds, boardId, column }),
+  }).then(handleResponse);
+
 /* ── Soft-delete management ──────────────────────────────────────────────── */
 export const getDeletedTasks = () =>
   fetch(`${API_BASE}/tasks/deleted`, {
@@ -616,6 +627,10 @@ export const hardDeleteTask = (taskId) =>
     method: 'DELETE',
     headers: getHeaders(),
   }).then(handleResponse);
+
+/* ── Boards (standalone export for TaskModal) ────────────────────────────── */
+export const getBoards = () =>
+  fetch(`${API_BASE}/boards`, { headers: getHeaders() }).then(handleResponse);
 
 /* ── Commit diff ──────────────────────────────────────────────────────────── */
 export const getCommitDiff = (taskId, hash) =>

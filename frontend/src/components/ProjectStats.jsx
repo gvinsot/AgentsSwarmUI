@@ -7,6 +7,7 @@ import { Line, Bar } from 'react-chartjs-2';
 import { api } from '../api';
 import { BarChart3, Bug, Sparkles, Wrench, ArrowUpCircle, BookOpen, HelpCircle, Layers, Clock, TrendingUp, RefreshCw, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import AgentTimeChart from './AgentTimeChart';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend, Filler);
 
@@ -284,6 +285,9 @@ export default function ProjectStats({ projectName, onClose, embedded = false })
           </div>
         </div>
       )}
+
+      {/* Agent Time Chart */}
+      <AgentTimeChart projectName={projectName} days={days} />
     </div>
   );
 }
