@@ -93,26 +93,48 @@ function findAgentByRole(agentManager, role, ownerId = null, excludeTaskId = nul
       && (a.role || '').toLowerCase() === role.toLowerCase()
       && (!ownerId || !a.ownerId || a.ownerId === ownerId)
   );
-  console.log(`[Workflow] findAgentByRole: role="${role}" ownerId="${ownerId}" total=${agents.length} matching=${matching.length} names=[${matching.map(a => `${a.name}(owner:${a.ownerId})`).join(', ')}]`);
-  // Only return idle agents that aren't already running a transition
+  console.log(`[Workflow] findAgentByRole: role="${role}" ownerId="${ownerId}" total=${agents.length} matching=${matching.length} names=[${matching.map(a => `${a.name}(status:${a.status},owner:${a.ownerId})`).join(', ')}]`);
+
+  // Collect all eligible (idle, not busy) agents, then pick the least loaded
   const INACTIVE = new Set(['done', 'backlog', 'error']);
-  return matching.find(a => {
-    if (a.status !== 'idle') return false;
+  const eligible = [];
+  for (const a of matching) {
+    if (a.status !== 'idle') continue;
     if (_busyAgents.has(a.id)) {
       console.log(`[Workflow] Skipping agent "${a.name}" — busy running another transition`);
-      return false;
+      continue;
     }
     const hasActive = (a.todoList || []).some(t => !INACTIVE.has(t.status) && t.id !== excludeTaskId);
     if (hasActive) {
-      console.log(`[Workflow] Skipping agent "${a.name}" - already has an active task`);
-      return false;
+      console.log(`[Workflow] Skipping agent "${a.name}" — already has an active task`);
+      continue;
     }
     if (agentManager.agentHasActiveTask(a.id, excludeTaskId)) {
       console.log(`[Workflow] Skipping agent "${a.name}" — has active task assignment (cross-agent check)`);
-      return false;
+      continue;
     }
-    return true;
-  }) || null;
+    eligible.push(a);
+  }
+  if (eligible.length === 0) return null;
+  if (eligible.length === 1) return eligible[0];
+
+  // Load-balance: pick the agent with the fewest total tasks (across all creators)
+  let best = eligible[0];
+  let bestCount = Infinity;
+  for (const candidate of eligible) {
+    let count = 0;
+    for (const [, creator] of agentManager.agents) {
+      for (const t of creator.todoList || []) {
+        if (t.assignee === candidate.id || (!t.assignee && creator.id === candidate.id)) count++;
+      }
+    }
+    if (count < bestCount) {
+      bestCount = count;
+      best = candidate;
+    }
+  }
+  console.log(`[Workflow] Selected "${best.name}" (${bestCount} tasks) from ${eligible.length} eligible agents`);
+  return best;
 }
 
 /**
@@ -158,40 +180,16 @@ export async function processTransition(task, agentManager, io) {
     const taskOwnerId = task._boardUserId || creatorAgent?.ownerId || null;
     console.log(`[Workflow] Owner filter: _boardUserId="${task._boardUserId}" creatorAgent="${creatorAgent?.name}" resolved ownerId="${taskOwnerId}" agentId="${task.agentId}"`);
 
-    // Find the agent to run this transition — same logic for all modes
+    // Find the agent to run this transition — strict role matching, no fallback
     let agent = null;
 
-    // 1. Try role-based agent selection
     if (transitionRole) {
       agent = findAgentByRole(agentManager, transitionRole, taskOwnerId, task.id);
       if (agent) console.log(`[Workflow] Found agent by role "${transitionRole}": ${agent.name} (${agent.id})`);
     }
 
-    // 2. Fallback: for execute mode, try the task's assignee
-    if (!agent && isExecution) {
-      const assignee = task.assignee ? agentManager.agents.get(task.assignee) : null;
-      if (assignee && assignee.enabled !== false && assignee.status === 'idle') {
-        agent = assignee;
-        console.log(`[Workflow] Execute mode: using idle assignee "${agent.name}" (${agent.id})`);
-      }
-    }
-
-    // 3. Fallback: for non-execute modes, try global ideasAgent setting
-    if (!agent && !isExecution) {
-      const settings = await getSettings();
-      if (settings.ideasAgent) {
-        agent = Array.from(agentManager.agents.values()).find(
-          a => a.enabled !== false && a.status === 'idle'
-            && !_busyAgents.has(a.id)
-            && (a.name || '').toLowerCase() === settings.ideasAgent.toLowerCase()
-            && (!taskOwnerId || !a.ownerId || a.ownerId === taskOwnerId)
-        );
-        if (agent) console.log(`[Workflow] Found idle agent via ideasAgent setting: ${agent.name}`);
-      }
-    }
-
     if (!agent) {
-      console.log(`[Workflow] No idle agent found for role "${transitionRole || 'any'}" — task stays pending (will be picked up when an agent becomes available)`);
+      console.log(`[Workflow] No idle agent for role "${transitionRole || 'any'}" — task stays pending`);
       _executionLocks.delete(lockKey);
       return { skipped: 'no-idle-agent' };
     }
