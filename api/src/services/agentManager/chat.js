@@ -58,8 +58,13 @@ export const chatMethods = {
       try {
         const gitUrl = await getProjectGitUrl(agent.project);
         if (gitUrl) {
+          // ensureSandbox already triggers _generateFileTree in background;
+          // calling refreshFileTree here would cause a duplicate. Instead,
+          // await it directly so the file tree is ready for the system prompt.
           await this.sandboxManager.ensureSandbox(id, agent.project, gitUrl);
           if (!this.sandboxManager.getFileTree(id)) {
+            // Only refresh if the background generation hasn't completed yet
+            // (e.g. sandbox already existed but tree was evicted)
             await this.sandboxManager.refreshFileTree(id);
           }
         }
@@ -392,8 +397,20 @@ export const chatMethods = {
     const isNewDelegationTask = messageMeta?.type === 'delegation-task';
     const shouldCompact = isTopLevelUserMessage || isNewDelegationTask;
 
-    // Determine if agent is currently executing a task (has an active task with startedAt)
-    const activeTask = (agent.todoList || []).find(t => this._isActiveTaskStatus(t.status) && t.startedAt);
+    // Determine if agent is currently executing a task (has an active task with startedAt).
+    // Check both the agent's own todoList AND tasks assigned to this agent on other agents'
+    // todoLists (e.g. titles-manager or product-manager running a workflow transition).
+    let activeTask = (agent.todoList || []).find(t => this._isActiveTaskStatus(t.status) && t.startedAt);
+    if (!activeTask) {
+      const agentId = [...this.agents.entries()].find(([, a]) => a === agent)?.[0];
+      if (agentId) {
+        for (const [, otherAgent] of this.agents) {
+          if (otherAgent === agent || !otherAgent.todoList) continue;
+          const found = otherAgent.todoList.find(t => this._isActiveTaskStatus(t.status) && t.startedAt && t.assignee === agentId);
+          if (found) { activeTask = found; break; }
+        }
+      }
+    }
     const isTaskExecution = !!activeTask;
 
     // Proactive compaction: only during task execution, non-managed context.

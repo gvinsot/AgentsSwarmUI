@@ -53,9 +53,9 @@ export class SandboxManager {
     this.agentUsers.set(agentId, { username, project, _userVerified: true });
     console.log(`📦 [Sandbox] Agent ${agentId} mapped to shared container user "${username}" (project: ${project || 'none'})`);
 
-    // Generate file tree in background (non-blocking)
+    // Generate file tree (awaited so it's ready for the system prompt)
     if (project) {
-      this._generateFileTree(agentId).catch(() => {});
+      await this._generateFileTree(agentId).catch(() => {});
     }
   }
 
