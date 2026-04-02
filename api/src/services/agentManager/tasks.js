@@ -678,14 +678,12 @@ export const tasksMethods = {
         });
         if (transition) {
           if (this._validTransition(transition)) {
-            // Use explicit targetStatus if set on the run_agent action
+            // Only use an explicit targetStatus set on the run_agent action itself.
+            // Do NOT fallback to change_status — that's a separate action in the
+            // chain and will be handled by _checkAutoRefine after execution completes.
             const runAction = (transition.actions || []).find(a => a.type === 'run_agent' && a.targetStatus);
             if (runAction?.targetStatus) {
               targetStatus = runAction.targetStatus;
-            } else {
-              // Fallback: use the change_status target from the same transition
-              const changeAction = (transition.actions || []).find(a => a.type === 'change_status' && a.target);
-              if (changeAction) targetStatus = changeAction.target;
             }
           } else if (transition.to) {
             targetStatus = transition.to;
