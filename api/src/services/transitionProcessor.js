@@ -80,9 +80,13 @@ function _acquireExecutionLock(lockKey) {
  * Find the first available agent matching a role.
  * "Available" = enabled AND idle (not busy/error) AND not already working on an active task.
  * Only considers agents owned by the given user or with no owner.
+ *
+ * @param {string} [excludeTaskId] - If set, ignore this task when checking if an agent is busy.
+ *   This allows an agent already assigned to a task to continue working on the same task's
+ *   next action in a multi-action chain (e.g. set_type → title with the same role).
  * Returns null if no idle agent with the role exists — the task stays pending.
  */
-function findAgentByRole(agentManager, role, ownerId = null) {
+function findAgentByRole(agentManager, role, ownerId = null, excludeTaskId = null) {
   const agents = Array.from(agentManager.agents.values());
   const matching = agents.filter(
     a => a.enabled !== false
@@ -98,12 +102,12 @@ function findAgentByRole(agentManager, role, ownerId = null) {
       console.log(`[Workflow] Skipping agent "${a.name}" — busy running another transition`);
       return false;
     }
-    const hasActive = (a.todoList || []).some(t => !INACTIVE.has(t.status));
+    const hasActive = (a.todoList || []).some(t => !INACTIVE.has(t.status) && t.id !== excludeTaskId);
     if (hasActive) {
       console.log(`[Workflow] Skipping agent "${a.name}" - already has an active task`);
       return false;
     }
-    if (agentManager.agentHasActiveTask(a.id)) {
+    if (agentManager.agentHasActiveTask(a.id, excludeTaskId)) {
       console.log(`[Workflow] Skipping agent "${a.name}" — has active task assignment (cross-agent check)`);
       return false;
     }
@@ -159,7 +163,7 @@ export async function processTransition(task, agentManager, io) {
 
     // 1. Try role-based agent selection
     if (transitionRole) {
-      agent = findAgentByRole(agentManager, transitionRole, taskOwnerId);
+      agent = findAgentByRole(agentManager, transitionRole, taskOwnerId, task.id);
       if (agent) console.log(`[Workflow] Found agent by role "${transitionRole}": ${agent.name} (${agent.id})`);
     }
 
@@ -198,7 +202,6 @@ export async function processTransition(task, agentManager, io) {
 
     // Store the executing agent ID on the task for stop functionality
     // Also update assignee to reflect which agent is currently working on this task
-    const isLightweight = isTitle || isSetType;
     const creatorAgentForFlag = agentManager.agents.get(task.agentId);
     const actualTaskForFlag = creatorAgentForFlag?.todoList?.find(t => t.id === task.id);
     if (actualTaskForFlag) {
@@ -208,9 +211,8 @@ export async function processTransition(task, agentManager, io) {
       if (!actualTaskForFlag.startedAt) {
         actualTaskForFlag.startedAt = new Date().toISOString();
       }
-      // Update assignee — skip for lightweight modes (set_type, title) to avoid
-      // blocking subsequent actions in the same chain that use the same role
-      if (!isLightweight && actualTaskForFlag.assignee !== agent.id) {
+      // Update assignee to the agent performing this action
+      if (actualTaskForFlag.assignee !== agent.id) {
         const previousAssignee = actualTaskForFlag.assignee;
         actualTaskForFlag.assignee = agent.id;
         if (!actualTaskForFlag.history) actualTaskForFlag.history = [];

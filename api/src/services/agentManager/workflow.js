@@ -36,11 +36,12 @@ export const workflowMethods = {
     return result;
   },
 
-  agentHasActiveTask(agentId) {
+  agentHasActiveTask(agentId, excludeTaskId = null) {
     for (const [creatorId, agent] of this.agents) {
       if (!agent.todoList) continue;
       for (const task of agent.todoList) {
         if (!this._isActiveTaskStatus(task.status)) continue;
+        if (excludeTaskId && task.id === excludeTaskId) continue;
         if (creatorId === agentId) return true;
         if (task.assignee === agentId) return true;
       }
