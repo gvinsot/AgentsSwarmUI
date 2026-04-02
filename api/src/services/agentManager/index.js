@@ -10,7 +10,7 @@ import { workflowMethods } from './workflow.js';
 import { compactionMethods } from './compaction.js';
 
 export class AgentManager {
-  constructor(io, skillManager, sandboxManager, mcpManager = null) {
+  constructor(io, skillManager, sandboxManager, mcpManager = null, codeIndexService = null) {
     this.agents = new Map();
     this.abortControllers = new Map();
     this._taskQueues = new Map();
@@ -19,11 +19,15 @@ export class AgentManager {
     this.skillManager = skillManager;
     this.sandboxManager = sandboxManager;
     this.mcpManager = mcpManager;
+    this.codeIndexService = codeIndexService;
     this._updateTimers = new Map();
     this._updatePending = new Map();
     this._conditionProcessing = new Map();
     this.llmConfigs = new Map();
 
+    // Debounced code index re-indexation
+    this._codeIndexPending = new Map(); // repoId -> Set<filePath>
+    this._codeIndexTimers = new Map();  // repoId -> timer
   }
 
   async loadFromDatabase() {
@@ -274,6 +278,61 @@ export class AgentManager {
       '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6'
     ];
     return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  /**
+   * Schedule a debounced code index update for a modified file.
+   * Groups multiple rapid modifications (< 3s) into a single re-index operation.
+   * @param {string} projectName - The project containing the modified file
+   * @param {string} relativePath - File path relative to project root
+   * @param {string} [content] - The new file content (avoids re-reading from disk)
+   */
+  scheduleCodeIndexUpdate(projectName, relativePath, content) {
+    if (!this.codeIndexService || !projectName || !relativePath) return;
+
+    const key = projectName.toLowerCase();
+    if (!this._codeIndexPending.has(key)) {
+      this._codeIndexPending.set(key, new Map());
+    }
+    this._codeIndexPending.get(key).set(relativePath, content ?? null);
+
+    // Clear existing timer for this project (debounce)
+    if (this._codeIndexTimers.has(key)) {
+      clearTimeout(this._codeIndexTimers.get(key));
+    }
+
+    // Set new timer — flush after 3 seconds of inactivity
+    const timer = setTimeout(() => {
+      this._codeIndexTimers.delete(key);
+      this._flushCodeIndexUpdate(key);
+    }, 3000);
+    this._codeIndexTimers.set(key, timer);
+  }
+
+  async _flushCodeIndexUpdate(projectKey) {
+    const pendingFiles = this._codeIndexPending.get(projectKey);
+    this._codeIndexPending.delete(projectKey);
+    if (!pendingFiles || pendingFiles.size === 0 || !this.codeIndexService) return;
+
+    try {
+      const repos = await this.codeIndexService.findReposByProject(projectKey);
+      if (repos.length === 0) {
+        console.log(`📇 [CodeIndex] No indexed repo found for project "${projectKey}" — skipping update`);
+        return;
+      }
+
+      const fileEntries = Array.from(pendingFiles.entries()).map(([filePath, content]) => ({
+        path: filePath,
+        ...(content !== null ? { content } : {}),
+      }));
+
+      for (const repo of repos) {
+        const result = await this.codeIndexService.updateFiles(repo.id, fileEntries);
+        console.log(`📇 [CodeIndex] Updated index "${repo.name}" (${repo.id}): +${result.added} ~${result.updated} -${result.removed} files`);
+      }
+    } catch (err) {
+      console.error(`📇 [CodeIndex] Failed to update index for "${projectKey}":`, err.message);
+    }
   }
 
   static formatDuration(ms) {

@@ -290,6 +290,27 @@ export function createCodeIndexMcpServer(codeIndexService) {
   );
 
   server.tool(
+    'update_files',
+    'Incrementally update specific files in an indexed repository without full re-indexing.',
+    {
+      repoId: z.string().describe('Indexed repository ID'),
+      files: z.array(z.object({
+        path: z.string().describe('Relative file path (posix-style, e.g. "src/index.js")'),
+        content: z.string().optional().describe('New file content — if omitted, the file is read from disk'),
+      })).min(1).max(100).describe('Files to update'),
+    },
+    async ({ repoId, files }) => {
+      const result = await codeIndexService.updateFiles(repoId, files);
+      return {
+        content: [{
+          type: 'text',
+          text: `Updated index ${repoId}: +${result.added} added, ~${result.updated} updated, -${result.removed} removed\\n\\nJSON:\\n${formatJson(result)}`,
+        }],
+      };
+    }
+  );
+
+  server.tool(
     'delete_repo',
     'Delete an indexed repository from the code index.',
     {

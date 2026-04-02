@@ -670,6 +670,125 @@ export class CodeIndexService {
     return results.slice(0, topK);
   }
 
+  /**
+   * Incrementally update one or more files in an existing index.
+   * Much faster than a full re-index — only touches the changed files.
+   * @param {string} repoId - The repo to update
+   * @param {{ path: string, content?: string }[]} fileEntries - Files to update.
+   *   Each entry has a relative `path` (posix-style). If `content` is provided,
+   *   it is used directly; otherwise the file is read from disk using the repo rootPath.
+   * @returns {{ updated: number, removed: number, added: number }}
+   */
+  async updateFiles(repoId, fileEntries) {
+    const repo = await this.loadRepo(repoId);
+    const rootPath = repo.repo.rootPath;
+    const vectorStore = await this.getVectorStore();
+
+    let updated = 0;
+    let removed = 0;
+    let added = 0;
+
+    for (const entry of fileEntries) {
+      const filePath = toPosixPath(entry.path);
+      const extension = path.extname(filePath).toLowerCase();
+
+      // Remove old file data
+      const oldFileIdx = repo.files.findIndex(f => f.path === filePath);
+      const oldSymbolIds = oldFileIdx >= 0 ? repo.files[oldFileIdx].symbolIds : [];
+      if (oldFileIdx >= 0) {
+        repo.files.splice(oldFileIdx, 1);
+      }
+      // Remove old symbols
+      repo.symbols = repo.symbols.filter(s => s.filePath !== filePath);
+      // Remove old vectors
+      if (oldSymbolIds.length > 0) {
+        await vectorStore.remove(repoId, oldSymbolIds).catch(() => {});
+      }
+
+      // Get content: use provided content or read from disk
+      let content = entry.content ?? null;
+      let fileSize;
+      if (content === null) {
+        const absolutePath = path.resolve(rootPath, filePath);
+        content = await fs.readFile(absolutePath, 'utf8').catch(() => null);
+        const stat = content ? await fs.stat(absolutePath).catch(() => null) : null;
+        fileSize = stat?.size ?? (content ? Buffer.byteLength(content) : 0);
+        if (!stat || stat.size > this.maxFileSize) {
+          if (oldFileIdx >= 0) removed++;
+          continue;
+        }
+      } else {
+        fileSize = Buffer.byteLength(content);
+      }
+
+      if (!content || !DEFAULT_ALLOWED_EXTENSIONS.has(extension)) {
+        if (oldFileIdx >= 0) removed++;
+        continue;
+      }
+
+      if (fileSize > this.maxFileSize) {
+        if (oldFileIdx >= 0) removed++;
+        continue;
+      }
+
+      // Extract symbols from updated content
+      const { language, symbols: extracted } = extractSymbolsFromContent(filePath, content);
+      const fileRecord = {
+        path: filePath,
+        language,
+        size: fileSize,
+        contentHash: hashContent(content),
+        symbolIds: [],
+      };
+
+      const vectorDocs = [];
+      for (const symbol of extracted) {
+        const symbolRecord = this.buildSymbolRecord(fileRecord, symbol);
+        fileRecord.symbolIds.push(symbolRecord.id);
+        repo.symbols.push(symbolRecord);
+        vectorDocs.push({
+          id: symbolRecord.id,
+          vector: createHashedEmbedding(this.createEmbeddingText(symbolRecord), this.embeddingDimension),
+          fields: {
+            kind: symbolRecord.kind,
+            filePath: symbolRecord.filePath,
+          },
+        });
+      }
+
+      repo.files.push(fileRecord);
+      if (vectorDocs.length > 0) {
+        await vectorStore.upsert(repoId, vectorDocs);
+      }
+
+      if (oldFileIdx >= 0) updated++;
+      else added++;
+    }
+
+    // Update repo metadata
+    repo.repo.filesIndexed = repo.files.length;
+    repo.repo.symbolsIndexed = repo.symbols.length;
+    repo.repo.filesWithoutSymbols = repo.files.filter(f => f.symbolIds.length === 0).length;
+    repo.repo.lastUpdatedAt = new Date().toISOString();
+
+    await this.saveRepo(repo);
+    this._invalidateCache(repoId);
+    this._setCachedRepo(repoId, repo);
+
+    return { updated, removed, added };
+  }
+
+  /**
+   * Find indexed repos matching a project name.
+   * @param {string} projectName
+   * @returns {Promise<Array<{ id: string, name: string, rootPath: string }>>}
+   */
+  async findReposByProject(projectName) {
+    const repos = await this.listRepos();
+    const normalizedName = projectName.toLowerCase();
+    return repos.filter(r => r.name.toLowerCase() === normalizedName);
+  }
+
   async invalidate(repoId) {
     this._invalidateCache(repoId);
     const vectorStore = await this.getVectorStore();

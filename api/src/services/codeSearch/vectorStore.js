@@ -68,6 +68,14 @@ export class InMemoryVectorStore {
     this.collections.set(collectionName, collection);
   }
 
+  async remove(collectionName, ids) {
+    const collection = this.collections.get(collectionName);
+    if (!collection) return;
+    for (const id of ids) {
+      collection.delete(id);
+    }
+  }
+
   async query(collectionName, vector, topK = 10) {
     const collection = this.collections.get(collectionName);
     if (!collection) return [];
@@ -218,6 +226,19 @@ export class ZvecVectorStore {
       () => collection.upsert(payload),
       () => collection.add(payload),
     ], 'Unable to insert vectors into ZVEC');
+  }
+
+  async remove(collectionName, ids) {
+    try {
+      const collection = await this.getCollection(collectionName);
+      await tryCandidates([
+        () => collection.delete(ids),
+        () => collection.remove(ids),
+        () => Promise.all(ids.map(id => collection.delete(id))),
+      ], 'Unable to remove vectors from ZVEC');
+    } catch {
+      // Best-effort: zvec may not support deletion — vectors will be overwritten on next upsert
+    }
   }
 
   async query(collectionName, vector, topK = 10) {

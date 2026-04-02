@@ -202,6 +202,30 @@ export function codeIndexRoutes(codeIndexService) {
       .catch(err => console.error(`[Code Index] Auto-index failed for "${projectName}":`, err.message));
   });
 
+  // Update specific files in an indexed repo (incremental re-index)
+  router.post('/repos/:repoId/update-files', async (req, res) => {
+    try {
+      const params = repoParamsSchema.parse(req.params);
+      const { files } = req.body || {};
+      if (!Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: 'files array required (each entry: { path: string, content?: string })' });
+      }
+      if (files.length > 100) {
+        return res.status(400).json({ error: 'Maximum 100 files per update' });
+      }
+      const fileEntries = files.map(f => ({
+        path: String(f.path || ''),
+        ...(f.content !== undefined ? { content: String(f.content) } : {}),
+      })).filter(f => f.path);
+
+      const result = await codeIndexService.updateFiles(params.repoId, fileEntries);
+      res.json(result);
+    } catch (error) {
+      if (handleValidationError(res, error)) return;
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   router.delete('/repos/:repoId', async (req, res) => {
     try {
       const params = repoParamsSchema.parse(req.params);

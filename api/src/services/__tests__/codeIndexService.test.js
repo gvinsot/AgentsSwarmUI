@@ -92,6 +92,167 @@ test('CodeIndexService indexes a folder and exposes outlines, trees and symbol r
   });
 });
 
+test('CodeIndexService.updateFiles incrementally updates a single file with provided content', async () => {
+  await withTempDir(async (tempDir) => {
+    const repoDir = await writeFixtureRepo(tempDir);
+    const service = new CodeIndexService({
+      storageRoot: path.join(tempDir, '.index-data'),
+      allowedRoots: [tempDir],
+      vectorStoreFactory: async () => new InMemoryVectorStore(),
+    });
+
+    const repo = await service.indexFolder({ folderPath: repoDir, repoName: 'update-test' });
+    const originalSymbolCount = repo.symbolsIndexed;
+
+    // Update auth.js with new content that adds a new function
+    const newContent = `
+export class AuthService {
+  async validateToken(token) {
+    return token && token.startsWith('tok_');
+  }
+
+  async login(username, password) {
+    return Boolean(username && password);
+  }
+
+  async logout() {
+    return true;
+  }
+}
+
+export const createToken = (payload) => 'tok_' + JSON.stringify(payload);
+export const revokeToken = (token) => false;
+`.trimStart();
+
+    const result = await service.updateFiles(repo.id, [
+      { path: 'src/auth.js', content: newContent },
+    ]);
+
+    assert.equal(result.updated, 1);
+    assert.equal(result.added, 0);
+    assert.equal(result.removed, 0);
+
+    // Verify the updated symbols are searchable
+    const outline = await service.getFileOutline(repo.id, 'src/auth.js');
+    assert.ok(outline.symbols.some(s => s.qualifiedName === 'AuthService.logout'));
+    assert.ok(outline.symbols.some(s => s.qualifiedName === 'revokeToken'));
+
+    // Verify search finds the new function
+    const search = await service.searchSymbols(repo.id, { query: 'logout', topK: 5 });
+    assert.ok(search.length >= 1);
+    assert.ok(search.some(s => s.qualifiedName === 'AuthService.logout'));
+
+    // Verify repo metadata was updated
+    const summary = await service.getRepoSummary(repo.id);
+    assert.ok(summary.symbolsIndexed >= originalSymbolCount);
+    assert.ok(summary.lastUpdatedAt);
+  });
+});
+
+test('CodeIndexService.updateFiles adds a new file to the index', async () => {
+  await withTempDir(async (tempDir) => {
+    const repoDir = await writeFixtureRepo(tempDir);
+    const service = new CodeIndexService({
+      storageRoot: path.join(tempDir, '.index-data'),
+      allowedRoots: [tempDir],
+      vectorStoreFactory: async () => new InMemoryVectorStore(),
+    });
+
+    const repo = await service.indexFolder({ folderPath: repoDir, repoName: 'add-file-test' });
+    assert.equal(repo.filesIndexed, 2);
+
+    // Add a new file via updateFiles with content
+    const newContent = `export function greet(name) { return 'Hello ' + name; }`;
+    const result = await service.updateFiles(repo.id, [
+      { path: 'src/greet.js', content: newContent },
+    ]);
+
+    assert.equal(result.added, 1);
+    assert.equal(result.updated, 0);
+    assert.equal(result.removed, 0);
+
+    const summary = await service.getRepoSummary(repo.id);
+    assert.equal(summary.counts.files, 3);
+
+    const search = await service.searchSymbols(repo.id, { query: 'greet', topK: 5 });
+    assert.ok(search.length >= 1);
+  });
+});
+
+test('CodeIndexService.updateFiles removes file when content is empty or unsupported', async () => {
+  await withTempDir(async (tempDir) => {
+    const repoDir = await writeFixtureRepo(tempDir);
+    const service = new CodeIndexService({
+      storageRoot: path.join(tempDir, '.index-data'),
+      allowedRoots: [tempDir],
+      vectorStoreFactory: async () => new InMemoryVectorStore(),
+    });
+
+    const repo = await service.indexFolder({ folderPath: repoDir, repoName: 'remove-test' });
+    assert.equal(repo.filesIndexed, 2);
+
+    // "Remove" a file by providing empty content
+    const result = await service.updateFiles(repo.id, [
+      { path: 'src/auth.js', content: '' },
+    ]);
+
+    assert.equal(result.removed, 1);
+    assert.equal(result.updated, 0);
+    assert.equal(result.added, 0);
+
+    const summary = await service.getRepoSummary(repo.id);
+    assert.equal(summary.counts.files, 1);
+  });
+});
+
+test('CodeIndexService.updateFiles reads from disk when content is not provided', async () => {
+  await withTempDir(async (tempDir) => {
+    const repoDir = await writeFixtureRepo(tempDir);
+    const service = new CodeIndexService({
+      storageRoot: path.join(tempDir, '.index-data'),
+      allowedRoots: [tempDir],
+      vectorStoreFactory: async () => new InMemoryVectorStore(),
+    });
+
+    const repo = await service.indexFolder({ folderPath: repoDir, repoName: 'disk-read-test' });
+
+    // Modify file on disk
+    await fs.writeFile(path.join(repoDir, 'src', 'auth.js'), `
+export function newDiskFunction() { return 42; }
+`.trimStart());
+
+    // Update without content — should read from disk
+    const result = await service.updateFiles(repo.id, [
+      { path: 'src/auth.js' },
+    ]);
+
+    assert.equal(result.updated, 1);
+
+    const search = await service.searchSymbols(repo.id, { query: 'newDiskFunction', topK: 5 });
+    assert.ok(search.length >= 1);
+  });
+});
+
+test('CodeIndexService.findReposByProject matches repos by name', async () => {
+  await withTempDir(async (tempDir) => {
+    const repoDir = await writeFixtureRepo(tempDir);
+    const service = new CodeIndexService({
+      storageRoot: path.join(tempDir, '.index-data'),
+      allowedRoots: [tempDir],
+      vectorStoreFactory: async () => new InMemoryVectorStore(),
+    });
+
+    await service.indexFolder({ folderPath: repoDir, repoName: 'MyProject' });
+
+    const found = await service.findReposByProject('myproject');
+    assert.equal(found.length, 1);
+    assert.equal(found[0].name, 'MyProject');
+
+    const notFound = await service.findReposByProject('nonexistent');
+    assert.equal(notFound.length, 0);
+  });
+});
+
 test('CodeIndexService rejects folders outside allowed roots and invalidates repositories', async () => {
   await withTempDir(async (tempDir) => {
     const repoDir = await writeFixtureRepo(tempDir);

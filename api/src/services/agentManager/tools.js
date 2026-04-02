@@ -413,6 +413,15 @@ export const toolsMethods = {
 
         const result = await executeTool(call.tool, call.args, agent.project, this.sandboxManager, agentId);
 
+        // Schedule code index re-indexation for file modifications
+        if (result.success && (call.tool === 'write_file' || call.tool === 'append_file') && agent.project) {
+          const filePath = result.meta?.path || call.args[0];
+          const content = call.tool === 'write_file' ? call.args[1] : undefined;
+          if (filePath) {
+            this.scheduleCodeIndexUpdate(agent.project, filePath, content);
+          }
+        }
+
         // Auto-capture commit hash
         if (call.tool === 'git_commit_push' || (call.tool === 'run_command' && result.success)) {
           let commitHash = null;

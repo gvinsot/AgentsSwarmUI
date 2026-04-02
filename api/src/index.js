@@ -70,7 +70,7 @@ const skillManager = new SkillManager();
 const sandboxManager = new SandboxManager();
 const mcpManager = new MCPManager();
 const codeIndexService = new CodeIndexService();
-const agentManager = new AgentManager(io, skillManager, sandboxManager, mcpManager);
+const agentManager = new AgentManager(io, skillManager, sandboxManager, mcpManager, codeIndexService);
 app.set('io', io);
 
 app.use(cors({
