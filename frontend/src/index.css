@@ -30,7 +30,7 @@
   --dark-700: 229 231 235;   /* #E5E7EB gray-200 — borders */
   --dark-800: 249 250 251;   /* #F9FAFB — subtle bg */
   --dark-900: 255 255 255;   /* #FFFFFF — cards */
-  --dark-950: 243 244 246;   /* #F3F4F6 — page background */
+  --dark-950: 229 231 235;   /* #E5E7EB — page background (medium gray for contrast) */
 }
 
 * {
