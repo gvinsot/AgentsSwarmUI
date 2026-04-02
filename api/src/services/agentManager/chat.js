@@ -328,22 +328,21 @@ export const chatMethods = {
       }
     }
 
-    if (agent.todoList.length > 0) {
+    const activeTasks = agent.todoList.filter(t => this._isActiveTaskStatus(t.status) || t.status === 'error');
+    const doneTasks = agent.todoList.filter(t => t.status === 'done');
+    if (activeTasks.length > 0 || doneTasks.length > 0) {
       systemContent += '\n\n--- Current Task List ---\n';
-      for (const task of agent.todoList) {
-        const mark = task.status === 'done' ? 'x' : this._isActiveTaskStatus(task.status) ? '~' : task.status === 'error' ? '!' : ' ';
+      for (const task of activeTasks) {
+        const mark = this._isActiveTaskStatus(task.status) ? '~' : '!';
         systemContent += `- [${mark}] (${task.id.slice(0, 8)}) ${task.text}\n`;
+      }
+      if (doneTasks.length > 0) {
+        systemContent += `(${doneTasks.length} completed task${doneTasks.length > 1 ? 's' : ''} omitted)\n`;
       }
     }
 
     if (agent.project) {
-      const fileTree = this.sandboxManager?.getFileTree(id);
-      let projectCtx = `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nYour current working directory is already the project root.\nAll file paths are relative to this root (e.g. @read_file(src/index.js), NOT @read_file(/projects/${agent.project}/src/index.js)).\nDo NOT use absolute paths or /projects/ prefixes — they will not work.`;
-      if (fileTree) {
-        projectCtx += `\n\n--- PROJECT FILE TREE (3 levels) ---\n${fileTree}\n--- END FILE TREE ---\nUse this tree to navigate the project without needing @list_dir(.) first. Only use @list_dir for deeper exploration.`;
-      } else {
-        projectCtx += `\nUse @list_dir(.) to see its contents.`;
-      }
+      let projectCtx = `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nYour current working directory is already the project root.\nAll file paths are relative to this root (e.g. @read_file(src/index.js), NOT @read_file(/projects/${agent.project}/src/index.js)).\nDo NOT use absolute paths or /projects/ prefixes — they will not work.\nUse @list_dir(.) to explore the project structure.`;
       systemContent += projectCtx;
     } else {
       systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is assigned yet. Use @list_dir(.) to discover available projects. IMPORTANT: You MUST navigate into a project folder before working. Always prefix paths with the project name (e.g. @read_file(my-project/src/index.js), @list_dir(my-project/src)). Do NOT create or modify files at the workspace root — always work inside a project directory.`;

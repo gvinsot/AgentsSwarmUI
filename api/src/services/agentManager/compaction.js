@@ -285,13 +285,13 @@ export const compactionMethods = {
       }
 
       const parts = [];
-      parts.push(`[MECHANICAL SUMMARY — ${toSummarize.length} earlier messages compacted (LLM summarization failed)]`);
-      if (userRequests.length > 0) parts.push(`Tasks requested: ${userRequests.slice(0, 3).join(' | ')}`);
-      if (filesRead.size > 0) parts.push(`Files read: ${[...filesRead].slice(0, 15).join(', ')}`);
-      if (filesWritten.size > 0) parts.push(`Files written: ${[...filesWritten].slice(0, 10).join(', ')}`);
-      if (commandsRun.length > 0) parts.push(`Commands run: ${commandsRun.slice(0, 5).join(', ')}`);
-      if (toolCalls.length > 0) parts.push(`Other tools: ${toolCalls.slice(0, 8).join(', ')}`);
-      if (errors.length > 0) parts.push(`Errors encountered: ${errors.slice(0, 3).join(' | ')}`);
+      parts.push(`[MECHANICAL SUMMARY — ${toSummarize.length} messages compacted]`);
+      if (userRequests.length > 0) parts.push(`Tasks: ${userRequests.slice(0, 3).join(' | ')}`);
+      if (filesRead.size > 0) parts.push(`Read ${filesRead.size} file(s): ${[...filesRead].slice(0, 5).join(', ')}${filesRead.size > 5 ? ` +${filesRead.size - 5} more` : ''}`);
+      if (filesWritten.size > 0) parts.push(`Wrote ${filesWritten.size} file(s): ${[...filesWritten].slice(0, 5).join(', ')}${filesWritten.size > 5 ? ` +${filesWritten.size - 5} more` : ''}`);
+      if (commandsRun.length > 0) parts.push(`Ran ${commandsRun.length} command(s)`);
+      if (toolCalls.length > 0) parts.push(`${toolCalls.length} other tool call(s)`);
+      if (errors.length > 0) parts.push(`${errors.length} error(s): ${errors[0].slice(0, 80)}`);
       const mechanicalSummary = parts.join('\n');
 
       if (existingSummary) {

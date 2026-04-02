@@ -199,6 +199,17 @@ async function toolReadFile(sandboxMgr, agentId, filePath, startLineArg, endLine
       };
     }
 
+    // Auto-truncate large files and hint the agent to use line ranges
+    const MAX_LINES = 500;
+    if (allLines.length > MAX_LINES) {
+      const truncated = allLines.slice(0, MAX_LINES).join('\n');
+      return {
+        success: true,
+        result: `${truncated}\n\n--- TRUNCATED: showing ${MAX_LINES}/${allLines.length} lines. Use @read_file(${filePath}, startLine, endLine) to read specific sections. ---`,
+        meta: { path: filePath, size: content.length, lines: allLines.length, truncated: true }
+      };
+    }
+
     return {
       success: true,
       result: content,

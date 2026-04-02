@@ -204,7 +204,7 @@ export class SandboxManager {
     const fullPath = this._projectPath(entry, dirPath);
     const { stdout } = await this._execAsAgentUser(
       entry.username,
-      `ls -la ${this._sh(fullPath)} | grep -v '^\\.\\.$' | head -200`,
+      `ls -1F ${this._sh(fullPath)} | head -200`,
       { timeout: 10000 }
     );
     return stdout;

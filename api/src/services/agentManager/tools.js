@@ -242,6 +242,14 @@ export const toolsMethods = {
           continue;
         }
         checkStatusDone = true;
+        // Cross-turn dedup: skip if called recently (within 30s)
+        const csNow = Date.now();
+        if (csNow - (agent._lastCheckStatus || 0) < 30000) {
+          console.log(`[Dedup] Skipping @check_status from "${agent.name}" — called ${Math.round((csNow - agent._lastCheckStatus) / 1000)}s ago`);
+          results.push({ tool: 'check_status', args: [], success: true, result: '[Status unchanged — focus on your current task]' });
+          continue;
+        }
+        agent._lastCheckStatus = csNow;
         const { AgentManager } = await import('./index.js');
         const todoList = agent.todoList || [];
         const waitingTasks = todoList.filter(t => !this._isActiveTaskStatus(t.status) && t.status !== 'done' && t.status !== 'error').length;
