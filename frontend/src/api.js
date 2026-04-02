@@ -488,6 +488,9 @@ export const api = {
   getProjectTimeSeries: (project, days = 30) =>
     fetch(`${API_BASE}/agents/tasks/stats/timeseries?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
 
+  getProjectTimeSpent: (project, days = 30) =>
+    fetch(`${API_BASE}/agents/tasks/stats/time-spent?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
+
   // Jira
   getJiraStatus: () =>
     fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),
@@ -497,110 +500,4 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
     }).then(handleResponse),
-
-  getJiraColumns: () =>
-    fetch(`${API_BASE}/jira/columns`, { headers: getHeaders() }).then(handleResponse),
-
-  // Users (admin only)
-  getUsers: () =>
-    fetch(`${API_BASE}/users`, { headers: getHeaders() }).then(handleResponse),
-
-  createUser: (data) =>
-    fetch(`${API_BASE}/users`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(data)
-    }).then(handleResponse),
-
-  updateUser: (id, updates) =>
-    fetch(`${API_BASE}/users/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(updates)
-    }).then(handleResponse),
-
-  deleteUser: (id) =>
-    fetch(`${API_BASE}/users/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
-
-  // Impersonation (admin only)
-  impersonate: (userId) =>
-    fetch(`${API_BASE}/auth/impersonate/${userId}`, {
-      method: 'POST',
-      headers: getHeaders()
-    }).then(handleResponse),
-
-  // LLM Configs (admin only)
-  getLlmConfigs: () =>
-    fetch(`${API_BASE}/llm-configs`, { headers: getHeaders() }).then(handleResponse),
-
-  createLlmConfig: (data) =>
-    fetch(`${API_BASE}/llm-configs`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(data)
-    }).then(handleResponse),
-
-  updateLlmConfig: (id, data) =>
-    fetch(`${API_BASE}/llm-configs/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(data)
-    }).then(handleResponse),
-
-  deleteLlmConfig: (id) =>
-    fetch(`${API_BASE}/llm-configs/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
 };
-
-// Budget
-export const fetchBudgetSummary = (days = 1) =>
-  fetch(`${API_BASE}/budget/summary?days=${days}`, { headers: getHeaders() }).then(handleResponse);
-
-export const fetchBudgetByAgent = (days = 30) =>
-  fetch(`${API_BASE}/budget/by-agent?days=${days}`, { headers: getHeaders() }).then(handleResponse);
-
-export const fetchBudgetTimeline = (days = 7, groupBy = 'day') =>
-  fetch(`${API_BASE}/budget/timeline?days=${days}&groupBy=${groupBy}`, { headers: getHeaders() }).then(handleResponse);
-
-export const fetchBudgetDaily = (days = 30) =>
-  fetch(`${API_BASE}/budget/daily?days=${days}`, { headers: getHeaders() }).then(handleResponse);
-
-export const fetchBudgetConfig = () =>
-  fetch(`${API_BASE}/budget/config`, { headers: getHeaders() }).then(handleResponse);
-
-export const updateBudgetConfig = (config) =>
-  fetch(`${API_BASE}/budget/config`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(config)
-  }).then(handleResponse);
-
-export const fetchBudgetAlerts = () =>
-  fetch(`${API_BASE}/budget/alerts`, { headers: getHeaders() }).then(handleResponse);
-
-export default api;
-
-/* ── Task CRUD (board-level, uses /api/tasks/:id) ─────────────────────────── */
-export const updateTask = (taskId, fields) =>
-  fetch(`${API_BASE}/tasks/${taskId}`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(fields),
-  }).then(handleResponse);
-
-export const deleteTask = (taskId) =>
-  fetch(`${API_BASE}/tasks/${taskId}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  }).then(handleResponse);
-
-/* ── Commit diff ──────────────────────────────────────────────────────────── */
-export const getCommitDiff = (taskId, hash) =>
-  fetch(`${API_BASE}/tasks/${taskId}/commits/${hash}/diff`, {
-    headers: getHeaders(),
-  }).then(handleResponse);

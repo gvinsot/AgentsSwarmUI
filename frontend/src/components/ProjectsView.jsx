@@ -1,13 +1,83 @@
-import { useState, useMemo } from 'react';
-import { FolderGit2, Users, ListTodo, Clock, Search, Activity, BarChart3, ExternalLink, GitCommit } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { FolderGit2, Users, ListTodo, Clock, Search, Activity, BarChart3, ExternalLink, GitCommit, TrendingUp } from 'lucide-react';
 import ProjectDetailModal from './ProjectDetailModal';
 import GitHubActivityModal from './GitHubActivityModal';
+import { api } from '../api';
+import { Chart as ChartJS, CategoryScale, LinearScale, LineElement, PointElement, Title, Tooltip, Legend, Filler } from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Title, Tooltip, Legend, Filler);
 
 function GithubIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+      <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
     </svg>
+  );
+}
+
+// Mini time spent chart component
+function TimeSpentChart({ timeSpentData }) {
+  if (!timeSpentData || !timeSpentData.timeSpentOverTime || timeSpentData.timeSpentOverTime.length === 0) {
+    return <div className="text-xs text-dark-500 italic">No time data available</div>;
+  }
+
+  const formatLabel = (d) => d?.slice(5) || '';
+  
+  // Format milliseconds to hours for display
+  const formatTime = (ms) => {
+    if (!ms || ms <= 0) return '0h';
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m`;
+    return '<1m';
+  };
+
+  const chartData = {
+    labels: timeSpentData.timeSpentOverTime.map(d => formatLabel(d.date)),
+    datasets: [
+      {
+        label: 'Time Spent',
+        data: timeSpentData.timeSpentOverTime.map(d => Math.round(d.timeSpentMs / 3600000 * 10) / 10),
+        borderColor: '#8b5cf6',
+        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 1,
+        borderWidth: 1.5,
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => ` ${formatTime(ctx.raw * 3600000)}`,
+        },
+      },
+    },
+    scales: {
+      x: { 
+        display: false,
+        grid: { display: false },
+      },
+      y: { 
+        display: false,
+        grid: { display: false },
+        beginAtZero: true,
+      },
+    },
+  };
+
+  return (
+    <div className="h-16">
+      <Line data={chartData} options={options} />
+    </div>
   );
 }
 
@@ -16,6 +86,8 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
   const [sortBy, setSortBy] = useState('name');
   const [selectedProject, setSelectedProject] = useState(null);
   const [activityTarget, setActivityTarget] = useState(null); // { owner, repo }
+  const [timeSpentData, setTimeSpentData] = useState({});
+  const [loadingProjects, setLoadingProjects] = useState(new Set());
 
   // Derive tasks from agents (same approach as TasksBoard)
   const tasks = useMemo(() =>
@@ -89,6 +161,33 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
     else if (sortBy === 'completion') result.sort((a, b) => b.stats.completion - a.stats.completion);
     return result;
   }, [agents, tasks, search, sortBy, githubLookup]);
+
+  // Fetch time spent data for all projects
+  useEffect(() => {
+    const fetchTimeSpent = async () => {
+      const projectNames = projects.map(p => p.name);
+      const newData = { ...timeSpentData };
+      const loading = new Set();
+
+      for (const projectName of projectNames) {
+        if (newData[projectName]) continue; // Already loaded
+        loading.add(projectName);
+        setLoadingProjects(loading);
+        try {
+          const data = await api.getProjectTimeSpent(projectName, 30);
+          newData[projectName] = data;
+          setTimeSpentData({ ...newData });
+        } catch (err) {
+          console.error(`Failed to load time spent for ${projectName}:`, err);
+        }
+      }
+      setLoadingProjects(new Set());
+    };
+
+    if (projects.length > 0) {
+      fetchTimeSpent();
+    }
+  }, [projects]);
 
   const handleOpenGitHub = (e, htmlUrl) => {
     e.stopPropagation();
@@ -206,7 +305,7 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="grid grid-cols-2 gap-2 text-xs mb-3">
               <div className="flex items-center gap-1.5">
                 <Users size={12} className="text-blue-400" />
                 <span className="text-dark-300">{p.agents.length} agents</span>
@@ -231,6 +330,15 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
                 <Clock size={12} className="text-green-400" />
                 <span className="text-dark-300">{p.stats.completion}% done</span>
               </div>
+            </div>
+
+            {/* Time spent chart - replaces old stats area */}
+            <div className="mt-3 pt-3 border-t border-dark-700">
+              <div className="flex items-center gap-1.5 text-xs text-dark-400 mb-1.5">
+                <TrendingUp size={12} className="text-purple-400" />
+                <span className="font-medium">Time Spent (30 days)</span>
+              </div>
+              <TimeSpentChart timeSpentData={timeSpentData[p.name]} />
             </div>
 
             {/* Agent avatars */}
