@@ -65,6 +65,12 @@ export const tasksMethods = {
     if (prevStatus === status) return task;
     task.status = status;
     delete task._pendingOnEnter;
+    // Clear execution state — processTransition will re-set startedAt when
+    // a workflow action genuinely starts execution. Without this, stale
+    // startedAt from a previous execution causes the task loop to resume
+    // tasks that were manually moved (e.g. done → nextsprint).
+    delete task.startedAt;
+    task.executionStatus = null;
     const now = new Date().toISOString();
     if (status === 'done') task.completedAt = now;
     if (status === 'error') {

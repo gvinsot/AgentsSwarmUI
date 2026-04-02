@@ -985,3 +985,43 @@ test('error → recovery → completion preserves full history', async () => {
   assert.ok(fromFields.includes('code'), 'should record code→error transition');
   assert.ok(fromFields.includes('error'), 'should record error→code recovery');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 21. setTaskStatus clears stale execution state
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('setTaskStatus clears startedAt to prevent stale task loop resume', async () => {
+  // Reproduces bug: task done→nextsprint still had startedAt from previous
+  // execution, causing the task loop to resume it and assign an agent.
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Done task moved back', 'code');
+
+  // Simulate previous execution set startedAt
+  task.startedAt = '2026-04-01T10:00:00.000Z';
+  task.executionStatus = null;
+
+  // Move to done (like after execution completes)
+  mgr.setTaskStatus(agentId, task.id, 'done', { skipAutoRefine: true, by: 'workflow' });
+  assert.equal(task.status, 'done');
+  assert.equal(task.startedAt, undefined, 'startedAt should be cleared on status change');
+
+  // User moves done → nextsprint
+  mgr.setTaskStatus(agentId, task.id, 'nextsprint', { skipAutoRefine: true, by: 'user' });
+  assert.equal(task.status, 'nextsprint');
+  assert.equal(task.startedAt, undefined, 'startedAt must stay cleared — task loop must NOT resume this');
+  assert.equal(task.executionStatus, null, 'executionStatus must be cleared');
+});
+
+test('setTaskStatus clears startedAt even during workflow transitions', async () => {
+  // Ensure processTransition can re-set startedAt after setTaskStatus clears it
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Workflow chain test', 'refine');
+
+  // Simulate: refine chain completes, change_status → code
+  task.startedAt = '2026-04-01T10:00:00.000Z';
+  mgr.setTaskStatus(agentId, task.id, 'code', { skipAutoRefine: true, by: 'workflow' });
+
+  // startedAt should be cleared by setTaskStatus
+  assert.equal(task.startedAt, undefined);
+  // processTransition would re-set it when the code on_enter run_agent starts
+});
