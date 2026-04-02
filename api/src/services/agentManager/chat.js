@@ -342,7 +342,13 @@ export const chatMethods = {
     }
 
     if (agent.project) {
-      let projectCtx = `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nYour current working directory is already the project root.\nAll file paths are relative to this root (e.g. @read_file(src/index.js), NOT @read_file(/projects/${agent.project}/src/index.js)).\nDo NOT use absolute paths or /projects/ prefixes — they will not work.\nUse @list_dir(.) to explore the project structure.`;
+      const fileTree = this.sandboxManager?.getFileTree(id);
+      let projectCtx = `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nYour current working directory is already the project root.\nAll file paths are relative to this root (e.g. @read_file(src/index.js), NOT @read_file(/projects/${agent.project}/src/index.js)).\nDo NOT use absolute paths or /projects/ prefixes — they will not work.`;
+      if (fileTree) {
+        projectCtx += `\n\n--- PROJECT ROOT ---\n${fileTree}\n--- END ---\nUse @list_dir to explore subdirectories.`;
+      } else {
+        projectCtx += `\nUse @list_dir(.) to explore the project structure.`;
+      }
       systemContent += projectCtx;
     } else {
       systemContent += `\n\n--- PROJECT CONTEXT ---\nNo specific project is assigned yet. Use @list_dir(.) to discover available projects. IMPORTANT: You MUST navigate into a project folder before working. Always prefix paths with the project name (e.g. @read_file(my-project/src/index.js), @list_dir(my-project/src)). Do NOT create or modify files at the workspace root — always work inside a project directory.`;

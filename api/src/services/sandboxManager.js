@@ -104,7 +104,8 @@ export class SandboxManager {
 
   /**
    * Generate and cache a compact file tree for the agent's current project.
-   * Uses `find` with depth limit, excludes .git/node_modules, outputs a tree-like format.
+   * Only lists depth 1 (root-level files and folders) to minimize token usage.
+   * Agents can use @list_dir for deeper exploration.
    */
   async _generateFileTree(agentId) {
     const entry = this.agentUsers.get(agentId);
@@ -115,26 +116,15 @@ export class SandboxManager {
     try {
       const { stdout } = await this._execAsAgentUser(
         entry.username,
-        `find ${this._sh(basePath)} -maxdepth 3 -not -path '*/\\.git/*' -not -path '*/\\.git' -not -path '*/node_modules/*' -not -path '*/node_modules' -not -path '*/__pycache__/*' -not -path '*/.next/*' | sort | head -300`,
+        `ls -1F ${this._sh(basePath)} | head -100`,
         { timeout: 10000 }
       );
-      // Convert absolute paths to relative tree
-      const prefix = basePath + '/';
-      const lines = stdout.trim().split('\n')
-        .map(l => l.replace(basePath, '.'))
-        .filter(l => l && l !== '.');
+      const lines = stdout.trim().split('\n').filter(l => l);
       if (lines.length === 0) {
         this._fileTreeCache.set(agentId, { project: entry.project, tree: null, timestamp: Date.now() });
         return;
       }
-      // Build indented tree
-      const tree = lines.map(l => {
-        const rel = l.startsWith('./') ? l.slice(2) : l;
-        const parts = rel.split('/');
-        const indent = '  '.repeat(parts.length - 1);
-        const name = parts[parts.length - 1];
-        return `${indent}${name}`;
-      }).join('\n');
+      const tree = lines.join('\n');
       this._fileTreeCache.set(agentId, { project: entry.project, tree, timestamp: Date.now() });
       console.log(`🌳 [Sandbox] File tree cached for agent ${agentId} (${lines.length} entries)`);
     } catch (err) {

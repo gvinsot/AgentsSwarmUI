@@ -133,7 +133,15 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
   }
 
   if (!sandboxMgr.hasSandbox(agentId)) {
-    return { success: false, error: 'No sandbox running. The sandbox will be initialized on the next tool call.' };
+    // Attempt lazy initialization instead of just returning an error
+    try {
+      await sandboxMgr.ensureSandbox(agentId, projectPath || null);
+    } catch (initErr) {
+      console.error(`⚠️  [Tool] Sandbox lazy init failed for agent ${agentId.slice(0, 8)}: ${initErr.message}`);
+    }
+    if (!sandboxMgr.hasSandbox(agentId)) {
+      return { success: false, error: 'Sandbox is not available. Please report this error.' };
+    }
   }
 
   const cleanArgs = args.map(a => sanitizeArg(a));
