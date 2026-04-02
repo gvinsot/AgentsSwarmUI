@@ -332,7 +332,7 @@ function RichAssistantContent({ text }) {
   );
 }
 
-export default function AgentDetail({ agent, agents, projects, skills, thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh, onActiveTabChange, requestedTab, userRole }) {
+export default function AgentDetail({ agent, agents, projects, skills, thinking, streamBuffer, socket, onClose, onSelectAgent, onRefresh, onActiveTabChange, requestedTab, userRole, currentUser }) {
   const [activeTab, setActiveTab] = useState('chat');
 
   // Notify parent of active tab changes
@@ -613,7 +613,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab agent={agent} projects={projects} currentProject={currentProject} onRefresh={onRefresh} userRole={userRole} />
+          <SettingsTab agent={agent} projects={projects} currentProject={currentProject} onRefresh={onRefresh} userRole={userRole} currentUser={currentUser} />
         )}
       </div>
     </div>
@@ -2361,7 +2361,7 @@ function ActionLogsTab({ agent, onRefresh }) {
 }
 
 // ─── Settings Tab ──────────────────────────────────────────────────────────
-function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
+function SettingsTab({ agent, projects, currentProject, onRefresh, userRole, currentUser }) {
   const [form, setForm] = useState({
     name: agent.name,
     role: agent.role,
@@ -2386,8 +2386,10 @@ function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
     api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
     if (userRole === 'admin') {
       api.getUsers().then(setUsers).catch(() => {});
+    } else if (currentUser?.userId) {
+      setUsers([{ id: currentUser.userId, username: currentUser.displayName || currentUser.username }]);
     }
-  }, [userRole]);
+  }, [userRole, currentUser]);
 
   // Reset form when switching agents
   useEffect(() => {
@@ -2422,11 +2424,7 @@ function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
       payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       payload.llmConfigId = payload.llmConfigId || null;
-      if (userRole === 'admin') {
-        payload.ownerId = payload.ownerId || null;
-      } else {
-        delete payload.ownerId;
-      }
+      payload.ownerId = payload.ownerId || null;
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -2570,23 +2568,21 @@ function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
         </div>
       </div>
 
-      {/* Owner (admin only) */}
-      {userRole === 'admin' && (
-        <div className="px-3 py-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50">
-          <label className="block text-xs text-dark-400 mb-1.5">Owner</label>
-          <select
-            value={form.ownerId}
-            onChange={(e) => updateField('ownerId', e.target.value)}
-            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-          >
-            <option value="">No owner (visible to all)</option>
-            {users.map(u => (
-              <option key={u.id} value={u.id}>{u.username}</option>
-            ))}
-          </select>
-          <p className="text-[11px] text-dark-500 mt-1">An agent without owner is visible to all users</p>
-        </div>
-      )}
+      {/* Owner */}
+      <div className="px-3 py-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50">
+        <label className="block text-xs text-dark-400 mb-1.5">Owner</label>
+        <select
+          value={form.ownerId}
+          onChange={(e) => updateField('ownerId', e.target.value)}
+          className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+        >
+          <option value="">No owner (visible to all)</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.username}</option>
+          ))}
+        </select>
+        <p className="text-[11px] text-dark-500 mt-1">{userRole === 'admin' ? 'An agent without owner is visible to all users' : 'Set yourself as owner to make this agent private'}</p>
+      </div>
 
       {/* Metrics */}
       <div className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50">
@@ -2644,7 +2640,8 @@ function SettingsTab({ agent, projects, currentProject, onRefresh, userRole }) {
         </button>
         <button
           onClick={async () => {
-            if (!confirm('Reload agent context? This will clear conversation history so the agent restarts with fresh plugin/MCP configuration.')) return;
+            if (!confirm('Reload agent context? This will stop the agent and clear conversation history so it restarts with fresh plugin/MCP configuration.')) return;
+            await api.stopAgent(agent.id).catch(() => {});
             await api.clearHistory(agent.id);
             onRefresh();
           }}

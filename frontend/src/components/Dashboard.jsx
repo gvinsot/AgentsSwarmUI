@@ -409,6 +409,7 @@ export default function Dashboard({
                 onActiveTabChange={setDetailActiveTab}
                 requestedTab={requestedTab}
                 userRole={user?.role}
+                currentUser={user}
               />
             </div>
           )}

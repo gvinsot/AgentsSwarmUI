@@ -906,6 +906,22 @@ export const lifecycleMethods = {
     agent.conversationHistory = [];
     agent.currentThinking = '';
     delete agent._compactionArmed;
+    // Stop all active reminder loops for tasks involving this agent
+    for (const [, ownerAgent] of this.agents) {
+      if (!ownerAgent.todoList) continue;
+      for (const task of ownerAgent.todoList) {
+        if (task.assignee === agentId || ownerAgent.id === agentId) {
+          if (task._executionWatching) {
+            task._executionStopped = true;
+            delete task._executionWatching;
+          }
+          delete task.startedAt;
+          delete task._completedActionIdx;
+          delete task.actionRunning;
+          delete task.actionRunningAgentId;
+        }
+      }
+    }
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
