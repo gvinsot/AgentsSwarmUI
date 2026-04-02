@@ -48,19 +48,31 @@ export function stripToolCalls(text) {
 // Lock to prevent concurrent execution of the same task (lockKey → timestamp)
 // Uses a Map with TTL to prevent permanent deadlocks from crashed transitions.
 const _executionLocks = new Map();
-const EXECUTION_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Tracks which agents are currently running a transition (agentId → timestamp).
+// Checked by findAgentByRole to avoid assigning two tasks to the same agent.
+const _busyAgents = new Map();
+const LOCK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-function _acquireExecutionLock(lockKey) {
-  // Evict stale locks first
+function _evictStaleLocks() {
   const now = Date.now();
   for (const [key, ts] of _executionLocks) {
-    if (now - ts > EXECUTION_LOCK_TTL_MS) {
+    if (now - ts > LOCK_TTL_MS) {
       console.warn(`[Workflow] Evicting stale execution lock: ${key} (age: ${Math.round((now - ts) / 1000)}s)`);
       _executionLocks.delete(key);
     }
   }
+  for (const [key, ts] of _busyAgents) {
+    if (now - ts > LOCK_TTL_MS) {
+      console.warn(`[Workflow] Evicting stale busy-agent flag: ${key} (age: ${Math.round((now - ts) / 1000)}s)`);
+      _busyAgents.delete(key);
+    }
+  }
+}
+
+function _acquireExecutionLock(lockKey) {
+  _evictStaleLocks();
   if (_executionLocks.has(lockKey)) return false;
-  _executionLocks.set(lockKey, now);
+  _executionLocks.set(lockKey, Date.now());
   return true;
 }
 
@@ -78,10 +90,14 @@ function findAgentByRole(agentManager, role, ownerId = null) {
       && (!ownerId || !a.ownerId || a.ownerId === ownerId)
   );
   console.log(`[Workflow] findAgentByRole: role="${role}" ownerId="${ownerId}" total=${agents.length} matching=${matching.length} names=[${matching.map(a => `${a.name}(owner:${a.ownerId})`).join(', ')}]`);
-  // Only return idle agents that don't already have an active task
+  // Only return idle agents that aren't already running a transition
   const INACTIVE = new Set(['done', 'backlog', 'error']);
   return matching.find(a => {
     if (a.status !== 'idle') return false;
+    if (_busyAgents.has(a.id)) {
+      console.log(`[Workflow] Skipping agent "${a.name}" — busy running another transition`);
+      return false;
+    }
     const hasActive = (a.todoList || []).some(t => !INACTIVE.has(t.status));
     if (hasActive) {
       console.log(`[Workflow] Skipping agent "${a.name}" - already has an active task`);
@@ -128,6 +144,7 @@ export async function processTransition(task, agentManager, io) {
   let _execAgent = null;       // the agent running the execution (for error-path logging)
   let _execStartMsgIdx = -1;
   let _execStartedAt = null;
+  let _busyAgentId = null;     // track which agent we marked busy (for finally cleanup)
 
   try {
     const isDecide = mode === 'decide';
@@ -161,6 +178,7 @@ export async function processTransition(task, agentManager, io) {
       if (settings.ideasAgent) {
         agent = Array.from(agentManager.agents.values()).find(
           a => a.enabled !== false && a.status === 'idle'
+            && !_busyAgents.has(a.id)
             && (a.name || '').toLowerCase() === settings.ideasAgent.toLowerCase()
             && (!taskOwnerId || !a.ownerId || a.ownerId === taskOwnerId)
         );
@@ -173,6 +191,10 @@ export async function processTransition(task, agentManager, io) {
       _executionLocks.delete(lockKey);
       return { skipped: 'no-idle-agent' };
     }
+
+    // Mark agent as busy for the duration of this transition
+    _busyAgents.set(agent.id, Date.now());
+    _busyAgentId = agent.id;
 
     // Store the executing agent ID on the task for stop functionality
     // Also update assignee to reflect which agent is currently working on this task
@@ -423,6 +445,7 @@ Execute the instructions above and update the task status accordingly.`;
     }
   } finally {
     _executionLocks.delete(lockKey);
+    if (_busyAgentId) _busyAgents.delete(_busyAgentId);
     // Clear actionRunning flag
     const creatorAgentFinal = agentManager.agents.get(task.agentId);
     const actualTaskFinal = creatorAgentFinal?.todoList?.find(t => t.id === task.id);
