@@ -39,7 +39,7 @@ class GlobalTaskStore {
   }
 
   getAll() {
-    return Array.from(this.tasks.values());
+    return Array.from(this.tasks.values()).filter(t => !t.deletedAt);
   }
 
   add({ title, description, priority, status, assignee, project, type }) {
@@ -127,13 +127,45 @@ class GlobalTaskStore {
   }
 
   delete(id) {
+    const task = this.tasks.get(id);
+    if (!task || task.deletedAt) return false;
+    task.deletedAt = new Date().toISOString();
+    task.updatedAt = new Date().toISOString();
+    if (!task.history) task.history = [];
+    task.history.push({ type: 'deleted', at: task.deletedAt, by: null });
+    this._save();
+    return true;
+  }
+
+  restore(id) {
+    const task = this.tasks.get(id);
+    if (!task || !task.deletedAt) return null;
+    delete task.deletedAt;
+    task.updatedAt = new Date().toISOString();
+    if (!task.history) task.history = [];
+    task.history.push({ type: 'restored', at: task.updatedAt, by: null });
+    this._save();
+    return task;
+  }
+
+  hardDelete(id) {
     const existed = this.tasks.has(id);
     this.tasks.delete(id);
     if (existed) this._save();
     return existed;
   }
 
+  getDeleted() {
+    return Array.from(this.tasks.values()).filter(t => !!t.deletedAt);
+  }
+
   get(id) {
+    const task = this.tasks.get(id);
+    if (!task || task.deletedAt) return null;
+    return task;
+  }
+
+  getIncludingDeleted(id) {
     return this.tasks.get(id) || null;
   }
 
@@ -144,7 +176,7 @@ class GlobalTaskStore {
   }
 
   getStats(projectFilter = null) {
-    let tasks = Array.from(this.tasks.values());
+    let tasks = Array.from(this.tasks.values()).filter(t => !t.deletedAt);
     if (projectFilter) {
       tasks = tasks.filter(t => t.project === projectFilter);
     }
@@ -229,7 +261,7 @@ class GlobalTaskStore {
   }
 
   getTimeSeries(projectFilter = null, days = 30) {
-    let tasks = Array.from(this.tasks.values());
+    let tasks = Array.from(this.tasks.values()).filter(t => !t.deletedAt);
     if (projectFilter) {
       tasks = tasks.filter(t => t.project === projectFilter);
     }

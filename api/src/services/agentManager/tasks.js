@@ -1,6 +1,6 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent } from '../database.js';
+import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { processTransition } from '../transitionProcessor.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
@@ -250,10 +250,43 @@ export const tasksMethods = {
   deleteTask(agentId, taskId) {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
+    const task = agent.todoList.find(t => t.id === taskId);
+    if (!task) return false;
+    // Record deletion in history before removing from memory
+    if (!task.history) task.history = [];
+    task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'deleted' });
+    saveTaskToDb({ ...task, agentId });
+    // Remove from in-memory list
     agent.todoList = agent.todoList.filter(t => t.id !== taskId);
+    // Soft-delete in DB (sets deleted_at)
     deleteTaskFromDb(taskId);
     this._emit('agent:updated', this._sanitize(agent));
+    this._emit('task:deleted', { taskId, agentId });
     return true;
+  },
+
+  async restoreTask(taskId) {
+    const restored = await restoreTaskFromDb(taskId);
+    if (!restored) return null;
+    // Re-add to in-memory agent todoList
+    const agent = this.agents.get(restored.agentId);
+    if (agent) {
+      if (!restored.history) restored.history = [];
+      restored.history.push({ status: restored.status, at: new Date().toISOString(), by: 'user', type: 'restored' });
+      agent.todoList.push(restored);
+      saveTaskToDb({ ...restored, agentId: restored.agentId });
+      this._emit('agent:updated', this._sanitize(agent));
+    }
+    return restored;
+  },
+
+  async hardDeleteTask(taskId) {
+    const result = await hardDeleteTaskFromDb(taskId);
+    return result;
+  },
+
+  async getDeletedTasks() {
+    return getDeletedTasks();
   },
 
   clearTasks(agentId) {
@@ -273,7 +306,7 @@ export const tasksMethods = {
     if (!taskToTransfer) return null;
     const prevStatus = taskToTransfer.status;
     fromAgent.todoList = fromAgent.todoList.filter(t => t.id !== taskId);
-    deleteTaskFromDb(taskId);
+    hardDeleteTaskFromDb(taskId); // Hard delete since the task is recreated on the target agent
     this._emit('agent:updated', this._sanitize(fromAgent));
     const newTask = this.addTask(toAgentId, taskToTransfer.text, taskToTransfer.project, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus);
     if (newTask) {

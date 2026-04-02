@@ -599,6 +599,24 @@ export const deleteTask = (taskId) =>
     headers: getHeaders(),
   }).then(handleResponse);
 
+/* ── Soft-delete management ──────────────────────────────────────────────── */
+export const getDeletedTasks = () =>
+  fetch(`${API_BASE}/tasks/deleted`, {
+    headers: getHeaders(),
+  }).then(handleResponse);
+
+export const restoreTask = (taskId) =>
+  fetch(`${API_BASE}/tasks/${taskId}/restore`, {
+    method: 'POST',
+    headers: getHeaders(),
+  }).then(handleResponse);
+
+export const hardDeleteTask = (taskId) =>
+  fetch(`${API_BASE}/tasks/${taskId}/permanent`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  }).then(handleResponse);
+
 /* ── Commit diff ──────────────────────────────────────────────────────────── */
 export const getCommitDiff = (taskId, hash) =>
   fetch(`${API_BASE}/tasks/${taskId}/commits/${hash}/diff`, {

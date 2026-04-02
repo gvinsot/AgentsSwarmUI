@@ -30,13 +30,48 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// DELETE /tasks/:id
+// DELETE /tasks/:id — soft delete
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const mgr = req.app.get('agentManager');
     const task = mgr.getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     const ok = mgr.deleteTask(task.agentId, req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /tasks/deleted — list soft-deleted tasks
+router.get('/deleted', requireAuth, async (req, res) => {
+  try {
+    const mgr = req.app.get('agentManager');
+    const deleted = await mgr.getDeletedTasks();
+    res.json(deleted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /tasks/:id/restore — restore a soft-deleted task
+router.post('/:id/restore', requireAuth, async (req, res) => {
+  try {
+    const mgr = req.app.get('agentManager');
+    const restored = await mgr.restoreTask(req.params.id);
+    if (!restored) return res.status(404).json({ error: 'Deleted task not found' });
+    res.json(restored);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /tasks/:id/permanent — permanently delete a task
+router.delete('/:id/permanent', requireAuth, async (req, res) => {
+  try {
+    const mgr = req.app.get('agentManager');
+    const ok = await mgr.hardDeleteTask(req.params.id);
     if (!ok) return res.status(404).json({ error: 'Task not found' });
     res.json({ ok: true });
   } catch (err) {

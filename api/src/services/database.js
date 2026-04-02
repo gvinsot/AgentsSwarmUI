@@ -170,6 +170,9 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)').catch(() => {});
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id)').catch(() => {});
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)').catch(() => {});
+      // Soft delete: add deleted_at column
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ').catch(() => {});
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_deleted ON tasks(deleted_at)').catch(() => {});
       console.log('✅ Tasks table ready');
 
       // Create boards table if not exists
@@ -917,7 +920,7 @@ export async function getTasksByAgent(agentId) {
   if (!pool) return [];
   try {
     const result = await pool.query(
-      'SELECT * FROM tasks WHERE agent_id = $1 ORDER BY created_at',
+      'SELECT * FROM tasks WHERE agent_id = $1 AND deleted_at IS NULL ORDER BY created_at',
       [agentId]
     );
     return result.rows.map(rowToTask);
@@ -930,7 +933,7 @@ export async function getTasksByAgent(agentId) {
 export async function getAllTasks() {
   if (!pool) return [];
   try {
-    const result = await pool.query('SELECT * FROM tasks ORDER BY created_at');
+    const result = await pool.query('SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY created_at');
     return result.rows.map(rowToTask);
   } catch (err) {
     console.error('Failed to load all tasks:', err.message);
@@ -941,7 +944,7 @@ export async function getAllTasks() {
 export async function getTaskById(taskId) {
   if (!pool) return null;
   try {
-    const result = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    const result = await pool.query('SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL', [taskId]);
     if (result.rows.length === 0) return null;
     return rowToTask(result.rows[0]);
   } catch (err) {
@@ -993,20 +996,75 @@ export async function saveTaskToDb(task) {
 export async function deleteTaskFromDb(taskId) {
   if (!pool) return false;
   try {
+    const result = await pool.query(
+      'UPDATE tasks SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
+      [taskId]
+    );
+    return result.rowCount > 0;
+  } catch (err) {
+    console.error('Failed to soft-delete task:', err.message);
+    return false;
+  }
+}
+
+export async function hardDeleteTaskFromDb(taskId) {
+  if (!pool) return false;
+  try {
     const result = await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
     return result.rowCount > 0;
   } catch (err) {
-    console.error('Failed to delete task:', err.message);
+    console.error('Failed to hard-delete task:', err.message);
     return false;
+  }
+}
+
+export async function restoreTaskFromDb(taskId) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      'UPDATE tasks SET deleted_at = NULL, updated_at = NOW() WHERE id = $1 AND deleted_at IS NOT NULL RETURNING *',
+      [taskId]
+    );
+    if (result.rows.length === 0) return null;
+    return rowToTask(result.rows[0]);
+  } catch (err) {
+    console.error('Failed to restore task:', err.message);
+    return null;
+  }
+}
+
+export async function getDeletedTasks() {
+  if (!pool) return [];
+  try {
+    const result = await pool.query('SELECT * FROM tasks WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get deleted tasks:', err.message);
+    return [];
+  }
+}
+
+export async function getDeletedTaskById(taskId) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query('SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NOT NULL', [taskId]);
+    if (result.rows.length === 0) return null;
+    return rowToTask(result.rows[0]);
+  } catch (err) {
+    console.error('Failed to get deleted task:', err.message);
+    return null;
   }
 }
 
 export async function deleteTasksByAgent(agentId) {
   if (!pool) return;
   try {
-    await pool.query('DELETE FROM tasks WHERE agent_id = $1', [agentId]);
+    await pool.query(
+      'UPDATE tasks SET deleted_at = NOW(), updated_at = NOW() WHERE agent_id = $1 AND deleted_at IS NULL',
+      [agentId]
+    );
   } catch (err) {
-    console.error('Failed to delete tasks for agent:', err.message);
+    console.error('Failed to soft-delete tasks for agent:', err.message);
   }
 }
 
@@ -1033,6 +1091,7 @@ function rowToTask(row) {
     updatedAt: row.updated_at?.toISOString?.() || row.updated_at,
     completedAt: row.completed_at?.toISOString?.() || row.completed_at || undefined,
     startedAt: row.started_at?.toISOString?.() || row.started_at || undefined,
+    deletedAt: row.deleted_at?.toISOString?.() || row.deleted_at || undefined,
   };
 }
 
