@@ -26,34 +26,7 @@ if [ -n "$RUN_AS_USER" ]; then
   fi
 fi
 
-# 1. Build Docker images
-echo ""
-echo "🔨 Building Docker images..."
-cd "${SCRIPT_DIR}"
-docker compose -f docker-compose.swarm.yml build
-
-# 2. Push images to registry
-echo ""
-echo "📤 Pushing images to registry..."
-docker compose -f docker-compose.swarm.yml push
-
-# 3. Build client dist on the host (for bind-mounted volume)
-echo ""
-echo "📦 Building frontend assets on host..."
-CLIENT_DIR="${HOST_CODE_PATH}/PulsarTeam/frontend"
-if [ -d "${CLIENT_DIR}" ]; then
-  docker run --rm \
-    -v "${CLIENT_DIR}:/build" \
-    -w /build \
-    node:20-alpine \
-    sh -c "npm ci && npm run build"
-  echo "   ✅ Frontend built at ${CLIENT_DIR}/dist"
-else
-  echo "   ⚠️  Frontend directory not found at ${CLIENT_DIR}"
-  echo "      Falling back to image-baked dist (no bind mount override)"
-fi
-
-# 4. Ensure api source exists on host
+# 1. Ensure api source exists on host
 echo ""
 SERVER_DIR="${HOST_CODE_PATH}/PulsarTeam/api"
 if [ -d "${SERVER_DIR}/src" ]; then
