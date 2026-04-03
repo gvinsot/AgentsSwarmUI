@@ -41,7 +41,7 @@ COPY api/src ./src
 
 # ── Test stage ──────────────────────────────────────────────
 FROM base AS test
-CMD ["sh", "-c", "node --test src/services/__tests__/*.test.js"]
+CMD ["sh", "-c", "node --experimental-test-module-mocks --test src/services/__tests__/*.test.js"]
 
 # ── Production stage ────────────────────────────────────────
 FROM base AS production
