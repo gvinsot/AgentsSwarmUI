@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
-import { Octokit } from '@octokit/rest';
 import { getPool, getBoardById, rowToTask } from '../services/database.js';
 
 const router = Router();
@@ -516,6 +515,7 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
       return res.status(400).json({ error: 'Cannot determine GitHub repository for this task' });
     }
 
+    const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: token });
     const { data: commit } = await octokit.repos.getCommit({
       owner: ownerRepo.owner,
