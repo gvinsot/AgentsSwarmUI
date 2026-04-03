@@ -1118,24 +1118,16 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
         if _is_agent_token_expired(agent_user) and time.time() >= _token_cooldown_until:
             refreshed = await _refresh_agent_token(agent_user)
             if not refreshed:
-                login_url = _initiate_owner_login(_owner_id) if _owner_id else _initiate_agent_login(agent_id)
-                yield {
-                    "type": "error",
-                    "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
-                    "login_url": login_url,
-                }
-                return
+                who = f"owner {_owner_id}" if _owner_id else f"agent {agent_id}"
+                logger.warning(f"[Auth] Proactive token refresh failed for {who}, continuing with existing token...")
+                # Don't stop — let the CLI try with the existing token.
+                # If it truly fails, the mid-stream auth error handler will catch it.
     else:
         if _is_token_expired() and time.time() >= _token_cooldown_until:
             refreshed = await _refresh_oauth_token()
             if not refreshed:
-                login_url = await _get_login_url()
-                yield {
-                    "type": "error",
-                    "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
-                    "login_url": login_url,
-                }
-                return
+                logger.warning("[Auth] Proactive global token refresh failed, continuing with existing token...")
+                # Don't stop — let the CLI try with the existing token.
 
     agent_label = f" (user={agent_user['username']})" if agent_user else ""
 
@@ -1221,7 +1213,10 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                     else:
                         if _auth_retry >= MAX_AUTH_RETRIES:
                             logger.error(f"Auth retry limit ({MAX_AUTH_RETRIES}) reached, aborting")
-                        login_url = await _get_login_url()
+                        if agent_user:
+                            login_url = _initiate_owner_login(_owner_id) if _owner_id else _initiate_agent_login(agent_id)
+                        else:
+                            login_url = await _get_login_url()
                         yield {
                             "type": "error",
                             "content": f"OAuth token expired and refresh failed. Please re-authenticate: {login_url}",
@@ -1250,7 +1245,10 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                             async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id, owner_id=owner_id, task_id=task_id, _auth_retry=_auth_retry + 1):
                                 yield ev
                             return
-                    login_url = await _get_login_url()
+                    if agent_user:
+                        login_url = _initiate_owner_login(_owner_id) if _owner_id else _initiate_agent_login(agent_id)
+                    else:
+                        login_url = await _get_login_url()
                     if login_url:
                         yield {
                             "type": "error",
