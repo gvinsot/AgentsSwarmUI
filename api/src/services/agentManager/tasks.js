@@ -92,6 +92,7 @@ export const tasksMethods = {
     task.status = status;
     // Clear pending on enter signal
     clearTaskSignal(taskId, 'pendingOnEnter');
+    delete task._pendingOnEnter;
     // Clear execution state — processTransition will re-set startedAt when
     // a workflow action genuinely starts execution. Without this, stale
     // startedAt from a previous execution causes the task loop to resume

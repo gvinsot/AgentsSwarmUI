@@ -386,8 +386,8 @@ test('setTaskStatus clears error fields when recovering from error', async () =>
   assert.equal(task.error, 'something broke');
 
   mgr.setTaskStatus(agentId, task.id, 'backlog', { skipAutoRefine: true });
-  assert.equal(task.errorFromStatus, undefined);
-  assert.equal(task.error, undefined);
+  assert.equal(task.errorFromStatus, null);
+  assert.equal(task.error, null);
 });
 
 test('setTaskStatus clears _pendingOnEnter', async () => {
@@ -508,7 +508,7 @@ test('executionStatus tracks watching/stopped lifecycle', async () => {
   const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
   const { task } = addTask(mgr, 'Execution status test', 'code');
 
-  assert.equal(task.executionStatus, undefined);
+  assert.ok(!task.executionStatus, 'should start without executionStatus');
 
   task.executionStatus = 'watching';
   task._executionWatching = true;
@@ -970,8 +970,8 @@ test('error → recovery → completion preserves full history', async () => {
   assert.equal(task.errorFromStatus, 'code');
 
   mgr.setTaskStatus(agentId, task.id, 'code', { skipAutoRefine: true, by: 'user' });
-  assert.equal(task.errorFromStatus, undefined);
-  assert.equal(task.error, undefined);
+  assert.equal(task.errorFromStatus, null);
+  assert.equal(task.error, null);
 
   mgr.setTaskStatus(agentId, task.id, 'done', { skipAutoRefine: true, by: 'workflow' });
   assert.equal(task.status, 'done');
