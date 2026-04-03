@@ -1046,10 +1046,14 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
         output_text = parsed.get("result", stdout)
         cost = parsed.get("cost_usd", 0)
         duration = parsed.get("duration_ms", 0)
-        total_tokens = parsed.get("total_tokens", 0)
+        # Token data: Claude CLI stores it in a usage sub-object
+        usage = parsed.get("usage", {}) or {}
+        input_tokens = usage.get("input_tokens", 0) or 0
+        output_tokens = usage.get("output_tokens", 0) or 0
+        total_tokens = parsed.get("total_tokens", 0) or (input_tokens + output_tokens)
 
         if VERBOSE:
-            logger.info(f"Claude Code completed: cost=${cost:.4f}, duration={duration}ms, tokens={total_tokens}")
+            logger.info(f"Claude Code completed: cost=${cost:.4f}, duration={duration}ms, tokens={total_tokens} (in={input_tokens}, out={output_tokens})")
 
         return {
             "status": "success",
@@ -1057,6 +1061,8 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
             "cost_usd": cost,
             "duration_ms": duration,
             "total_tokens": total_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         }
     except json.JSONDecodeError:
         # If not valid JSON, treat raw stdout as the result
@@ -1296,8 +1302,12 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 result_text = event.get("result", "")
                 cost = event.get("cost_usd", 0)
                 duration = event.get("duration_ms", 0)
-                total_tokens = event.get("total_tokens", 0)
-                yield {"type": "result", "content": result_text or "", "cost_usd": cost, "duration_ms": duration, "total_tokens": total_tokens}
+                # Token data: Claude CLI stores it in a usage sub-object
+                usage = event.get("usage", {}) or {}
+                input_tokens = usage.get("input_tokens", 0) or 0
+                output_tokens = usage.get("output_tokens", 0) or 0
+                total_tokens = event.get("total_tokens", 0) or (input_tokens + output_tokens)
+                yield {"type": "result", "content": result_text or "", "cost_usd": cost, "duration_ms": duration, "total_tokens": total_tokens, "input_tokens": input_tokens, "output_tokens": output_tokens}
 
             elif event_type == "error":
                 error_msg = event.get("error", {})
@@ -2081,7 +2091,7 @@ async def stream_execution(
                     # Send completion signal with metadata; only include output
                     # if nothing was streamed yet (avoids duplicating content).
                     output = "" if has_streamed_text else event["content"]
-                    yield f"data: {json.dumps({'status': 'success', 'output': output, 'cost_usd': event.get('cost_usd'), 'duration_ms': event.get('duration_ms')}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'success', 'output': output, 'cost_usd': event.get('cost_usd'), 'duration_ms': event.get('duration_ms'), 'total_tokens': event.get('total_tokens'), 'input_tokens': event.get('input_tokens'), 'output_tokens': event.get('output_tokens')}, ensure_ascii=False)}\n\n"
                 elif event_type == "error":
                     yield f"data: {json.dumps({'status': 'error', 'error': event['content']}, ensure_ascii=False)}\n\n"
 
@@ -2178,6 +2188,8 @@ async def openai_chat_completions(
 
         has_streamed_text = False
         total_tokens = 0
+        input_tokens = 0
+        output_tokens_val = 0
         cost_usd = 0
         async for event in stream_claude_events(prompt, system_prompt, agent_id=x_agent_id, owner_id=x_owner_id, task_id=x_task_id):
             event_type = event.get("type", "")
@@ -2190,6 +2202,8 @@ async def openai_chat_completions(
                 # Capture usage metadata from the final result event
                 cost_usd = event.get("cost_usd", 0) or 0
                 total_tokens = event.get("total_tokens", 0) or 0
+                input_tokens = event.get("input_tokens", 0) or 0
+                output_tokens_val = event.get("output_tokens", 0) or 0
                 # Only send the final result if we haven't already streamed
                 # text events (which contain the same content).
                 if not has_streamed_text:
@@ -2206,9 +2220,9 @@ async def openai_chat_completions(
             "created": created, "model": model,
             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
             "usage": {
-                "prompt_tokens": total_tokens,
-                "completion_tokens": 0,
-                "total_tokens": total_tokens,
+                "prompt_tokens": input_tokens or total_tokens,
+                "completion_tokens": output_tokens_val,
+                "total_tokens": total_tokens or (input_tokens + output_tokens_val),
                 "cost_usd": cost_usd,
             },
         }
@@ -2229,9 +2243,9 @@ async def openai_chat_completions(
         "model": model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
         "usage": {
-            "prompt_tokens": result.get("total_tokens", 0),
-            "completion_tokens": 0,
-            "total_tokens": result.get("total_tokens", 0),
+            "prompt_tokens": result.get("input_tokens", 0) or result.get("total_tokens", 0),
+            "completion_tokens": result.get("output_tokens", 0),
+            "total_tokens": result.get("total_tokens", 0) or (result.get("input_tokens", 0) + result.get("output_tokens", 0)),
             "cost_usd": result.get("cost_usd", 0),
         },
     }
@@ -2257,6 +2271,8 @@ async def openai_completions(
 
         has_streamed_text = False
         total_tokens = 0
+        input_tokens = 0
+        output_tokens_val = 0
         cost_usd = 0
         async for event in stream_claude_events(request.prompt, request.system_prompt, agent_id=x_agent_id, owner_id=x_owner_id, task_id=x_task_id):
             event_type = event.get("type", "")
@@ -2269,6 +2285,8 @@ async def openai_completions(
             elif event_type == "result":
                 cost_usd = event.get("cost_usd", 0) or 0
                 total_tokens = event.get("total_tokens", 0) or 0
+                input_tokens = event.get("input_tokens", 0) or 0
+                output_tokens_val = event.get("output_tokens", 0) or 0
                 if not has_streamed_text:
                     content = event["content"]
                     for piece in chunk_text(content):
@@ -2282,9 +2300,9 @@ async def openai_completions(
             "created": created, "model": model,
             "choices": [{"index": 0, "text": "", "finish_reason": "stop"}],
             "usage": {
-                "prompt_tokens": total_tokens,
-                "completion_tokens": 0,
-                "total_tokens": total_tokens,
+                "prompt_tokens": input_tokens or total_tokens,
+                "completion_tokens": output_tokens_val,
+                "total_tokens": total_tokens or (input_tokens + output_tokens_val),
                 "cost_usd": cost_usd,
             },
         }
@@ -2304,9 +2322,9 @@ async def openai_completions(
         "model": model,
         "choices": [{"index": 0, "text": content, "finish_reason": "stop"}],
         "usage": {
-            "prompt_tokens": result.get("total_tokens", 0),
-            "completion_tokens": 0,
-            "total_tokens": result.get("total_tokens", 0),
+            "prompt_tokens": result.get("input_tokens", 0) or result.get("total_tokens", 0),
+            "completion_tokens": result.get("output_tokens", 0),
+            "total_tokens": result.get("total_tokens", 0) or (result.get("input_tokens", 0) + result.get("output_tokens", 0)),
             "cost_usd": result.get("cost_usd", 0),
         },
     }
