@@ -35,23 +35,28 @@ export const toolsMethods = {
       return [];
     }
     
-    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project || 'none'}, sandbox=${this.sandboxManager ? (this.sandboxManager.hasSandbox(agentId) ? 'ready' : 'not-initialized') : 'no-manager'})`);
+    console.log(`🔧 Agent ${agent.name} executing ${toolCalls.length} tool(s) (project=${agent.project || 'none'}, execution=${this.executionManager ? (this.executionManager.hasEnvironment(agentId) ? 'ready' : 'not-initialized') : 'no-manager'})`);
 
-    if (this.sandboxManager) {
+    if (this.executionManager) {
       try {
+        // Bind agent to the correct execution provider based on LLM config
+        const llmCfg = this.resolveLlmConfig(agent);
+        const providerType = llmCfg.managesContext ? 'coder' : 'sandbox';
+        this.executionManager.bindAgent(agentId, providerType);
+
         if (agent.project) {
           const gitUrl = await getProjectGitUrl(agent.project);
           if (gitUrl) {
-            await this.sandboxManager.ensureSandbox(agentId, agent.project, gitUrl);
+            await this.executionManager.ensureProject(agentId, agent.project, gitUrl);
           } else {
-            console.warn(`⚠️  [Sandbox] No git URL found for project "${agent.project}" — sandbox will NOT be initialized`);
+            console.warn(`⚠️  [Execution] No git URL found for project "${agent.project}" — environment will NOT be initialized`);
           }
         } else {
-          await this.sandboxManager.ensureSandbox(agentId);
+          await this.executionManager.ensureProject(agentId);
         }
-        console.log(`📦 [Sandbox] After ensureSandbox: hasSandbox=${this.sandboxManager.hasSandbox(agentId)}`);
+        console.log(`📦 [Execution] After ensureProject: hasEnvironment=${this.executionManager.hasEnvironment(agentId)}, provider=${providerType}`);
       } catch (err) {
-        console.error(`⚠️  [Sandbox] Failed to ensure sandbox for ${agent.name}:`, err.message);
+        console.error(`⚠️  [Execution] Failed to ensure environment for ${agent.name}:`, err.message);
       }
     }
 
@@ -276,7 +281,7 @@ export const toolsMethods = {
         const errorTasks = todoList.filter(t => t.status === 'error').length;
         const totalTasks = todoList.length;
         const msgCount = (agent.conversationHistory || []).length;
-        const hasSandbox = this.sandboxManager ? this.sandboxManager.hasSandbox(agent.id) : false;
+        const hasSandbox = this.executionManager ? this.executionManager.hasEnvironment(agent.id) : false;
         const currentActiveTask = todoList.find(t => this._isActiveTaskStatus(t.status));
         const currentTaskInfo = agent.currentTask
           ? agent.currentTask.slice(0, 120)
@@ -431,11 +436,7 @@ export const toolsMethods = {
 
         const llmConfig = this.resolveLlmConfig(agent);
         const toolOptions = {};
-        if (llmConfig.managesContext) {
-          toolOptions.coderServiceUrl = 'http://coder-service:8000';
-          toolOptions.coderServiceApiKey = llmConfig.apiKey || process.env.CODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
-        }
-        const result = await executeTool(call.tool, call.args, agent.project, this.sandboxManager, agentId, toolOptions);
+        const result = await executeTool(call.tool, call.args, agent.project, this.executionManager, agentId, toolOptions);
 
         // Schedule code index re-indexation for file modifications
         if (result.success && (call.tool === 'write_file' || call.tool === 'append_file') && agent.project) {

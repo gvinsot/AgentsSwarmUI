@@ -11,7 +11,7 @@ import { codeIndexRoutes } from './routes/codeIndex.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
-import { SandboxManager } from './services/sandboxManager.js';
+import { ExecutionManager } from './services/execution/index.js';
 import { MCPManager } from './services/mcpManager.js';
 import { CodeIndexService } from './services/codeIndexService.js';
 import { createCodeIndexMcpHandler } from './services/codeIndexMcp.js';
@@ -68,10 +68,15 @@ const io = new Server(httpServer, {
 });
 
 const skillManager = new SkillManager();
-const sandboxManager = new SandboxManager();
+const executionManager = new ExecutionManager({
+  coderOptions: {
+    baseUrl: process.env.CODER_SERVICE_URL || 'http://coder-service:8000',
+    apiKey: process.env.CODER_SERVICE_API_KEY || ''
+  }
+});
 const mcpManager = new MCPManager();
 const codeIndexService = new CodeIndexService();
-const agentManager = new AgentManager(io, skillManager, sandboxManager, mcpManager, codeIndexService);
+const agentManager = new AgentManager(io, skillManager, executionManager, mcpManager, codeIndexService);
 app.set('io', io);
 app.set('agentManager', agentManager);
 
@@ -231,7 +236,7 @@ async function start() {
   startJiraSync(agentManager, io, 60000); // sync every 60s
   registerWebhook().catch(() => {}); // auto-register Jira webhook
 
-  await sandboxManager.cleanupOrphans();
+  await executionManager.cleanupOrphans();
 
   await new Promise((resolve) => {
     httpServer.listen(PORT, () => {
@@ -250,7 +255,7 @@ async function shutdown() {
   console.log('\\n🛑 Shutting down — disconnecting MCP servers, destroying sandbox containers...');
   agentManager.stopTaskLoop();
   await mcpManager.disconnectAll();
-  await sandboxManager.destroyAll();
+  await executionManager.destroyAll();
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);

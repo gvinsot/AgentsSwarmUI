@@ -1,16 +1,17 @@
+// ─── SandboxExecutionProvider: Docker-exec-based execution ──────────────────
+//
+// Wraps the existing SandboxManager (shared Docker container with per-agent
+// Linux users) behind the unified ExecutionProvider interface.
+
+import { ExecutionProvider } from './executionProvider.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-/**
- * Shared sandbox manager:
- * - Connects to an externally-managed sandbox container (Docker Swarm service)
- * - Creates one Linux user per agent inside that container
- * - Executes tool commands as the corresponding agent user
- */
-export class SandboxManager {
+export class SandboxExecutionProvider extends ExecutionProvider {
   constructor() {
+    super();
     this.sandboxServiceFilter = process.env.SANDBOX_SHARED_CONTAINER_NAME || 'sandbox';
     this.baseWorkspace = process.env.SANDBOX_BASE_WORKSPACE || '/workspace';
     this.agentUsers = new Map(); // agentId -> { username, project }
@@ -18,19 +19,19 @@ export class SandboxManager {
     this._fileTreeCache = new Map(); // agentId -> { project, tree, timestamp }
   }
 
-  async ensureSandbox(agentId, project = null, gitUrl = null) {
-    console.log(`📦 [Sandbox] ensureSandbox(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
+  // ── ExecutionProvider interface ───────────────────────────────────────
+
+  async ensureProject(agentId, project = null, gitUrl = null) {
+    console.log(`📦 [Sandbox] ensureProject(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
     await this._ensureSharedContainerRunning();
 
     const existing = this.agentUsers.get(agentId);
     if (existing) {
-      // Re-create user if container was replaced and user is unverified
       if (!existing._userVerified) {
         console.log(`📦 [Sandbox] Re-creating user "${existing.username}" after container change...`);
         await this._ensureLinuxUser(existing.username);
         await this._ensureAgentWorkspace(existing.username);
         existing._userVerified = true;
-        // Re-clone project since container storage is gone
         if (existing.project && gitUrl) {
           await this._cloneProjectForUser(existing.username, existing.project, gitUrl);
           this._generateFileTree(agentId).catch(() => {});
@@ -44,9 +45,6 @@ export class SandboxManager {
 
     const username = this._username(agentId);
 
-    // Check if the Linux user and project already exist in the container
-    // (e.g. server restarted but container is the same). This avoids
-    // re-creating the user and re-cloning the project (~3s saved).
     let userExists = false;
     let projectExists = false;
     try {
@@ -67,7 +65,6 @@ export class SandboxManager {
     if (userExists && projectExists) {
       console.log(`📦 [Sandbox] Reusing existing sandbox for "${username}" (project: ${project})`);
       this.agentUsers.set(agentId, { username, project, _userVerified: true });
-      // Pull latest code
       if (project && gitUrl) {
         await this._cloneProjectForUser(username, project, gitUrl);
       }
@@ -81,7 +78,6 @@ export class SandboxManager {
       console.log(`📦 [Sandbox] Agent ${agentId} mapped to shared container user "${username}" (project: ${project || 'none'})`);
     }
 
-    // Generate file tree (awaited so it's ready for the system prompt)
     if (project) {
       await this._generateFileTree(agentId).catch(() => {});
     }
@@ -114,14 +110,14 @@ export class SandboxManager {
     console.log('🗑️  [Sandbox] Cleared all agent user mappings (container managed by Swarm)');
   }
 
-  async cleanupOrphans() {
-    // Container lifecycle is managed by Docker Swarm — nothing to clean up
+  hasEnvironment(agentId) {
+    return this.agentUsers.has(agentId);
   }
 
-  /**
-   * Get a compact file tree for the agent's project (cached, max 3 levels deep).
-   * Returns null if no sandbox or tree not yet generated.
-   */
+  getProject(agentId) {
+    return this.agentUsers.get(agentId)?.project || null;
+  }
+
   getFileTree(agentId) {
     const cached = this._fileTreeCache.get(agentId);
     if (!cached) return null;
@@ -130,61 +126,11 @@ export class SandboxManager {
     return cached.tree;
   }
 
-  /**
-   * Generate and cache a compact file tree for the agent's current project.
-   * Only lists depth 1 (root-level files and folders) to minimize token usage.
-   * Agents can use @list_dir for deeper exploration.
-   */
-  async _generateFileTree(agentId) {
-    const entry = this.agentUsers.get(agentId);
-    if (!entry) return;
-    const basePath = entry.project
-      ? `${this._userWorkspace(entry.username)}/${entry.project}`
-      : this._userWorkspace(entry.username);
-    try {
-      const { stdout } = await this._execAsAgentUser(
-        entry.username,
-        `ls -1F ${this._sh(basePath)} | head -100`,
-        { timeout: 10000 }
-      );
-      const lines = stdout.trim().split('\n').filter(l => l);
-      if (lines.length === 0) {
-        this._fileTreeCache.set(agentId, { project: entry.project, tree: null, timestamp: Date.now() });
-        return;
-      }
-      const tree = lines.join('\n');
-      this._fileTreeCache.set(agentId, { project: entry.project, tree, timestamp: Date.now() });
-      console.log(`🌳 [Sandbox] File tree cached for agent ${agentId} (${lines.length} entries)`);
-    } catch (err) {
-      console.warn(`⚠️  [Sandbox] Failed to generate file tree for ${agentId}: ${err.message}`);
-    }
-  }
-
-  /**
-   * Force refresh the cached file tree (e.g., after git operations).
-   */
   async refreshFileTree(agentId) {
     await this._generateFileTree(agentId);
   }
 
-  hasSandbox(agentId) {
-    return this.agentUsers.has(agentId);
-  }
-
-  getSandboxProject(agentId) {
-    return this.agentUsers.get(agentId)?.project || null;
-  }
-
-  async exec(agentId, command, options = {}) {
-    const entry = this.agentUsers.get(agentId);
-    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
-
-    const { username, project } = entry;
-    const cwd = options.cwd || (project ? `${this._userWorkspace(username)}/${project}` : this._userWorkspace(username));
-    const timeout = options.timeout || 300000; // 5 minutes default
-
-    return this._execAsAgentUser(username, command, { cwd, timeout });
-  }
+  // ── File operations ───────────────────────────────────────────────────
 
   async readFile(agentId, filePath) {
     const entry = this.agentUsers.get(agentId);
@@ -199,9 +145,7 @@ export class SandboxManager {
     if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
     const fullPath = this._projectPath(entry, filePath);
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-
     await this._execAsAgentUser(entry.username, `mkdir -p ${this._sh(dirPath)}`);
-
     return this._execPipedAsUser(entry.username, `cat > ${this._sh(fullPath)}`, content);
   }
 
@@ -210,9 +154,7 @@ export class SandboxManager {
     if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
     const fullPath = this._projectPath(entry, filePath);
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-
     await this._execAsAgentUser(entry.username, `mkdir -p ${this._sh(dirPath)}`);
-
     return this._execPipedAsUser(entry.username, `cat >> ${this._sh(fullPath)}`, content);
   }
 
@@ -250,6 +192,160 @@ export class SandboxManager {
     return matches;
   }
 
+  // ── Command execution ─────────────────────────────────────────────────
+
+  async exec(agentId, command, options = {}) {
+    const entry = this.agentUsers.get(agentId);
+    if (!entry) throw new Error(`No sandbox running for agent ${agentId}`);
+
+    const { username, project } = entry;
+    const cwd = options.cwd || (project ? `${this._userWorkspace(username)}/${project}` : this._userWorkspace(username));
+    const timeout = options.timeout || 300000;
+
+    return this._execAsAgentUser(username, command, { cwd, timeout });
+  }
+
+  // ── Git operations ────────────────────────────────────────────────────
+
+  async gitCommitPush(agentId, message) {
+    const safeMsg = sanitizeCommitMessage(message);
+    let commitHash = null;
+    let commitOutput = '';
+    try {
+      // Step 1: Stage all changes
+      await this.exec(agentId, `git add -A`, { timeout: 15000 });
+
+      // Step 2: Check if there are staged changes to commit
+      let hasStagedChanges = false;
+      try {
+        await this.exec(agentId, `git diff --cached --quiet`, { timeout: 10000 });
+        hasStagedChanges = false;
+      } catch {
+        hasStagedChanges = true;
+      }
+
+      if (!hasStagedChanges) {
+        return { success: true, result: 'Nothing to commit — working tree clean.' };
+      }
+
+      // Step 3: Ensure git config is set
+      const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
+      const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
+      await this.exec(
+        agentId,
+        `git config user.name >/dev/null 2>&1 || git config user.name '${gitName.replace(/'/g, "'\\''")}'; git config user.email >/dev/null 2>&1 || git config user.email '${gitEmail.replace(/'/g, "'\\''")}'`,
+        { timeout: 10000 }
+      );
+
+      // Step 4: Commit
+      const { stdout: commitOut, stderr: commitErr } = await this.exec(
+        agentId,
+        `git commit -m '${safeMsg}'`,
+        { timeout: 30000 }
+      );
+
+      commitOutput = [commitOut, commitErr].filter(Boolean).join('\n');
+      commitHash = extractCommitHash(commitOutput);
+      if (!commitHash) {
+        try {
+          const { stdout: revOut } = await this.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
+          commitHash = (revOut || '').trim() || null;
+        } catch { /* ignore */ }
+      }
+
+      // Step 5: Pull --rebase
+      const GIT_SSH = `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"`;
+      let pullOutput = '';
+      try {
+        const { stdout: pullOut, stderr: pullErr } = await this.exec(
+          agentId,
+          `${GIT_SSH} git pull --rebase --autostash`,
+          { timeout: 60000 }
+        );
+        pullOutput = [pullOut, pullErr].filter(Boolean).join('\n');
+      } catch (pullErr) {
+        const pullErrOutput = (pullErr.stderr || pullErr.stdout || pullErr.message || '');
+        try {
+          await this.exec(agentId, `git rebase --abort`, { timeout: 10000 });
+        } catch { /* ignore */ }
+        return {
+          success: false,
+          error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
+          result: `${commitOutput}\n\nPull --rebase failed:\n${pullErrOutput}\n\nYour commit ${commitHash || '(unknown)'} is saved locally. To resolve: pull the latest changes, fix conflicts manually, then commit and push again.`.trim().slice(0, 5000),
+          meta: { commitHash }
+        };
+      }
+
+      // Step 6: Push
+      const { stdout: pushOut, stderr: pushErr } = await this.exec(
+        agentId,
+        `${GIT_SSH} git push`,
+        { timeout: 60000 }
+      );
+
+      // Re-capture commit hash after rebase
+      try {
+        const { stdout: revOut } = await this.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
+        commitHash = (revOut || '').trim() || commitHash;
+      } catch { /* keep original */ }
+
+      const output = [commitOutput, pullOutput, pushOut, pushErr].filter(Boolean).join('\n').trim();
+      return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
+    } catch (err) {
+      const errOutput = (err.stderr || err.stdout || '');
+      const fullOutput = [commitOutput, errOutput].filter(Boolean).join('\n').trim();
+      return {
+        success: false,
+        error: err.message,
+        result: fullOutput.slice(0, 5000),
+        meta: { commitHash }
+      };
+    }
+  }
+
+  // ── Backward compatibility aliases ────────────────────────────────────
+  // These allow the transition period where old code still calls the old names.
+
+  /** @deprecated Use ensureProject() */
+  async ensureSandbox(agentId, project = null, gitUrl = null) {
+    return this.ensureProject(agentId, project, gitUrl);
+  }
+  /** @deprecated Use hasEnvironment() */
+  hasSandbox(agentId) {
+    return this.hasEnvironment(agentId);
+  }
+  /** @deprecated Use getProject() */
+  getSandboxProject(agentId) {
+    return this.getProject(agentId);
+  }
+
+  // ── Private methods (unchanged from SandboxManager) ───────────────────
+
+  async _generateFileTree(agentId) {
+    const entry = this.agentUsers.get(agentId);
+    if (!entry) return;
+    const basePath = entry.project
+      ? `${this._userWorkspace(entry.username)}/${entry.project}`
+      : this._userWorkspace(entry.username);
+    try {
+      const { stdout } = await this._execAsAgentUser(
+        entry.username,
+        `ls -1F ${this._sh(basePath)} | head -100`,
+        { timeout: 10000 }
+      );
+      const lines = stdout.trim().split('\n').filter(l => l);
+      if (lines.length === 0) {
+        this._fileTreeCache.set(agentId, { project: entry.project, tree: null, timestamp: Date.now() });
+        return;
+      }
+      const tree = lines.join('\n');
+      this._fileTreeCache.set(agentId, { project: entry.project, tree, timestamp: Date.now() });
+      console.log(`🌳 [Sandbox] File tree cached for agent ${agentId} (${lines.length} entries)`);
+    } catch (err) {
+      console.warn(`⚠️  [Sandbox] Failed to generate file tree for ${agentId}: ${err.message}`);
+    }
+  }
+
   async _switchProject(agentId, newProject, gitUrl = null) {
     const entry = this.agentUsers.get(agentId);
     if (!entry) throw new Error(`Sandbox not initialized for agent ${agentId}`);
@@ -264,7 +360,6 @@ export class SandboxManager {
     entry.project = newProject;
     console.log(`📦 [Sandbox] User "${username}" switched to project "${newProject}"`);
 
-    // Regenerate file tree for new project
     if (newProject) {
       this._generateFileTree(agentId).catch(() => {});
     } else {
@@ -273,11 +368,9 @@ export class SandboxManager {
   }
 
   async _ensureSharedContainerRunning() {
-    // Skip re-check if we verified recently (avoid docker ps on every tool call)
-    const CONTAINER_CHECK_TTL_MS = 30000; // 30s
+    const CONTAINER_CHECK_TTL_MS = 30000;
     if (this._resolvedContainerName && this._lastContainerCheck && (Date.now() - this._lastContainerCheck) < CONTAINER_CHECK_TTL_MS) return;
 
-    // Check if cached container name is still valid
     if (this._resolvedContainerName && await this._isRunning(this._resolvedContainerName)) {
       this._lastContainerCheck = Date.now();
       return;
@@ -285,12 +378,10 @@ export class SandboxManager {
 
     const previousContainer = this._resolvedContainerName;
 
-    // Discover the Swarm-managed sandbox container
     this._resolvedContainerName = await this._discoverContainer();
     this._lastContainerCheck = Date.now();
     console.log(`📦 [Sandbox] Connected to Swarm sandbox container: ${this._resolvedContainerName}`);
 
-    // If container changed, all previously created users are gone — mark them for re-creation
     if (previousContainer && previousContainer !== this._resolvedContainerName) {
       console.warn(`⚠️ [Sandbox] Container changed from "${previousContainer}" to "${this._resolvedContainerName}" — marking all agent users for re-creation`);
       for (const [agentId, entry] of this.agentUsers.entries()) {
@@ -327,19 +418,16 @@ export class SandboxManager {
     await this._execAsRoot(`mkdir -p ${workspace}`);
     await this._execAsRoot(`chown -R ${userEsc}:${userEsc} ${workspace}`);
 
-    // Copy SSH keys so agent user can git clone/push via SSH
     const sshDir = this._sh(`${home}/.ssh`);
     await this._execAsRoot(
       `mkdir -p ${sshDir} && cp /root/.ssh/* ${sshDir}/ 2>/dev/null; chown -R ${userEsc}:${userEsc} ${sshDir} && chmod 700 ${sshDir} && chmod 600 ${sshDir}/* 2>/dev/null; true`
     );
 
-    // Ensure GitHub host key is in known_hosts (volume mount may shadow the Dockerfile version)
     const knownHosts = `${home}/.ssh/known_hosts`;
     await this._execAsRoot(
       `grep -q 'github.com' ${this._sh(knownHosts)} 2>/dev/null || ssh-keyscan -t ed25519,rsa github.com >> ${this._sh(knownHosts)} 2>/dev/null; chown ${userEsc}:${userEsc} ${this._sh(knownHosts)}; true`
     );
 
-    // Disable strict host key checking for agent users to prevent interactive prompts
     const sshConfig = `${home}/.ssh/config`;
     await this._execAsRoot(
       `if [ ! -f ${this._sh(sshConfig)} ] || ! grep -q StrictHostKeyChecking ${this._sh(sshConfig)} 2>/dev/null; then echo -e "Host github.com\\n  StrictHostKeyChecking accept-new\\n  UserKnownHostsFile ${knownHosts}" >> ${this._sh(sshConfig)} && chown ${userEsc}:${userEsc} ${this._sh(sshConfig)} && chmod 600 ${this._sh(sshConfig)}; fi`
@@ -358,7 +446,6 @@ export class SandboxManager {
     const target = `${workspace}/${project}`;
     const targetEsc = this._sh(target);
 
-    // Check if repo already exists in the container — git pull instead of re-cloning
     try {
       const { stdout } = await this._execAsAgentUser(
         username,
@@ -381,29 +468,22 @@ export class SandboxManager {
     await this._execAsRoot(`rm -rf ${targetEsc}`);
     await this._execAsRoot(`mkdir -p ${this._sh(workspace)} && chown -R ${userEsc}:${userEsc} ${this._sh(workspace)}`);
 
-    // Ensure GitHub host key exists for root before cloning.
-    // /root/.ssh may be read-only (volume mount), so fall back to system-wide known_hosts.
     await this._execAsRoot(
       `grep -q 'github.com' /root/.ssh/known_hosts 2>/dev/null || grep -q 'github.com' /etc/ssh/ssh_known_hosts 2>/dev/null || ssh-keyscan -t ed25519,rsa github.com >> /etc/ssh/ssh_known_hosts 2>/dev/null; true`
     );
 
-    // Clone as root (guaranteed SSH key access), then chown to agent user
     await this._execAsRoot(
       `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/etc/ssh/ssh_known_hosts" git clone ${this._sh(gitUrl)} ${targetEsc}`,
       { timeout: 120000 }
     );
     await this._execAsRoot(`chown -R ${userEsc}:${userEsc} ${targetEsc}`);
 
-    // Git config per-repo (not --global) so each agent can have distinct identity
     const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
     const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
     await this._execAsAgentUser(username, `git config user.name ${this._sh(gitName)}`, { cwd: target });
     await this._execAsAgentUser(username, `git config user.email ${this._sh(gitEmail)}`, { cwd: target });
   }
 
-  /**
-   * Execute a piped command (stdin content) as an agent user, with auto-retry on missing user.
-   */
   async _execPipedAsUser(username, innerCmd, stdinContent) {
     const runPiped = (containerName) => new Promise((resolve, reject) => {
       const proc = exec(
@@ -459,17 +539,14 @@ export class SandboxManager {
       console.log(`📦 [Sandbox:${username}] ✓ ${Date.now() - start}ms`);
       return result;
     } catch (err) {
-      // Detect "unable to find user" — container was likely replaced and user no longer exists
       if (err.message && err.message.includes('no matching entries in passwd')) {
         console.warn(`⚠️ [Sandbox] User "${username}" not found in container — re-creating user and retrying...`);
         await this._ensureSharedContainerRunning();
         await this._ensureLinuxUser(username);
         await this._ensureAgentWorkspace(username);
-        // Mark user as verified again
         for (const entry of this.agentUsers.values()) {
           if (entry.username === username) entry._userVerified = true;
         }
-        // Retry the command once
         const retryCmd = `docker exec ${homeArg} ${cwdArg} -u ${this._sh(username)} ${this._sh(this._resolvedContainerName)} /bin/bash -c ${this._sh(command)}`;
         console.log(`📦 [Sandbox:${username}] Retrying after user re-creation...`);
         return execAsync(retryCmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
@@ -510,6 +587,27 @@ export class SandboxManager {
     return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
   }
 
+  async cleanupOrphans() {
+    // Container lifecycle is managed by Docker Swarm — nothing to clean up
+  }
 }
 
-export const sandboxManager = new SandboxManager();
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function sanitizeCommitMessage(msg) {
+  if (!msg || typeof msg !== 'string') return 'update';
+  return msg
+    .replace(/[\x00]/g, '')
+    .replace(/[`$\\!]/g, '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/'/g, "'\\''")
+    .slice(0, 500);
+}
+
+function extractCommitHash(text) {
+  if (!text) return null;
+  const match = text.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
+  if (match) return match[1];
+  const lineMatch = text.match(/^([a-f0-9]{40})$/m);
+  return lineMatch ? lineMatch[1] : null;
+}

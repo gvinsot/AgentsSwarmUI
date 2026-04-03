@@ -102,14 +102,14 @@ function normalizePath(pathArg) {
 }
 
 /**
- * Execute a tool command using the sandbox container.
+ * Execute a tool command using the execution provider (sandbox or coder-service).
  * @param {string} toolName
  * @param {string[]} args
  * @param {string} projectPath - project name
- * @param {import('./sandboxManager.js').SandboxManager} sandboxMgr
+ * @param {import('./execution/executionProvider.js').ExecutionProvider} provider
  * @param {string} agentId
  */
-export async function executeTool(toolName, args, projectPath, sandboxMgr, agentId, options = {}) {
+export async function executeTool(toolName, args, projectPath, provider, agentId, options = {}) {
   // report_error and update_task don't need sandbox access
   if (toolName === 'report_error') {
     const description = args[0] || 'Unknown error';
@@ -128,19 +128,19 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
     return { success: true, result: 'Status checked', isStatusCheck: true };
   }
 
-  if (!sandboxMgr || !agentId) {
-    return { success: false, error: 'Sandbox not available' };
+  if (!provider || !agentId) {
+    return { success: false, error: 'Execution provider not available' };
   }
 
-  if (!sandboxMgr.hasSandbox(agentId)) {
+  if (!provider.hasEnvironment(agentId)) {
     // Attempt lazy initialization instead of just returning an error
     try {
-      await sandboxMgr.ensureSandbox(agentId, projectPath || null);
+      await provider.ensureProject(agentId, projectPath || null);
     } catch (initErr) {
-      console.error(`⚠️  [Tool] Sandbox lazy init failed for agent ${agentId.slice(0, 8)}: ${initErr.message}`);
+      console.error(`⚠️  [Tool] Provider lazy init failed for agent ${agentId.slice(0, 8)}: ${initErr.message}`);
     }
-    if (!sandboxMgr.hasSandbox(agentId)) {
-      return { success: false, error: 'Sandbox is not available. Please report this error.' };
+    if (!provider.hasEnvironment(agentId)) {
+      return { success: false, error: 'Execution environment is not available. Please report this error.' };
     }
   }
 
@@ -151,28 +151,25 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
   try {
     switch (toolName) {
       case 'read_file':
-        return await toolReadFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1], cleanArgs[2]);
+        return await toolReadFile(provider, agentId, normalizePath(cleanArgs[0]), cleanArgs[1], cleanArgs[2]);
 
       case 'write_file':
-        return await toolWriteFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
+        return await toolWriteFile(provider, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
 
       case 'list_dir':
-        return await toolListDir(sandboxMgr, agentId, normalizePath(cleanArgs[0] || '.'));
+        return await toolListDir(provider, agentId, normalizePath(cleanArgs[0] || '.'));
 
       case 'search_files':
-        return await toolSearchFiles(sandboxMgr, agentId, cleanArgs[0], cleanArgs[1]);
+        return await toolSearchFiles(provider, agentId, cleanArgs[0], cleanArgs[1]);
 
       case 'run_command':
-        return await toolRunCommand(sandboxMgr, agentId, cleanArgs[0]);
+        return await toolRunCommand(provider, agentId, cleanArgs[0]);
 
       case 'append_file':
-        return await toolAppendFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
+        return await toolAppendFile(provider, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
 
       case 'git_commit_push':
-        if (options.coderServiceUrl) {
-          return await toolGitCommitPushViaCoder(options.coderServiceUrl, options.coderServiceApiKey, agentId, cleanArgs[0]);
-        }
-        return await toolGitCommitPush(sandboxMgr, agentId, cleanArgs[0]);
+        return await provider.gitCommitPush(agentId, cleanArgs[0]);
 
       default:
         return { success: false, error: `Unknown tool: ${toolName}` };
@@ -182,11 +179,11 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
   }
 }
 
-// ─── Tool implementations (all via sandbox) ────────────────────────────────
+// ─── Tool implementations (all via execution provider) ──────────────────
 
-async function toolReadFile(sandboxMgr, agentId, filePath, startLineArg, endLineArg) {
+async function toolReadFile(provider, agentId, filePath, startLineArg, endLineArg) {
   try {
-    const content = await sandboxMgr.readFile(agentId, filePath);
+    const content = await provider.readFile(agentId, filePath);
     const allLines = content.split('\n');
 
     // Parse line range — handle both @read_file(path, 10, 25) and @read_file(path, "10, 25")
@@ -234,8 +231,8 @@ async function toolReadFile(sandboxMgr, agentId, filePath, startLineArg, endLine
   }
 }
 
-async function toolWriteFile(sandboxMgr, agentId, filePath, content) {
-  await sandboxMgr.writeFile(agentId, filePath, content);
+async function toolWriteFile(provider, agentId, filePath, content) {
+  await provider.writeFile(agentId, filePath, content);
   return {
     success: true,
     result: `File written: ${filePath} (${content.length} bytes)`,
@@ -243,8 +240,8 @@ async function toolWriteFile(sandboxMgr, agentId, filePath, content) {
   };
 }
 
-async function toolListDir(sandboxMgr, agentId, dirPath) {
-  const output = await sandboxMgr.listDir(agentId, dirPath);
+async function toolListDir(provider, agentId, dirPath) {
+  const output = await provider.listDir(agentId, dirPath);
   return {
     success: true,
     result: output || '(empty directory)',
@@ -252,8 +249,8 @@ async function toolListDir(sandboxMgr, agentId, dirPath) {
   };
 }
 
-async function toolSearchFiles(sandboxMgr, agentId, pattern, query) {
-  const output = await sandboxMgr.searchFiles(agentId, pattern, query);
+async function toolSearchFiles(provider, agentId, pattern, query) {
+  const output = await provider.searchFiles(agentId, pattern, query);
   return {
     success: true,
     result: output || 'No matches found',
@@ -315,7 +312,7 @@ function rtkRewrite(command) {
   return trimmed;
 }
 
-async function toolRunCommand(sandboxMgr, agentId, command) {
+async function toolRunCommand(provider, agentId, command) {
   // 5 minutes — long-running commands like npm install, builds, test suites
   const COMMAND_TIMEOUT = 5 * 60 * 1000;
 
@@ -329,7 +326,7 @@ async function toolRunCommand(sandboxMgr, agentId, command) {
   }
 
   try {
-    const { stdout, stderr } = await sandboxMgr.exec(agentId, effectiveCommand, { timeout: COMMAND_TIMEOUT });
+    const { stdout, stderr } = await provider.exec(agentId, effectiveCommand, { timeout: COMMAND_TIMEOUT });
     const output = (stdout || stderr || '(no output)').slice(0, 10000);
     return {
       success: true,
@@ -341,7 +338,7 @@ async function toolRunCommand(sandboxMgr, agentId, command) {
     if (useRtk) {
       console.log(`⚡ [RTK] Rewritten command failed, falling back to original: "${command.slice(0, 80)}"`);
       try {
-        const { stdout, stderr } = await sandboxMgr.exec(agentId, command, { timeout: COMMAND_TIMEOUT });
+        const { stdout, stderr } = await provider.exec(agentId, command, { timeout: COMMAND_TIMEOUT });
         const output = (stdout || stderr || '(no output)').slice(0, 10000);
         return {
           success: true,
@@ -377,252 +374,13 @@ async function toolRunCommand(sandboxMgr, agentId, command) {
   }
 }
 
-async function toolAppendFile(sandboxMgr, agentId, filePath, content) {
-  await sandboxMgr.appendFile(agentId, filePath, content);
+async function toolAppendFile(provider, agentId, filePath, content) {
+  await provider.appendFile(agentId, filePath, content);
   return {
     success: true,
     result: `Content appended to: ${filePath}`,
     meta: { path: filePath }
   };
-}
-
-/**
- * Sanitize a commit message for safe use in a shell command.
- * Strips shell metacharacters that could allow command injection:
- * backticks, $, newlines, null bytes, and other dangerous chars.
- * The result is safe to embed in single quotes after also escaping
- * single quotes themselves.
- */
-function sanitizeCommitMessage(msg) {
-  if (!msg || typeof msg !== 'string') return 'update';
-  return msg
-    .replace(/[\x00]/g, '')          // null bytes
-    .replace(/[`$\\!]/g, '')         // shell expansion chars: backtick, $, \, !
-    .replace(/\r?\n/g, ' ')          // newlines -> spaces
-    .replace(/'/g, "'\\''")          // escape single quotes for single-quoted string
-    .slice(0, 500);                  // limit length
-}
-
-/**
- * Extract the commit hash from git commit output.
- * Handles standard, root-commit, and detached HEAD formats:
- *   [main abc1234] message
- *   [main (root-commit) abc1234] message
- *   [detached HEAD abc1234] message
- */
-function extractCommitHash(text) {
-  if (!text) return null;
-  // Match: [anything HASH] — covers all git commit output formats
-  const match = text.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
-  if (match) return match[1];
-  // Fallback: bare full hash on its own line
-  const lineMatch = text.match(/^([a-f0-9]{40})$/m);
-  return lineMatch ? lineMatch[1] : null;
-}
-
-/**
- * Execute git commit & push via the coder-service's /exec-shell endpoint.
- * Used when the agent runs on coder-service (Claude Code) — files are in the
- * coder-service container, not in the sandbox.
- */
-async function toolGitCommitPushViaCoder(coderUrl, apiKey, agentId, message) {
-  const safeMsg = sanitizeCommitMessage(message);
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-Api-Key': apiKey,
-    'X-Agent-Id': agentId,
-  };
-
-  async function execShell(command, timeout = 60) {
-    const res = await fetch(`${coderUrl}/exec-shell`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ command, timeout }),
-    });
-    const data = await res.json();
-    if (data.status !== 'success') {
-      const err = new Error(data.error || 'Command failed');
-      err.stdout = data.output || '';
-      err.stderr = data.output || '';
-      throw err;
-    }
-    return { stdout: data.output || '', stderr: '' };
-  }
-
-  let commitHash = null;
-  let commitOutput = '';
-  try {
-    // Step 1: Stage all changes
-    await execShell('git add -A', 15);
-
-    // Step 2: Check for staged changes
-    let hasStagedChanges = false;
-    try {
-      await execShell('git diff --cached --quiet', 10);
-      hasStagedChanges = false;
-    } catch {
-      hasStagedChanges = true;
-    }
-
-    if (!hasStagedChanges) {
-      return { success: true, result: 'Nothing to commit — working tree clean.' };
-    }
-
-    // Step 3: Ensure git config
-    const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
-    const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
-    await execShell(
-      `git config user.name >/dev/null 2>&1 || git config user.name '${gitName.replace(/'/g, "'\\''")}'; git config user.email >/dev/null 2>&1 || git config user.email '${gitEmail.replace(/'/g, "'\\''")}'`,
-      10
-    );
-
-    // Step 4: Commit
-    const { stdout: commitOut } = await execShell(`git commit -m '${safeMsg}'`, 30);
-    commitOutput = commitOut;
-    commitHash = extractCommitHash(commitOutput);
-    if (!commitHash) {
-      try {
-        const { stdout: revOut } = await execShell('git rev-parse --short HEAD', 5);
-        commitHash = revOut.trim() || null;
-      } catch { /* ignore */ }
-    }
-
-    // Step 5: Pull --rebase to incorporate remote changes
-    const GIT_SSH = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"';
-    try {
-      await execShell(`${GIT_SSH} git pull --rebase --autostash`, 60);
-    } catch (pullErr) {
-      try { await execShell('git rebase --abort', 10); } catch { /* ignore */ }
-      return {
-        success: false,
-        error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
-        result: `${commitOutput}\n\nPull --rebase failed:\n${pullErr.stdout || pullErr.message}\n\nYour commit ${commitHash || '(unknown)'} is saved locally.`.trim().slice(0, 5000),
-        meta: { commitHash }
-      };
-    }
-
-    // Step 6: Push
-    const { stdout: pushOut } = await execShell(`${GIT_SSH} git push`, 60);
-
-    // Re-capture hash after rebase
-    try {
-      const { stdout: revOut } = await execShell('git rev-parse --short HEAD', 5);
-      commitHash = revOut.trim() || commitHash;
-    } catch { /* keep original */ }
-
-    const output = [commitOutput, pushOut].filter(Boolean).join('\n').trim();
-    return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
-  } catch (err) {
-    const fullOutput = [commitOutput, err.stdout || err.message].filter(Boolean).join('\n').trim();
-    return {
-      success: false,
-      error: err.message,
-      result: fullOutput.slice(0, 5000),
-      meta: { commitHash }
-    };
-  }
-}
-
-async function toolGitCommitPush(sandboxMgr, agentId, message) {
-  const safeMsg = sanitizeCommitMessage(message);
-  let commitHash = null;
-  let commitOutput = '';
-  try {
-    // Step 1: Stage all changes
-    await sandboxMgr.exec(agentId, `git add -A`, { timeout: 15000 });
-
-    // Step 2: Check if there are staged changes to commit
-    let hasStagedChanges = false;
-    try {
-      await sandboxMgr.exec(agentId, `git diff --cached --quiet`, { timeout: 10000 });
-      // Exit code 0 = no staged changes
-      hasStagedChanges = false;
-    } catch {
-      // Exit code 1 = there ARE staged changes (this is the normal case)
-      hasStagedChanges = true;
-    }
-
-    if (!hasStagedChanges) {
-      return { success: true, result: 'Nothing to commit — working tree clean.' };
-    }
-
-    // Step 3: Ensure git config is set (may be lost after container restart)
-    const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
-    const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
-    await sandboxMgr.exec(
-      agentId,
-      `git config user.name >/dev/null 2>&1 || git config user.name '${gitName.replace(/'/g, "'\\''")}'; git config user.email >/dev/null 2>&1 || git config user.email '${gitEmail.replace(/'/g, "'\\''")}'`,
-      { timeout: 10000 }
-    );
-
-    // Step 4: Commit
-    const { stdout: commitOut, stderr: commitErr } = await sandboxMgr.exec(
-      agentId,
-      `git commit -m '${safeMsg}'`,
-      { timeout: 30000 }
-    );
-
-    // Capture commit hash immediately after commit (before push which may fail)
-    commitOutput = [commitOut, commitErr].filter(Boolean).join('\n');
-    commitHash = extractCommitHash(commitOutput);
-    // If regex didn't match, try git rev-parse as a reliable fallback
-    if (!commitHash) {
-      try {
-        const { stdout: revOut } = await sandboxMgr.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
-        commitHash = (revOut || '').trim() || null;
-      } catch { /* ignore */ }
-    }
-
-    // Step 5: Pull --rebase to incorporate remote changes before pushing
-    const GIT_SSH = `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"`;
-    let pullOutput = '';
-    try {
-      const { stdout: pullOut, stderr: pullErr } = await sandboxMgr.exec(
-        agentId,
-        `${GIT_SSH} git pull --rebase --autostash`,
-        { timeout: 60000 }
-      );
-      pullOutput = [pullOut, pullErr].filter(Boolean).join('\n');
-    } catch (pullErr) {
-      const pullErrOutput = (pullErr.stderr || pullErr.stdout || pullErr.message || '');
-      // Rebase conflict — abort and report clearly
-      try {
-        await sandboxMgr.exec(agentId, `git rebase --abort`, { timeout: 10000 });
-      } catch { /* ignore — may not be in rebase state */ }
-      return {
-        success: false,
-        error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
-        result: `${commitOutput}\n\nPull --rebase failed:\n${pullErrOutput}\n\nYour commit ${commitHash || '(unknown)'} is saved locally. To resolve: pull the latest changes, fix conflicts manually, then commit and push again.`.trim().slice(0, 5000),
-        meta: { commitHash }
-      };
-    }
-
-    // Step 6: Push
-    const { stdout: pushOut, stderr: pushErr } = await sandboxMgr.exec(
-      agentId,
-      `${GIT_SSH} git push`,
-      { timeout: 60000 }
-    );
-
-    // Re-capture commit hash after rebase (it may have changed)
-    try {
-      const { stdout: revOut } = await sandboxMgr.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
-      commitHash = (revOut || '').trim() || commitHash;
-    } catch { /* keep original */ }
-
-    const output = [commitOutput, pullOutput, pushOut, pushErr].filter(Boolean).join('\n').trim();
-    return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
-  } catch (err) {
-    // Push may have failed but commit may have succeeded — still return the hash
-    const errOutput = (err.stderr || err.stdout || '');
-    const fullOutput = [commitOutput, errOutput].filter(Boolean).join('\n').trim();
-    return {
-      success: false,
-      error: err.message,
-      result: fullOutput.slice(0, 5000),
-      meta: { commitHash }
-    };
-  }
 }
 
 // ─── Tool Call Parsing ──────────────────────────────────────────────────────

@@ -14,16 +14,16 @@ describe('AgentManager - Handoff with File System Transfer', () => {
   let agentManager;
   let mockIo;
   let mockSkillManager;
-  let mockSandboxManager;
+  let mockExecutionManager;
   let mockMcpManager;
 
   beforeEach(() => {
     mockIo = { emit: jest.fn() };
     mockSkillManager = {};
-    mockSandboxManager = {};
+    mockExecutionManager = {};
     mockMcpManager = {};
 
-    agentManager = new AgentManager(mockIo, mockSkillManager, mockSandboxManager, mockMcpManager);
+    agentManager = new AgentManager(mockIo, mockSkillManager, mockExecutionManager, mockMcpManager);
 
     // Mock agents
     agentManager.agents.set('agent1', {

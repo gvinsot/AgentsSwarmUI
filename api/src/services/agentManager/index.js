@@ -10,14 +10,16 @@ import { workflowMethods } from './workflow.js';
 import { compactionMethods } from './compaction.js';
 
 export class AgentManager {
-  constructor(io, skillManager, sandboxManager, mcpManager = null, codeIndexService = null) {
+  constructor(io, skillManager, executionManager, mcpManager = null, codeIndexService = null) {
     this.agents = new Map();
     this.abortControllers = new Map();
     this._taskQueues = new Map();
     this._chatLocks = new Map();
     this.io = io;
     this.skillManager = skillManager;
-    this.sandboxManager = sandboxManager;
+    this.executionManager = executionManager;
+    // Backward compatibility alias
+    this.sandboxManager = executionManager;
     this.mcpManager = mcpManager;
     this.codeIndexService = codeIndexService;
     this._updateTimers = new Map();

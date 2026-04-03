@@ -54,45 +54,24 @@ export const chatMethods = {
     }
     this._emit('agent:status', { id, status: 'busy', project: agent.project || null, currentTask: agent.currentTask || null });
 
-    if (this.sandboxManager && agent.project && !this.sandboxManager.getFileTree(id)) {
+    if (this.executionManager && agent.project && !this.executionManager.getFileTree(id)) {
       try {
+        // Bind agent to the correct execution provider based on LLM config
+        const earlyLlm = this.resolveLlmConfig(agent);
+        const providerType = earlyLlm.managesContext ? 'coder' : 'sandbox';
+        this.executionManager.bindAgent(id, providerType);
+
         const gitUrl = await getProjectGitUrl(agent.project);
         if (gitUrl) {
-          // ensureSandbox already triggers _generateFileTree in background;
-          // calling refreshFileTree here would cause a duplicate. Instead,
-          // await it directly so the file tree is ready for the system prompt.
-          await this.sandboxManager.ensureSandbox(id, agent.project, gitUrl);
-          if (!this.sandboxManager.getFileTree(id)) {
+          // ensureProject handles both sandbox and coder-service cloning
+          await this.executionManager.ensureProject(id, agent.project, gitUrl);
+          if (!this.executionManager.getFileTree(id)) {
             // Only refresh if the background generation hasn't completed yet
-            // (e.g. sandbox already existed but tree was evicted)
-            await this.sandboxManager.refreshFileTree(id);
+            await this.executionManager.refreshFileTree(id);
           }
         }
       } catch (err) {
-        console.warn(`⚠️  [Sandbox] Early init for file tree failed: ${err.message}`);
-      }
-    }
-
-    // Ensure coder-service agents have their own project clone
-    const earlyConfig = this.resolveLlmConfig(agent);
-    if (earlyConfig.managesContext && agent.project) {
-      try {
-        const gitUrl = await getProjectGitUrl(agent.project);
-        if (gitUrl) {
-          const coderUrl = 'http://coder-service:8000';
-          const apiKey = earlyConfig.apiKey || process.env.CODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
-          await fetch(`${coderUrl}/projects/ensure`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Api-Key': apiKey,
-              'X-Agent-Id': id,
-            },
-            body: JSON.stringify({ project: agent.project, git_url: gitUrl }),
-          });
-        }
-      } catch (err) {
-        console.warn(`⚠️  [CoderService] Project ensure failed: ${err.message}`);
+        console.warn(`⚠️  [Execution] Early init for file tree failed: ${err.message}`);
       }
     }
 
@@ -370,7 +349,7 @@ export const chatMethods = {
     }
 
     if (agent.project) {
-      const fileTree = this.sandboxManager?.getFileTree(id);
+      const fileTree = this.executionManager?.getFileTree(id);
       let projectCtx = `\n\n--- PROJECT CONTEXT ---\nYou are working on project: ${agent.project}\nYour current working directory is already the project root.\nAll file paths are relative to this root (e.g. @read_file(src/index.js), NOT @read_file(/projects/${agent.project}/src/index.js)).\nDo NOT use absolute paths or /projects/ prefixes — they will not work.`;
       if (fileTree) {
         projectCtx += `\n\n--- PROJECT ROOT ---\n${fileTree}\n--- END ---\nUse @list_dir to explore subdirectories.`;
@@ -905,7 +884,7 @@ export const chatMethods = {
       const doneTasks = todoList.filter(t => t.status === 'done').length;
       const totalTasks = todoList.length;
       const msgCount = (targetAgent.conversationHistory || []).length;
-      const hasSandbox = this.sandboxManager ? this.sandboxManager.hasSandbox(targetAgent.id) : false;
+      const hasSandbox = this.executionManager ? this.executionManager.hasEnvironment(targetAgent.id) : false;
       const activeTask = todoList.find(t => this._isActiveTaskStatus(t.status));
       const currentTaskInfo = targetAgent.currentTask
         ? targetAgent.currentTask.slice(0, 120) + (targetAgent.currentTask.length > 120 ? '...' : '')

@@ -137,7 +137,7 @@ export const lifecycleMethods = {
     const errorTasks = todoList.filter(t => t.status === 'error').length;
     const totalTasks = todoList.length;
     const msgCount = (agent.conversationHistory || []).length;
-    const hasSandbox = this.sandboxManager ? this.sandboxManager.hasSandbox(agent.id) : false;
+    const hasSandbox = this.executionManager ? this.executionManager.hasEnvironment(agent.id) : false;
 
     const currentTaskEntry = todoList.find(t => this._isActiveTaskStatus(t.status));
     const currentTask = agent.currentTask || (currentTaskEntry ? currentTaskEntry.text : null);
@@ -624,9 +624,9 @@ export const lifecycleMethods = {
     const agent = this.agents.get(id);
     if (!agent) return false;
     const ownerId = this.agents.get(id)?.ownerId || null;
-    if (this.sandboxManager) {
-      this.sandboxManager.destroySandbox(id).catch(err => {
-        console.error(`Failed to destroy sandbox for agent ${id}:`, err.message);
+    if (this.executionManager) {
+      this.executionManager.destroySandbox(id).catch(err => {
+        console.error(`Failed to destroy execution environment for agent ${id}:`, err.message);
       });
     }
     if (this.mcpManager) {
