@@ -1534,6 +1534,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
 
   return (
     <div className="flex flex-col min-w-[300px] w-[300px] max-h-[2500px] flex-shrink-0 group"
+      data-column-id={col.id}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       {/* Column header */}
       <div className={`flex items-center justify-between px-3 py-2.5 rounded-t-xl border border-b-2
@@ -1574,7 +1575,6 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
 
       {/* Drop zone */}
       <div
-        data-column-id={col.id}
         className={`flex flex-col gap-2 p-2 rounded-b-xl border border-t-0
           transition-all duration-150 flex-1 min-h-0 overflow-y-auto
           ${dragOver
