@@ -429,7 +429,13 @@ export const toolsMethods = {
           args: call.args
         });
 
-        const result = await executeTool(call.tool, call.args, agent.project, this.sandboxManager, agentId);
+        const llmConfig = this.resolveLlmConfig(agent);
+        const toolOptions = {};
+        if (llmConfig.managesContext) {
+          toolOptions.coderServiceUrl = 'http://coder-service:8000';
+          toolOptions.coderServiceApiKey = llmConfig.apiKey || process.env.CODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+        }
+        const result = await executeTool(call.tool, call.args, agent.project, this.sandboxManager, agentId, toolOptions);
 
         // Schedule code index re-indexation for file modifications
         if (result.success && (call.tool === 'write_file' || call.tool === 'append_file') && agent.project) {

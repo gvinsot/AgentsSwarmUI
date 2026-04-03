@@ -73,6 +73,29 @@ export const chatMethods = {
       }
     }
 
+    // Ensure coder-service agents have their own project clone
+    const earlyConfig = this.resolveLlmConfig(agent);
+    if (earlyConfig.managesContext && agent.project) {
+      try {
+        const gitUrl = await getProjectGitUrl(agent.project);
+        if (gitUrl) {
+          const coderUrl = 'http://coder-service:8000';
+          const apiKey = earlyConfig.apiKey || process.env.CODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+          await fetch(`${coderUrl}/projects/ensure`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Api-Key': apiKey,
+              'X-Agent-Id': id,
+            },
+            body: JSON.stringify({ project: agent.project, git_url: gitUrl }),
+          });
+        }
+      } catch (err) {
+        console.warn(`⚠️  [CoderService] Project ensure failed: ${err.message}`);
+      }
+    }
+
     const messages = [];
     const systemContent = await this._buildSystemPrompt(agent, id, delegationDepth);
     messages.push({ role: 'system', content: systemContent });

@@ -109,7 +109,7 @@ function normalizePath(pathArg) {
  * @param {import('./sandboxManager.js').SandboxManager} sandboxMgr
  * @param {string} agentId
  */
-export async function executeTool(toolName, args, projectPath, sandboxMgr, agentId) {
+export async function executeTool(toolName, args, projectPath, sandboxMgr, agentId, options = {}) {
   // report_error and update_task don't need sandbox access
   if (toolName === 'report_error') {
     const description = args[0] || 'Unknown error';
@@ -169,6 +169,9 @@ export async function executeTool(toolName, args, projectPath, sandboxMgr, agent
         return await toolAppendFile(sandboxMgr, agentId, normalizePath(cleanArgs[0]), cleanArgs[1]);
 
       case 'git_commit_push':
+        if (options.coderServiceUrl) {
+          return await toolGitCommitPushViaCoder(options.coderServiceUrl, options.coderServiceApiKey, agentId, cleanArgs[0]);
+        }
         return await toolGitCommitPush(sandboxMgr, agentId, cleanArgs[0]);
 
       default:
@@ -417,6 +420,109 @@ function extractCommitHash(text) {
   return lineMatch ? lineMatch[1] : null;
 }
 
+/**
+ * Execute git commit & push via the coder-service's /exec-shell endpoint.
+ * Used when the agent runs on coder-service (Claude Code) — files are in the
+ * coder-service container, not in the sandbox.
+ */
+async function toolGitCommitPushViaCoder(coderUrl, apiKey, agentId, message) {
+  const safeMsg = sanitizeCommitMessage(message);
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Api-Key': apiKey,
+    'X-Agent-Id': agentId,
+  };
+
+  async function execShell(command, timeout = 60) {
+    const res = await fetch(`${coderUrl}/exec-shell`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ command, timeout }),
+    });
+    const data = await res.json();
+    if (data.status !== 'success') {
+      const err = new Error(data.error || 'Command failed');
+      err.stdout = data.output || '';
+      err.stderr = data.output || '';
+      throw err;
+    }
+    return { stdout: data.output || '', stderr: '' };
+  }
+
+  let commitHash = null;
+  let commitOutput = '';
+  try {
+    // Step 1: Stage all changes
+    await execShell('git add -A', 15);
+
+    // Step 2: Check for staged changes
+    let hasStagedChanges = false;
+    try {
+      await execShell('git diff --cached --quiet', 10);
+      hasStagedChanges = false;
+    } catch {
+      hasStagedChanges = true;
+    }
+
+    if (!hasStagedChanges) {
+      return { success: true, result: 'Nothing to commit — working tree clean.' };
+    }
+
+    // Step 3: Ensure git config
+    const gitName = process.env.GIT_USER_NAME || 'PulsarTeam';
+    const gitEmail = process.env.GIT_USER_EMAIL || 'agent@pulsarteam.local';
+    await execShell(
+      `git config user.name >/dev/null 2>&1 || git config user.name '${gitName.replace(/'/g, "'\\''")}'; git config user.email >/dev/null 2>&1 || git config user.email '${gitEmail.replace(/'/g, "'\\''")}'`,
+      10
+    );
+
+    // Step 4: Commit
+    const { stdout: commitOut } = await execShell(`git commit -m '${safeMsg}'`, 30);
+    commitOutput = commitOut;
+    commitHash = extractCommitHash(commitOutput);
+    if (!commitHash) {
+      try {
+        const { stdout: revOut } = await execShell('git rev-parse --short HEAD', 5);
+        commitHash = revOut.trim() || null;
+      } catch { /* ignore */ }
+    }
+
+    // Step 5: Pull --rebase to incorporate remote changes
+    const GIT_SSH = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"';
+    try {
+      await execShell(`${GIT_SSH} git pull --rebase --autostash`, 60);
+    } catch (pullErr) {
+      try { await execShell('git rebase --abort', 10); } catch { /* ignore */ }
+      return {
+        success: false,
+        error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
+        result: `${commitOutput}\n\nPull --rebase failed:\n${pullErr.stdout || pullErr.message}\n\nYour commit ${commitHash || '(unknown)'} is saved locally.`.trim().slice(0, 5000),
+        meta: { commitHash }
+      };
+    }
+
+    // Step 6: Push
+    const { stdout: pushOut } = await execShell(`${GIT_SSH} git push`, 60);
+
+    // Re-capture hash after rebase
+    try {
+      const { stdout: revOut } = await execShell('git rev-parse --short HEAD', 5);
+      commitHash = revOut.trim() || commitHash;
+    } catch { /* keep original */ }
+
+    const output = [commitOutput, pushOut].filter(Boolean).join('\n').trim();
+    return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
+  } catch (err) {
+    const fullOutput = [commitOutput, err.stdout || err.message].filter(Boolean).join('\n').trim();
+    return {
+      success: false,
+      error: err.message,
+      result: fullOutput.slice(0, 5000),
+      meta: { commitHash }
+    };
+  }
+}
+
 async function toolGitCommitPush(sandboxMgr, agentId, message) {
   const safeMsg = sanitizeCommitMessage(message);
   let commitHash = null;
@@ -467,14 +573,44 @@ async function toolGitCommitPush(sandboxMgr, agentId, message) {
       } catch { /* ignore */ }
     }
 
-    // Step 5: Push (with SSH options to prevent host key verification hangs)
+    // Step 5: Pull --rebase to incorporate remote changes before pushing
+    const GIT_SSH = `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"`;
+    let pullOutput = '';
+    try {
+      const { stdout: pullOut, stderr: pullErr } = await sandboxMgr.exec(
+        agentId,
+        `${GIT_SSH} git pull --rebase --autostash`,
+        { timeout: 60000 }
+      );
+      pullOutput = [pullOut, pullErr].filter(Boolean).join('\n');
+    } catch (pullErr) {
+      const pullErrOutput = (pullErr.stderr || pullErr.stdout || pullErr.message || '');
+      // Rebase conflict — abort and report clearly
+      try {
+        await sandboxMgr.exec(agentId, `git rebase --abort`, { timeout: 10000 });
+      } catch { /* ignore — may not be in rebase state */ }
+      return {
+        success: false,
+        error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
+        result: `${commitOutput}\n\nPull --rebase failed:\n${pullErrOutput}\n\nYour commit ${commitHash || '(unknown)'} is saved locally. To resolve: pull the latest changes, fix conflicts manually, then commit and push again.`.trim().slice(0, 5000),
+        meta: { commitHash }
+      };
+    }
+
+    // Step 6: Push
     const { stdout: pushOut, stderr: pushErr } = await sandboxMgr.exec(
       agentId,
-      `GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" git push`,
+      `${GIT_SSH} git push`,
       { timeout: 60000 }
     );
 
-    const output = [commitOutput, pushOut, pushErr].filter(Boolean).join('\n').trim();
+    // Re-capture commit hash after rebase (it may have changed)
+    try {
+      const { stdout: revOut } = await sandboxMgr.exec(agentId, `git rev-parse --short HEAD`, { timeout: 5000 });
+      commitHash = (revOut || '').trim() || commitHash;
+    } catch { /* keep original */ }
+
+    const output = [commitOutput, pullOutput, pushOut, pushErr].filter(Boolean).join('\n').trim();
     return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
   } catch (err) {
     // Push may have failed but commit may have succeeded — still return the hash

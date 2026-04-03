@@ -65,8 +65,8 @@ SYSTEM_PROMPT = os.getenv("CLAUDE_SYSTEM_PROMPT", (
     "You are an autonomous code execution agent running inside a Docker container. "
     "You have full access to: Python 3.12, Node.js 22, bash, git, Docker CLI, "
     "PostgreSQL client, SQLite, and all standard Unix tools. "
-    "Project files are mounted at /projects/. "
-    "You can read, write, and execute code freely. "
+    "Your working directory IS the project git repository. "
+    "You can read, write, and execute code freely. Use git to commit and push your changes. "
     "Be concise and provide actionable results."
 ))
 
@@ -75,6 +75,8 @@ import shutil
 
 _agent_user_lock = None  # Lazily initialized (asyncio.Lock needs a running event loop)
 _agent_users: dict[str, dict] = {}
+# Per-agent project workspaces: "agent_id" -> { "project": str, "path": str }
+_agent_projects: dict[str, dict] = {}
 
 def _sanitize_agent_id(agent_id: str) -> str:
     sanitized = re.sub(r'[^a-zA-Z0-9]', '', agent_id)[:24]
@@ -130,6 +132,86 @@ async def ensure_agent_user(agent_id: str, owner_id: str = None) -> dict:
         except Exception as e:
             logger.error(f"[Agent User] Failed to create home for agent {agent_id}: {e}")
             return None
+
+
+def _get_agent_project_dir(agent_id: str) -> Optional[str]:
+    """Return the per-agent project workspace path, or None if not set up."""
+    entry = _agent_projects.get(agent_id)
+    return entry["path"] if entry else None
+
+
+async def _ensure_agent_project(agent_id: str, project: str, git_url: str) -> str:
+    """Clone or update a project repo for a specific agent.
+
+    Each agent gets its own clone at DATA_DIR/agents/<username>/projects/<project>.
+    This prevents agents from stepping on each other's changes.
+    Returns the absolute path to the agent's project directory.
+    """
+    username = _sanitize_agent_id(agent_id)
+    agent_data_dir = os.path.join(DATA_DIR, "agents", username)
+    projects_base = os.path.join(agent_data_dir, "projects")
+    project_dir = os.path.join(projects_base, project)
+
+    # Check if already set up with this project
+    cached = _agent_projects.get(agent_id)
+    if cached and cached["project"] == project and os.path.isdir(os.path.join(project_dir, ".git")):
+        # Already cloned — pull latest
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "fetch", "--all",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=30)
+            # Reset to remote HEAD to get latest code (preserves local uncommitted changes)
+            proc = await asyncio.create_subprocess_exec(
+                "git", "reset", "--hard", "origin/HEAD",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=15)
+            logger.info(f"[Project] Updated {project} for agent {agent_id[:12]}")
+        except Exception as e:
+            logger.warning(f"[Project] Failed to update {project} for agent {agent_id[:12]}: {e}")
+        return project_dir
+
+    # Fresh clone needed
+    os.makedirs(projects_base, exist_ok=True)
+
+    # Remove existing dir if it's broken (no .git)
+    if os.path.exists(project_dir):
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+    # Configure SSH for non-interactive clone
+    ssh_cmd = "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+    env = {**os.environ, "GIT_SSH_COMMAND": ssh_cmd}
+
+    proc = await asyncio.create_subprocess_exec(
+        "git", "clone", git_url, project_dir,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    if proc.returncode != 0:
+        err_msg = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"git clone failed: {err_msg}")
+
+    # Configure git identity
+    git_name = os.getenv("GIT_USER_NAME", "PulsarTeam")
+    git_email = os.getenv("GIT_USER_EMAIL", "agent@pulsarteam.local")
+    for config_cmd in [
+        ["git", "config", "user.name", git_name],
+        ["git", "config", "user.email", git_email],
+    ]:
+        p = await asyncio.create_subprocess_exec(*config_cmd, cwd=project_dir)
+        await p.wait()
+
+    _agent_projects[agent_id] = {"project": project, "path": project_dir}
+    logger.info(f"[Project] Cloned {project} for agent {agent_id[:12]} at {project_dir}")
+    return project_dir
 
 
 def _load_agent_token(agent_user: dict) -> Optional[str]:
@@ -876,12 +958,21 @@ def _build_claude_cmd(output_format: str = "json", system_prompt: Optional[str] 
             if tool:
                 cmd.extend(["--allowedTools", tool])
 
-    # Give Claude Code access to the projects directory without using it as cwd.
-    # This avoids loading stale CLAUDE.md files from mounted project volumes.
-    if os.path.isdir(PROJECTS_DIR):
-        cmd.extend(["--add-dir", PROJECTS_DIR])
+    # Determine the working directory for Claude Code.
+    # If the agent has a per-agent project clone, use it as cwd so Claude Code
+    # works directly in the repo (can see git status, modify files, commit, etc.).
+    # Otherwise, fall back to /app and add the shared PROJECTS_DIR as read context.
+    agent_project_dir = _get_agent_project_dir(agent_id) if agent_id else None
+    if agent_project_dir and os.path.isdir(agent_project_dir):
+        cwd = agent_project_dir
+    else:
+        cwd = CLAUDE_CWD
+        # Give Claude Code access to the projects directory without using it as cwd.
+        # This avoids loading stale CLAUDE.md files from mounted project volumes.
+        if os.path.isdir(PROJECTS_DIR):
+            cmd.extend(["--add-dir", PROJECTS_DIR])
 
-    return cmd
+    return cmd, cwd
 
 
 # --- Claude Code Execution ----------------------------------------------------
@@ -926,15 +1017,15 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
 
     async def _run_sync_proc(aid: Optional[str]):
         """Run a Claude CLI subprocess synchronously. Returns (proc, stdout, stderr)."""
-        cmd = _build_claude_cmd(output_format="json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
+        cmd, proc_cwd = _build_claude_cmd(output_format="json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
         logger.info(f"Executing Claude Code{agent_label}: {prompt[:100]}...")
-        logger.debug(f"Command: {' '.join(cmd)}")
+        logger.debug(f"Command: {' '.join(cmd)} (cwd={proc_cwd})")
         p = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=CLAUDE_CWD,
+            cwd=proc_cwd,
             env=_get_agent_env(agent_user),
             **_get_subprocess_kwargs(agent_user),
         )
@@ -1139,14 +1230,14 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
 
     async def _start_stream_proc(aid: Optional[str]):
         """Start a Claude CLI subprocess for streaming. Returns the process."""
-        cmd = _build_claude_cmd(output_format="stream-json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
+        cmd, proc_cwd = _build_claude_cmd(output_format="stream-json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
         logger.info(f"Streaming Claude Code{agent_label}: {prompt[:100]}...")
         p = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=CLAUDE_CWD,
+            cwd=proc_cwd,
             env=_get_agent_env(agent_user),
             limit=10 * 1024 * 1024,
             **_get_subprocess_kwargs(agent_user),
@@ -1484,6 +1575,15 @@ class OpenAICompletionRequest(BaseModel):
 
 class TokenRequest(BaseModel):
     token: str
+
+class ShellExecRequest(BaseModel):
+    command: str
+    cwd: Optional[str] = None
+    timeout: int = 60
+
+class EnsureProjectRequest(BaseModel):
+    project: str
+    git_url: str
 
 
 def chunk_text(text: str, size: int = 700):
@@ -2080,6 +2180,89 @@ async def execute_code(
             )
     except Exception as e:
         logger.error(f"Code execution error: {str(e)}", exc_info=True)
+        return ExecutionResponse(status="error", output="", error=str(e))
+
+
+@app.post("/projects/ensure")
+async def ensure_project(
+    request: EnsureProjectRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    x_agent_id: Optional[str] = Header(None),
+    x_owner_id: Optional[str] = Header(None),
+):
+    """Clone or update a project repo for a specific agent.
+
+    Each agent gets its own isolated clone so concurrent agents don't conflict.
+    Must be called before streaming/executing with the agent.
+    """
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    if not x_agent_id:
+        raise HTTPException(status_code=400, detail="X-Agent-Id header required")
+
+    try:
+        project_dir = await _ensure_agent_project(x_agent_id, request.project, request.git_url)
+        return {"status": "success", "project_dir": project_dir}
+    except Exception as e:
+        logger.error(f"[Project] ensure failed for agent {x_agent_id[:12]}: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/exec-shell")
+async def exec_shell(
+    request: ShellExecRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    x_agent_id: Optional[str] = Header(None),
+    x_owner_id: Optional[str] = Header(None),
+):
+    """Execute a shell command in the agent's project context.
+
+    Automatically uses the agent's per-agent project clone if available,
+    falling back to PROJECTS_DIR.
+    """
+    api_key = extract_api_key(x_api_key, authorization)
+    verify_api_key(api_key)
+
+    # Resolve cwd: explicit > agent project dir > PROJECTS_DIR
+    cwd = request.cwd
+    if not cwd and x_agent_id:
+        cwd = _get_agent_project_dir(x_agent_id)
+    if not cwd:
+        cwd = PROJECTS_DIR
+    if not os.path.isdir(cwd):
+        return ExecutionResponse(status="error", output="", error=f"Directory not found: {cwd}")
+
+    timeout = min(request.timeout, 120)  # cap at 2 minutes
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-c", request.command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        output = stdout
+        if stderr:
+            output += f"\n[stderr] {stderr}"
+        if proc.returncode != 0:
+            output += f"\n[exit code: {proc.returncode}]"
+            return ExecutionResponse(
+                status="error",
+                output=output[:10000],
+                error=f"Command failed with exit code {proc.returncode}",
+            )
+        return ExecutionResponse(status="success", output=output[:10000])
+    except asyncio.TimeoutError:
+        return ExecutionResponse(status="error", output="", error=f"Command timed out after {timeout}s")
+    except Exception as e:
+        logger.error(f"exec-shell error: {e}")
         return ExecutionResponse(status="error", output="", error=str(e))
 
 
