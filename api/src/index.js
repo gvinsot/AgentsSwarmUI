@@ -8,6 +8,7 @@ import { agentRoutes } from './routes/agents.js';
 import { templateRoutes } from './routes/templates.js';
 import { projectRoutes } from './routes/projects.js';
 import { codeIndexRoutes } from './routes/codeIndex.js';
+import { storybookRoutes } from './routes/storybook.js';
 import { setupSocketHandlers } from './ws/socketHandler.js';
 import { AgentManager } from './services/agentManager.js';
 import { SkillManager } from './services/skillManager.js';
@@ -117,6 +118,7 @@ app.use('/api/templates', authenticateToken, templateRoutes());
 app.use('/api/projects', authenticateToken, projectRoutes());
 app.use('/api/project-contexts', authenticateToken, projectContextRoutes());
 app.use('/api/code-index', authenticateToken, codeIndexRoutes(codeIndexService));
+app.use('/api/storybook', authenticateToken, storybookRoutes());
 app.use('/api/plugins', authenticateToken, pluginRoutes(skillManager, mcpManager));
 // Backward compatibility
 app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager));
@@ -237,6 +239,7 @@ async function start() {
     httpServer.listen(PORT, () => {
       console.log(`\\n🐝 Agent Swarm Server running on http://localhost:${PORT}`);
       console.log('   WebSocket ready for connections');
+      console.log('   Storybook available at http://localhost:3001/api/storybook');
       resolve();
     });
   });
@@ -247,7 +250,7 @@ async function start() {
 }
 
 async function shutdown() {
-  console.log('\\n🛑 Shutting down — disconnecting MCP servers, destroying sandbox containers...');
+  console.log('\\n🛑 Shutting down — disconnecting MCP servers, disconnecting sandbox containers...');
   agentManager.stopTaskLoop();
   await mcpManager.disconnectAll();
   await sandboxManager.destroyAll();
