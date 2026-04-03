@@ -1392,7 +1392,9 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 content = message.get("content", "")
                 if isinstance(content, list):
                     for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
+                        if isinstance(block, dict) and block.get("type") == "thinking":
+                            yield {"type": "thinking", "content": block.get("thinking", "")}
+                        elif isinstance(block, dict) and block.get("type") == "text":
                             yield {"type": "text", "content": block.get("text", "")}
                         elif isinstance(block, dict) and block.get("type") == "tool_use":
                             tool_name = block.get("name", "unknown")
@@ -2286,7 +2288,9 @@ async def stream_execution(
             async for event in stream_claude_events(request.content, request.system_prompt, agent_id=x_agent_id, owner_id=x_owner_id):
                 event_type = event.get("type", "")
 
-                if event_type == "status":
+                if event_type == "thinking":
+                    yield f"data: {json.dumps({'status': 'thinking', 'output': event['content']}, ensure_ascii=False)}\n\n"
+                elif event_type == "status":
                     yield f"data: {json.dumps({'status': 'working', 'output': event['content']}, ensure_ascii=False)}\n\n"
                 elif event_type == "text":
                     yield f"data: {json.dumps({'status': 'streaming', 'output': event['content']}, ensure_ascii=False)}\n\n"
@@ -2399,34 +2403,35 @@ async def openai_chat_completions(
             async for event in stream_claude_events(prompt, system_prompt, agent_id=x_agent_id, owner_id=x_owner_id, task_id=x_task_id):
                 event_type = event.get("type", "")
 
-            if event_type == "text":
-                content = event["content"]
-                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
-                has_streamed_text = True
-            elif event_type == "result":
-                # Capture usage metadata from the final result event
-                cost_usd = event.get("cost_usd", 0) or 0
-                total_tokens = event.get("total_tokens", 0) or 0
-                input_tokens = event.get("input_tokens", 0) or 0
-                output_tokens_val = event.get("output_tokens", 0) or 0
-                # Only send the final result if we haven't already streamed
-                # text events (which contain the same content).
-                if not has_streamed_text:
+                if event_type == "thinking":
+                    content = event["content"]
+                    yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'reasoning_content': content}, 'finish_reason': None}]})}\n\n"
+                elif event_type == "text":
                     content = event["content"]
                     yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
                     has_streamed_text = True
+                elif event_type == "status":
+                    # Forward tool-use status as reasoning_content so the UI
+                    # shows live progress in the thinking panel
+                    status_text = event.get("content", "")
+                    if status_text:
+                        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'reasoning_content': status_text + chr(10)}, 'finish_reason': None}]})}\n\n"
                 elif event_type == "result":
                     # Capture usage metadata from the final result event
                     cost_usd = event.get("cost_usd", 0) or 0
                     total_tokens = event.get("total_tokens", 0) or 0
-                    # Only send the final result if we haven't already streamed
-                    # text events (which contain the same content).
+                    input_tokens = event.get("input_tokens", 0) or 0
+                    output_tokens_val = event.get("output_tokens", 0) or 0
+                    # Only send the final result text if we haven't already
+                    # streamed text events (which contain the same content).
                     if not has_streamed_text:
-                        content = event["content"]
-                        for piece in chunk_text(content):
-                            yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': piece}, 'finish_reason': None}]})}\n\n"
+                        content = event.get("content", "")
+                        if content:
+                            for piece in chunk_text(content):
+                                yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': piece}, 'finish_reason': None}]})}\n\n"
+                            has_streamed_text = True
                 elif event_type == "error":
-                    content = event["content"]
+                    content = event.get("content", "")
                     yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
         except BrokenPipeError as e:
             logger.error(f"Claude CLI subprocess failed: {e}")
