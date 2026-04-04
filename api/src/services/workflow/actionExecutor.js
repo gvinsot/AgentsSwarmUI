@@ -56,8 +56,9 @@ ${task.error ? `Previous error: ${task.error}` : ''}
 Instructions:
 ${instructions}
 
-You can change the task status using @update_task(${task.id}, <new_status>) where <new_status> is a workflow column ID.
+You MUST use @update_task(${task.id}, <new_status>) to change the task status. <new_status> must be a workflow column ID.
 You can also append details to the task description: @update_task(${task.id}, <new_status>, <details>).
+Do NOT call @task_execution_complete — use @update_task instead.
 Execute the instructions above and update the task status accordingly.`;
 }
 
@@ -274,6 +275,7 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId }) {
   if (actualTask) {
     actualTask.actionRunning = true;
     actualTask.actionRunningAgentId = agent.id;
+    actualTask.actionRunningMode = mode;
     if (!actualTask.startedAt) actualTask.startedAt = new Date().toISOString();
     if (actualTask.assignee !== agent.id) {
       actualTask.assignee = agent.id;
@@ -348,6 +350,7 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId }) {
     if (actualTask && actualTask.actionRunning) {
       actualTask.actionRunning = false;
       delete actualTask.actionRunningAgentId;
+      delete actualTask.actionRunningMode;
       _emitTaskUpdated(agentManager, task.agentId, actualTask);
       saveTaskToDb({ ...actualTask, agentId: task.agentId });
     }

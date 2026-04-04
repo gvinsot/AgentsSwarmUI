@@ -760,6 +760,7 @@ export const lifecycleMethods = {
         if (t.actionRunning && t.actionRunningAgentId === id) {
           t.actionRunning = false;
           delete t.actionRunningAgentId;
+          delete t.actionRunningMode;
           this._emit('task:updated', { agentId: creatorAgent.id, task: t });
         }
       }

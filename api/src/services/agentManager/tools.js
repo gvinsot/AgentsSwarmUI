@@ -105,6 +105,16 @@ export const toolsMethods = {
           inProgressTask = this._getAgentTasks(agentId).find(t => this._isActiveTaskStatus(t.status));
         }
         if (inProgressTask) {
+          // Guard: task_execution_complete only makes sense when a _waitForExecutionComplete
+          // is actually listening (execute mode). In decide/refine modes the agent should
+          // use @update_task instead. Warn and let the chat loop continue so the agent
+          // can self-correct.
+          if (inProgressTask.actionRunningMode && inProgressTask.actionRunningMode !== 'execute') {
+            console.warn(`⚠️ [TaskComplete] Agent "${agent.name}" called task_execution_complete but task ${inProgressTask.id} is in "${inProgressTask.actionRunningMode}" mode. Use @update_task instead.`);
+            results.push({ tool: 'task_execution_complete', args: call.args, success: false, result: `Wrong tool: this task is in ${inProgressTask.actionRunningMode} mode, not execute mode. Use @update_task(${inProgressTask.id}, <new_status>) to change the task status.` });
+            continue;
+          }
+
           // Set both legacy in-memory flag AND the signal system for reliable detection
           inProgressTask._executionCompleted = true;
           inProgressTask._executionComment = comment;
