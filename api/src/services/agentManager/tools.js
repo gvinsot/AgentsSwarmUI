@@ -256,7 +256,13 @@ export const toolsMethods = {
           continue;
         }
         console.log(`📋 [Task] Agent "${agent.name}" updated task "${task.text.slice(0, 50)}" → ${newStatus}${details ? ' (with details)' : ''}`);
-        results.push({ tool: 'update_task', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" updated to ${newStatus}${details ? ' with details appended' : ''}` });
+
+        // In workflow action modes (decide, refine, etc.), stop the chat loop after status change
+        const isWorkflowMode = task.actionRunningMode && task.actionRunningMode !== 'execute';
+        if (isWorkflowMode) {
+          console.log(`📋 [Task] Workflow mode "${task.actionRunningMode}" — marking @update_task as terminal`);
+        }
+        results.push({ tool: 'update_task', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" updated to ${newStatus}${details ? ' with details appended' : ''}`, isTerminal: isWorkflowMode || undefined });
         continue;
       }
 

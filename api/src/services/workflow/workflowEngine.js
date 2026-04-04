@@ -30,7 +30,9 @@ import {
 import { findAgentForAssignment } from './agentSelector.js';
 
 // ── Cooldown for on_enter retries ───────────────────────────────────────────
-const ON_ENTER_RETRY_COOLDOWN_MS = 3_000;
+const ON_ENTER_RETRY_BASE_MS = 5_000;
+const ON_ENTER_RETRY_MAX_MS = 120_000;   // cap at 2min between retries
+const ON_ENTER_MAX_RETRIES = 20;
 
 /**
  * Process all transitions triggered when a task enters a column.
@@ -204,17 +206,39 @@ export async function recheckPendingTransitions(agentManager) {
         agentManager._conditionProcessing.set(lockKey, Date.now());
 
         if (transition.trigger === Trigger.ON_ENTER) {
-          // On-enter retry: apply cooldown then re-run the full action chain
+          // On-enter retry: apply exponential backoff with max retries
           if (!agentManager._onEnterRetryTimestamps) agentManager._onEnterRetryTimestamps = new Map();
+          if (!agentManager._onEnterRetryCounts) agentManager._onEnterRetryCounts = new Map();
           const retryKey = `${agentId}:${task.id}:lastRetry`;
+          const retryCount = agentManager._onEnterRetryCounts.get(retryKey) || 0;
+
+          // Max retries reached — give up
+          if (retryCount >= ON_ENTER_MAX_RETRIES) {
+            console.warn(`[WorkflowEngine] on_enter retry exhausted (${ON_ENTER_MAX_RETRIES} attempts) for "${(task.text || '').slice(0, 60)}" in status="${task.status}" — giving up`);
+            const actualTask = agentManager._getAgentTasks(agentId).find(t => t.id === task.id);
+            if (actualTask) {
+              delete actualTask._pendingOnEnter;
+              delete actualTask._completedActionIdx;
+              actualTask.completedActionIdx = null;
+              saveTaskToDb({ ...actualTask, agentId }).catch(() => {});
+            }
+            agentManager._onEnterRetryCounts.delete(retryKey);
+            agentManager._onEnterRetryTimestamps.delete(retryKey);
+            agentManager._conditionProcessing.delete(lockKey);
+            break;
+          }
+
+          // Exponential backoff: 5s, 10s, 20s, 40s, ... capped at 2min
+          const cooldown = Math.min(ON_ENTER_RETRY_BASE_MS * Math.pow(2, retryCount), ON_ENTER_RETRY_MAX_MS);
           const lastRetry = agentManager._onEnterRetryTimestamps.get(retryKey) || 0;
-          if (Date.now() - lastRetry < ON_ENTER_RETRY_COOLDOWN_MS) {
+          if (Date.now() - lastRetry < cooldown) {
             agentManager._conditionProcessing.delete(lockKey);
             break;
           }
           agentManager._onEnterRetryTimestamps.set(retryKey, Date.now());
+          agentManager._onEnterRetryCounts.set(retryKey, retryCount + 1);
 
-          console.log(`[WorkflowEngine] on_enter retry for "${(task.text || '').slice(0, 60)}" in status="${task.status}"`);
+          console.log(`[WorkflowEngine] on_enter retry ${retryCount + 1}/${ON_ENTER_MAX_RETRIES} for "${(task.text || '').slice(0, 60)}" in status="${task.status}" (next cooldown: ${Math.round(cooldown / 1000)}s)`);
 
           // Re-run via processColumnEntry to respect completedActionIdx
           processColumnEntry({ ...task, agentId }, agentManager, { by: 'on-enter-retry' })
@@ -286,6 +310,13 @@ async function _executeActionChain(actions, task, { agentManager, io, ownerId, w
         actualTask.completedActionIdx = i;
         if (actualTask._pendingOnEnter === originalStatus) {
           delete actualTask._pendingOnEnter;
+          // Clear retry counter on success
+          if (agentManager._onEnterRetryCounts) {
+            agentManager._onEnterRetryCounts.delete(`${task.agentId}:${task.id}:lastRetry`);
+          }
+          if (agentManager._onEnterRetryTimestamps) {
+            agentManager._onEnterRetryTimestamps.delete(`${task.agentId}:${task.id}:lastRetry`);
+          }
         }
         await saveTaskToDb({ ...actualTask, agentId: task.agentId });
       }

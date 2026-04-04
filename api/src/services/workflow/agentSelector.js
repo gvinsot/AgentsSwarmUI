@@ -99,9 +99,9 @@ export function findAgentByRole(agents, role, ownerId = null, getAgentTasks = ()
     return null;
   }
 
-  // Step 2: filter to idle + not busy in another transition
+  // Step 2: filter to idle/error + not busy in another transition
   const eligible = matching.filter(a => {
-    if (a.status !== 'idle') {
+    if (a.status !== 'idle' && a.status !== 'error') {
       console.log(`[AgentSelector] Skipping "${a.name}" — status: ${a.status}`);
       return false;
     }
