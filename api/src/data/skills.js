@@ -129,15 +129,6 @@ DEPLOY:
 - @link_commit(taskId, commitHash, message) — manually link a commit to a task
 - Use @run_command to execute git commands
 
-WORKFLOW:
-1. Always start by exploring the project structure with @list_dir(.)
-2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use
-3. Read existing files before modifying them with @read_file(path)
-4. Write changes with @write_file(path, """content""") — follow the existing code style
-5. Verify your changes by reading the file back
-6. Run tests or builds with @run_command(npm test) or similar
-7. Use @search_files(*.js, keyword) to find relevant code across the project
-
 IMPORTANT:
 - Each tool call MUST be on its own line
 - Do NOT add decorative text before tool calls — just call the tool directly
