@@ -71,20 +71,36 @@ export const toolsMethods = {
         }
         taskExecutionCompleteDone = true;
         const comment = call.args[0] || '';
+        const explicitTaskId = (call.args[1] || '').trim();
         let inProgressTask = null;
-        // Priority 1: Task actively running via this agent (set by processTransition)
-        for (const [ownerId, tasks] of this._tasks) {
-          const found = tasks.find(t => t.actionRunningAgentId === agentId && this._isActiveTaskStatus(t.status));
-          if (found) { inProgressTask = found; break; }
+
+        // If explicit taskId provided, look it up directly
+        if (explicitTaskId) {
+          for (const [creatorId, tasks] of this._tasks) {
+            const found = tasks.find(t => t.id === explicitTaskId) ||
+                          tasks.find(t => t.id.startsWith(explicitTaskId));
+            if (found) { inProgressTask = found; break; }
+          }
+          if (!inProgressTask) {
+            console.warn(`⚠️  [TaskComplete] Explicit taskId "${explicitTaskId}" not found, falling back to auto-detect`);
+          }
         }
-        // Priority 2: Active task explicitly assigned to this agent
+
+        // Auto-detect: Priority 1: Task actively running via this agent (set by processTransition)
+        if (!inProgressTask) {
+          for (const [ownerId, tasks] of this._tasks) {
+            const found = tasks.find(t => t.actionRunningAgentId === agentId && this._isActiveTaskStatus(t.status));
+            if (found) { inProgressTask = found; break; }
+          }
+        }
+        // Auto-detect: Priority 2: Active task explicitly assigned to this agent
         if (!inProgressTask) {
           for (const [ownerId, tasks] of this._tasks) {
             const found = tasks.find(t => this._isActiveTaskStatus(t.status) && t.assignee === agentId);
             if (found) { inProgressTask = found; break; }
           }
         }
-        // Priority 3: Agent's own active task
+        // Auto-detect: Priority 3: Agent's own active task
         if (!inProgressTask) {
           inProgressTask = this._getAgentTasks(agentId).find(t => this._isActiveTaskStatus(t.status));
         }
@@ -94,6 +110,27 @@ export const toolsMethods = {
           inProgressTask._executionComment = comment;
           setTaskSignal(inProgressTask.id, 'completed', true);
           setTaskSignal(inProgressTask.id, 'comment', comment);
+
+          // Link commits if provided (format: "hash:message, hash:message")
+          const commitsArg = call.args[2] || '';
+          if (commitsArg) {
+            let ownerAgentId = null;
+            for (const [ownerId, tasks] of this._tasks) {
+              if (tasks.includes(inProgressTask)) { ownerAgentId = ownerId; break; }
+            }
+            ownerAgentId = ownerAgentId || agentId;
+            const commitEntries = commitsArg.split(/,\s*(?=[a-f0-9])/).map(s => s.trim()).filter(Boolean);
+            for (const entry of commitEntries) {
+              const colonIdx = entry.indexOf(':');
+              const hash = colonIdx > 0 ? entry.slice(0, colonIdx).trim() : entry.trim();
+              const msg = colonIdx > 0 ? entry.slice(colonIdx + 1).trim() : '';
+              if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
+                this.addTaskCommit(ownerAgentId, inProgressTask.id, hash, msg);
+                console.log(`🔗 [TaskComplete] Linked commit ${hash.slice(0, 7)} to task ${inProgressTask.id}`);
+              }
+            }
+          }
+
           for (const [ownerId, tasks] of this._tasks) {
             if (tasks.includes(inProgressTask)) {
               const ownerAgent = this.agents.get(ownerId);
@@ -190,32 +227,6 @@ export const toolsMethods = {
         }
         console.log(`📋 [Task] Agent "${agent.name}" updated task "${task.text.slice(0, 50)}" → ${newStatus}${details ? ' (with details)' : ''}`);
         results.push({ tool: 'update_task', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" updated to ${newStatus}${details ? ' with details appended' : ''}` });
-        continue;
-      }
-
-      // ── @link_commit() ──
-      if (call.tool === 'link_commit') {
-        const [taskId, commitHash, commitMsg] = call.args;
-        if (!taskId || !commitHash) {
-          results.push({ tool: 'link_commit', args: call.args, success: false, error: 'Usage: @link_commit(taskId, commitHash, optionalMessage)' });
-          continue;
-        }
-        let task = null;
-        let ownerAgentId = agentId;
-        for (const [creatorId, tasks] of this._tasks) {
-          const found = tasks.find(t => t.id === taskId) ||
-                        tasks.find(t => t.id.startsWith(taskId));
-          if (found) { task = found; ownerAgentId = creatorId; break; }
-        }
-        if (!task) {
-          const partial = this._getAgentTasks(agentId).find(t => t.id.startsWith(taskId.slice(0, 8)));
-          const hint = partial ? ` Maybe you meant ${partial.id.slice(0, 8)} which is currently "${partial.status}"?` : '';
-          results.push({ tool: 'link_commit', args: call.args, success: false, error: `Task not found: ${taskId}.${hint}` });
-          continue;
-        }
-        this.addTaskCommit(ownerAgentId, task.id, commitHash, commitMsg || '');
-        console.log(`🔗 [Commit] Agent "${agent.name}" linked ${commitHash.slice(0, 7)} to task "${task.text.slice(0, 50)}"`);
-        results.push({ tool: 'link_commit', args: call.args, success: true, result: `Commit ${commitHash.slice(0, 7)} linked to task "${task.text.slice(0, 60)}"` });
         continue;
       }
 
@@ -476,9 +487,29 @@ export const toolsMethods = {
           let commitLinkedOwnerAgentId = null;
 
           if (commitHash) {
-            const found = await this._findTaskForCommitLink(agentId);
-            let targetTask = found?.task || null;
-            let ownerAgentId = found?.ownerAgentId || agentId;
+            // If explicit taskId provided via @git_commit_push(message, taskId), use it
+            const explicitTaskId = call.tool === 'git_commit_push' ? (call.args[1] || '').trim() : '';
+            let targetTask = null;
+            let ownerAgentId = agentId;
+
+            if (explicitTaskId) {
+              // Look up the explicit task
+              for (const [creatorId, tasks] of this._tasks) {
+                const found = tasks.find(t => t.id === explicitTaskId) ||
+                              tasks.find(t => t.id.startsWith(explicitTaskId));
+                if (found) { targetTask = found; ownerAgentId = creatorId; break; }
+              }
+              if (!targetTask) {
+                console.warn(`⚠️  [Commit] Explicit taskId "${explicitTaskId}" not found, falling back to auto-detect`);
+              }
+            }
+
+            // Fallback: auto-detect active task
+            if (!targetTask) {
+              const found = await this._findTaskForCommitLink(agentId);
+              targetTask = found?.task || null;
+              ownerAgentId = found?.ownerAgentId || agentId;
+            }
 
             if (!targetTask) {
               const taskText = agent.currentTask || commitMsg || 'Commit without task';
@@ -499,7 +530,7 @@ export const toolsMethods = {
                 result.result = `${result.result}\n\n🔗 Commit ${commitHash.slice(0, 8)} automatically linked to task "${targetTask.text?.slice(0, 60)}"`;
               } else {
                 console.warn(`⚠️  [Commit] addTaskCommit failed for ${commitHash.slice(0, 7)} → task "${targetTask.text?.slice(0, 50)}"`);
-                result.result = `${result.result}\n\n⚠️ Auto-linking failed. Try: @link_commit(${targetTask.id}, ${commitHash}, ${commitMsg.slice(0, 60)})`;
+                result.result = `${result.result}\n\n⚠️ Auto-linking failed. Try again with explicit taskId: @git_commit_push(${commitMsg.slice(0, 40)}, ${targetTask.id})`;
               }
             } else {
               const agentTasks = [];
@@ -512,10 +543,10 @@ export const toolsMethods = {
               }
               if (agentTasks.length > 0) {
                 const taskList = agentTasks.slice(0, 5).map(t =>
-                  `  - @link_commit(${t.id}, ${commitHash}, ${commitMsg.slice(0, 60)})  → [${t.status}] ${t.text?.slice(0, 50)}`
+                  `  - ${t.id.slice(0, 8)} → [${t.status}] ${t.text?.slice(0, 50)}`
                 ).join('\n');
                 console.warn(`⚠️  [Commit] Agent "${agent.name}" committed ${commitHash.slice(0, 7)} but no active task found. Available tasks:\n${taskList}`);
-                result.result = `${result.result}\n\n⚠️ Commit ${commitHash.slice(0, 8)} was not auto-linked (no active task). Link it manually:\n${taskList}`;
+                result.result = `${result.result}\n\n⚠️ Commit ${commitHash.slice(0, 8)} was not auto-linked (no active task). Re-push with explicit taskId: @git_commit_push(message, taskId)`;
               } else {
                 console.warn(`⚠️  [Commit] Agent "${agent.name}" committed ${commitHash.slice(0, 7)} but has no tasks at all`);
                 result.result = `${result.result}\n\n⚠️ Commit ${commitHash.slice(0, 8)} was not linked — no tasks found for this agent.`;

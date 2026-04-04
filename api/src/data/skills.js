@@ -125,22 +125,28 @@ DEPLOY:
 - @run_command(command) — run tests, builds, git commands, etc.
 - @list_my_tasks() — list your assigned tasks with their status and ID
 - @update_task(taskId, status) — update a task status (any workflow column ID or error)
-- @task_execution_complete(comment) — signal that your current task is finished (REQUIRED when executing a task)
-- @link_commit(taskId, commitHash, message) — manually link a commit to a task
+- @task_execution_complete(comment, taskId, commits) — signal that your current task is finished (REQUIRED when executing a task). taskId is optional (auto-detected). commits is optional (format: hash:msg, hash:msg — must be already pushed).
+- @git_commit_push(message, taskId) — commit and push changes; optionally specify the taskId to link to
 - Use @run_command to execute git commands
+
+WORKFLOW:
+1. Always start by exploring the project structure with @list_dir(.)
+2. Study existing files and code conventions BEFORE writing anything — match naming, formatting, patterns, and folder organization already in use
+3. Read existing files before modifying them with @read_file(path)
+4. Write changes with @write_file(path, """content""") — follow the existing code style
+5. Verify your changes by reading the file back
+6. Run tests or builds with @run_command(npm test) or similar
+7. Use @search_files(*.js, keyword) to find relevant code across the project
 
 IMPORTANT:
 - Each tool call MUST be on its own line
 - Do NOT add decorative text before tool calls — just call the tool directly
 - NEVER stop yourself — keep working until the task is fully complete
-- When executing an assigned task, you MUST call @task_execution_complete(summary) when done. The system will not consider your task finished until you call this tool. The system WILL send you reminders if you forget.
-- COMPLETION SEQUENCE: Always follow this order: 1) @git_commit_push(message) to save your work, 2) @task_execution_complete(summary) to signal completion.
+- When executing an assigned task, you MUST call @task_execution_complete(summary) when done. The system will not consider your task finished until you call this tool. The system WILL send you reminders if you forget. You can optionally specify the taskId: @task_execution_complete(summary, taskId)
+- COMPLETION SEQUENCE: Always follow this order: 1) @git_commit_push(message) to save and push your work, 2) @task_execution_complete(summary) to signal completion. You can also specify an explicit task: @task_execution_complete(summary, taskId)
 - Your workspace is EPHEMERAL. Always @git_commit_push(message) after completing changes to preserve your work.
 - GIT COMMITS: Always include your agent name in the commit message. Format: "message (by YourName)" — use the cli directly.
-- COMMIT TRACKING: When you use @git_commit_push, the commit is automatically linked to your current active task. Use @link_commit(taskId, hash, message) to link a commit to a different task.
-
-[Code Index]:
-You can use the internal Code Index plugin to explore codebases faster than raw grep alone.
+- COMMIT TRACKING: When you use @git_commit_push, the commit is automatically linked to your current active task. Use @git_commit_push(message, taskId) to link a commit to a specific task.
 
 The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
 Call them using the @mcp_call(Code Index, tool_name, {"param": "value"}) syntax.
@@ -152,21 +158,7 @@ RECOMMENDED WORKFLOW:
    - @mcp_call(Code Index, index_folder, {"path": "/projects/YOUR_PROJECT_NAME", "repoName": "YOUR_PROJECT_NAME"})
    - Use the project name from the PROJECT CONTEXT section of your prompt.
 4. Search symbols or semantics first, then fetch outlines/source for the best matches.
-5. Fall back to normal file tools when you need to edit files.
-
-MOST USEFUL TOOLS:
-- @mcp_call(Code Index, list_repos, {})
-  List all indexed repositories and their repoIds. ALWAYS call this first.
-- @mcp_call(Code Index, index_folder, {"path": "/projects/MyProject", "repoName": "MyProject"})
-  Index a project folder. Use the project name from your PROJECT CONTEXT.
-- @mcp_call(Code Index, search_symbols, {"repoId": "...", "query": "authenticateToken", "topK": 5})
-  Find classes, functions, and methods by lexical match.
-- @mcp_call(Code Index, search_semantic, {"repoId": "...", "query": "JWT auth middleware", "topK": 5})
-  Find relevant code by meaning.
-- @mcp_call(Code Index, get_file_outline, {"repoId": "...", "filePath": "src/middleware/auth.js"})
-  Inspect all symbols in a file.
-- @mcp_call(Code Index, get_symbol, {"repoId": "...", "symbolId": "...", "verify": true, "contextLines": 2})
-  Retrieve a symbol's source and metadata.`
+5. Fall back to normal file tools when you need to edit files.`
   },
   {
     "id": "skill-delegation",

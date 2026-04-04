@@ -52,7 +52,7 @@ export function stripToolCalls(text) {
   let cleaned = text.replace(/<tool_call>\s*[\s\S]*?\s*<\/tool_call>/gi, '');
   const TOOL_NAMES = [
     'read_file', 'write_file', 'append_file', 'list_dir', 'search_files',
-    'run_command', 'report_error', 'git_commit_push', 'mcp_call', 'link_commit',
+    'run_command', 'report_error', 'git_commit_push', 'mcp_call',
     'update_task', 'list_my_tasks', 'list_projects', 'check_status',
     'task_execution_complete', 'get_action_status', 'build_stack', 'test_stack',
     'deploy_stack', 'list_stacks', 'list_containers', 'list_computers',

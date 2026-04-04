@@ -113,7 +113,7 @@ export function cleanToolSyntax(text) {
   cleaned = cleaned.replace(/\n?\[Executing: @(?:read_file|write_file|list_dir|search_files|run_command|append_file)\([^)]*\)\.{3}\]\n?/gi, '');
 
   // Use balanced parser to find and replace @tool(...) calls
-  const ALL_TOOLS = 'read_file|write_file|append_file|list_dir|search_files|run_command|report_error|git_commit_push|task_execution_complete|list_my_tasks|check_status|list_projects|mcp_call|update_task|link_commit';
+  const ALL_TOOLS = 'read_file|write_file|append_file|list_dir|search_files|run_command|report_error|git_commit_push|task_execution_complete|list_my_tasks|check_status|list_projects|mcp_call|update_task';
   const toolPattern = new RegExp(`@(${ALL_TOOLS})\\s*\\(`, 'gi');
   let m;
   // Process from end to start so replacements don't shift indices
@@ -188,15 +188,6 @@ export function cleanToolSyntax(text) {
         replacement = `\n> 📋 **Task updated** → ${status}\n`;
       } else {
         replacement = `\n> 📋 **Task updated**\n`;
-      }
-    } else if (toolName === 'link_commit') {
-      const commaIdx = _findTopLevelCommaUI(argsString);
-      if (commaIdx !== -1) {
-        const rest = argsString.slice(commaIdx + 1).trim();
-        const hash = _stripWrapperQuotes(rest.split(',')[0] || rest);
-        replacement = `\n> 🔗 **Commit linked:** \`${hash.slice(0, 7)}\`\n`;
-      } else {
-        replacement = `\n> 🔗 **Commit linked**\n`;
       }
     }
 
