@@ -107,6 +107,17 @@ export function agentRoutes(agentManager) {
     res.json(agentManager.getSwarmStatus(req.user.userId, req.user.role));
   });
 
+  // ── Admin: reset instructions for all agents of a role to default template ──
+  router.post('/reset-instructions/:role', async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    const { role } = req.params;
+    const result = await agentManager.resetInstructionsByRole(role);
+    if (result.error === 'no_template') {
+      return res.status(404).json({ error: `No default template found for role "${role}"` });
+    }
+    res.json({ success: true, role, resetCount: result.reset.length, agentIds: result.reset });
+  });
+
   // Get single agent detailed status (lightweight, includes project + currentTask)
   router.get('/:id/status', requireAgentAccess, (req, res) => {
     const status = agentManager.getAgentStatus(req.params.id);

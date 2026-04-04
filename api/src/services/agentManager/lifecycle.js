@@ -3,6 +3,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { saveAgent, deleteAgentFromDb, setAgentOwner, clearTaskExecutionFlags, clearActionRunningForAgent, saveTaskToDb } from '../database.js';
 import { transferUserFiles } from './helpers.js';
+import { AGENT_TEMPLATES } from '../../data/templates.js';
 
 /** @this {import('./index.js').AgentManager} */
 export const lifecycleMethods = {
@@ -618,6 +619,26 @@ export const lifecycleMethods = {
     await saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return this._sanitize(agent);
+  },
+
+  /**
+   * Reset instructions of all agents matching a role to their default template.
+   * Returns the list of agent ids that were reset.
+   */
+  async resetInstructionsByRole(role) {
+    const template = AGENT_TEMPLATES.find(t => t.role === role);
+    if (!template) return { error: 'no_template', reset: [] };
+
+    const reset = [];
+    for (const [id, agent] of this.agents) {
+      if (agent.role !== role) continue;
+      agent.instructions = template.instructions;
+      agent.updatedAt = new Date().toISOString();
+      await saveAgent(agent);
+      this._emit('agent:updated', this._sanitize(agent));
+      reset.push(id);
+    }
+    return { error: null, reset };
   },
 
   async delete(id) {

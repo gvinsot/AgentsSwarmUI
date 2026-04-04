@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   X, Users, Plus, Trash2, Edit3, Shield, ShieldCheck, ShieldAlert,
   UserCheck, Eye, Save, AlertCircle, Crown, Settings, ToggleLeft, ToggleRight,
-  Cpu, EyeOff, Bell
+  Cpu, EyeOff, Bell, RotateCcw
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -31,6 +31,12 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
   const [reminderConfig, setReminderConfig] = useState(null);
   const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderSaving, setReminderSaving] = useState(false);
+
+  // Reset instructions state
+  const [resetRole, setResetRole] = useState('');
+  const [resetRoles, setResetRoles] = useState([]);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
 
   // LLM Configs tab state
   const [llmConfigs, setLlmConfigs] = useState([]);
@@ -81,7 +87,15 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
     }
   }, [showToast]);
 
-  useEffect(() => { if (activeTab === 'settings') { loadSettings(); loadReminderConfig(); } }, [activeTab, loadSettings, loadReminderConfig]);
+  const loadResetRoles = useCallback(async () => {
+    try {
+      const templates = await api.getTemplates();
+      const roles = [...new Set(templates.map(t => t.role).filter(Boolean))];
+      setResetRoles(roles);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { if (activeTab === 'settings') { loadSettings(); loadReminderConfig(); loadResetRoles(); } }, [activeTab, loadSettings, loadReminderConfig, loadResetRoles]);
 
   const loadLlmConfigs = useCallback(async () => {
     try {
@@ -443,6 +457,81 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                 {reminderConfig?.envOverride && (
                   <div className="text-xs px-3 py-2 rounded-lg bg-amber-900/20 text-amber-400 border border-amber-800/30">
                     Interval is overridden by the TASK_REMINDER_INTERVAL_MINUTES environment variable.
+                  </div>
+                )}
+              </div>
+
+              {/* Reset Agent Instructions */}
+              <div className="p-5 bg-dark-800 rounded-xl border border-dark-700 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-dark-200 flex items-center gap-2">
+                    <RotateCcw className="w-4 h-4 text-orange-400" />
+                    Reset Agent Instructions
+                  </h4>
+                  <p className="text-xs text-dark-400 mt-1">
+                    Reset instructions of all agents with a given role back to the default template.
+                  </p>
+                </div>
+                <div className="flex items-end gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-dark-400 mb-1">Agent Role</label>
+                    <select
+                      value={resetRole}
+                      onChange={e => { setResetRole(e.target.value); setResetConfirm(false); }}
+                      className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="">Select a role…</option>
+                      {resetRoles.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {!resetConfirm ? (
+                    <button
+                      onClick={() => setResetConfirm(true)}
+                      disabled={!resetRole || resetLoading}
+                      className="flex items-center gap-2 px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setResetLoading(true);
+                          try {
+                            const res = await api.resetInstructionsByRole(resetRole);
+                            showToast?.(`Reset ${res.resetCount} agent(s) with role "${resetRole}" to default instructions`, 'success');
+                            setResetConfirm(false);
+                          } catch (err) {
+                            showToast?.(`Reset failed: ${err.message}`, 'error');
+                          } finally {
+                            setResetLoading(false);
+                          }
+                        }}
+                        disabled={resetLoading}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                      >
+                        {resetLoading ? (
+                          <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5" />
+                        )}
+                        Confirm Reset
+                      </button>
+                      <button
+                        onClick={() => setResetConfirm(false)}
+                        className="px-3 py-2 text-dark-400 hover:text-dark-200 text-sm transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {resetConfirm && resetRole && (
+                  <div className="text-xs px-3 py-2 rounded-lg bg-red-900/20 text-red-400 border border-red-800/30">
+                    This will overwrite the instructions of <strong>all agents</strong> with role "{resetRole}" — this cannot be undone.
                   </div>
                 )}
               </div>

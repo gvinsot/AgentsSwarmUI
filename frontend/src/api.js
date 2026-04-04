@@ -373,6 +373,13 @@ export const api = {
   getTemplates: () =>
     fetch(`${API_BASE}/templates`, { headers: getHeaders() }).then(handleResponse),
 
+  // Admin: reset instructions by role
+  resetInstructionsByRole: (role) =>
+    fetch(`${API_BASE}/agents/reset-instructions/${encodeURIComponent(role)}`, {
+      method: 'POST',
+      headers: getHeaders(),
+    }).then(handleResponse),
+
   // Projects (GitHub starred repos)
   getProjects: () =>
     fetch(`${API_BASE}/projects`, { headers: getHeaders() }).then(handleResponse),
