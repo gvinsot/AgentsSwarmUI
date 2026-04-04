@@ -1002,6 +1002,7 @@ async def _try_exchange_code_from_prompt(prompt: str, agent_id: Optional[str] = 
             "grant_type": "authorization_code",
             "client_id": OAUTH_CLIENT_ID,
             "code": auth_code,
+            "state": state,
             "redirect_uri": OAUTH_REDIRECT_URI,
             "code_verifier": flow["code_verifier"],
         }
@@ -1042,6 +1043,7 @@ async def _try_exchange_code_from_prompt(prompt: str, agent_id: Optional[str] = 
             "grant_type": "authorization_code",
             "client_id": OAUTH_CLIENT_ID,
             "code": auth_code,
+            "state": state,
             "redirect_uri": OAUTH_REDIRECT_URI,
             "code_verifier": flow["code_verifier"],
         }
