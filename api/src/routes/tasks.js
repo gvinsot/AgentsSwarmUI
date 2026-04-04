@@ -211,10 +211,26 @@ router.put('/:id', async (req, res) => {
         if (priority !== undefined) memTask.priority = task.priority;
         if (dueDate !== undefined) memTask.dueDate = task.dueDate;
         memTask.updatedAt = task.updatedAt;
+
+        // When status changed, clear stale execution state so the workflow
+        // engine starts fresh and the task loop doesn't incorrectly resume.
+        if (statusChanged) {
+          memTask.startedAt = null;
+          memTask.executionStatus = null;
+          delete memTask._pendingOnEnter;
+          delete memTask._completedActionIdx;
+          memTask.completedActionIdx = null;
+          if (task.status === 'done') memTask.completedAt = now;
+        }
       }
     }
 
     mgr.saveTaskDirectly(task);
+
+    // ── Trigger workflow processing when status changed ──────────────────
+    if (statusChanged && task.status !== 'error') {
+      mgr._checkAutoRefine({ ...task }, { by: username });
+    }
 
     // ── Notifications ──────────────────────────────────────────────────────
     if (boardChanged) {
@@ -295,6 +311,24 @@ router.post('/bulk-move', async (req, res) => {
       });
 
       mgr.saveTaskDirectly(task);
+
+      // Sync execution state in memory and trigger workflow if status changed
+      if (oldStatus !== targetColumn) {
+        const memTask = mgr._getAgentTasks(task.agentId)?.find(t => t.id === taskId);
+        if (memTask) {
+          memTask.status = targetColumn;
+          memTask.boardId = boardId;
+          memTask.startedAt = null;
+          memTask.executionStatus = null;
+          delete memTask._pendingOnEnter;
+          delete memTask._completedActionIdx;
+          memTask.completedActionIdx = null;
+        }
+        if (targetColumn !== 'error') {
+          mgr._checkAutoRefine({ ...task }, { by: username });
+        }
+      }
+
       mgr._emit('task:updated', task);
       if (task.agentId) {
         const agent = mgr.agents.get(task.agentId);
