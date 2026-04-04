@@ -1187,6 +1187,10 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
       const dx = touch.clientX - touchDragRef.current.startX;
       const dy = touch.clientY - touchDragRef.current.startY;
 
+      // Prevent scrolling as soon as drag is armed — must happen BEFORE the 20px threshold
+      // Otherwise the browser may interpret early movement as a scroll and fire touchcancel
+      e.preventDefault();
+
       if (!touchDragRef.current.started) {
         if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
         touchDragRef.current.started = true;
@@ -1207,8 +1211,6 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
         // Dim the original card
         el.style.opacity = '0.4';
       }
-
-      e.preventDefault(); // Prevent scrolling while dragging
 
       // Move ghost
       if (touchDragRef.current.ghost) {
@@ -1273,6 +1275,7 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
           if (cardRef.current) {
             cardRef.current.style.transform = 'scale(0.97)';
             cardRef.current.style.transition = 'transform 0.15s ease';
+            cardRef.current.style.touchAction = 'none'; // Prevent browser from hijacking touch
           }
         }, 500);
       }}
@@ -1286,6 +1289,7 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
         if (cardRef.current) {
           cardRef.current.style.transform = '';
           cardRef.current.style.transition = '';
+          cardRef.current.style.touchAction = '';
         }
         longPressArmedRef.current = false;
 
@@ -1310,17 +1314,54 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
           let dropColEl = dropColId ? document.querySelector(`[data-column-id="${dropColId}"]`) : null;
           // Fallback: try elementFromPoint with touchend coordinates
           if (!dropColEl) {
-            const touch = e.changedTouches[0];
-            const elemUnder = document.elementFromPoint(touch.clientX, touch.clientY);
-            dropColEl = elemUnder?.closest?.('[data-column-id]');
-            if (dropColEl) dropColId = dropColEl.getAttribute('data-column-id');
+            const touch = e.changedTouches?.[0];
+            if (touch) {
+              const elemUnder = document.elementFromPoint(touch.clientX, touch.clientY);
+              dropColEl = elemUnder?.closest?.('[data-column-id]');
+              if (dropColEl) dropColId = dropColEl.getAttribute('data-column-id');
+            }
           }
           if (dropColId) {
-            // Call the drop handler directly via prop (more reliable on mobile than custom events)
             onTouchDrop(task.agentId, task.id, dropColId);
           }
 
           // Prevent click after drag
+          setTimeout(() => { isDraggingRef.current = false; }, 50);
+        } else {
+          isDraggingRef.current = false;
+        }
+
+        touchDragRef.current = null;
+      }}
+      onTouchCancel={() => {
+        // Mobile browsers fire touchcancel instead of touchend when they take over the gesture
+        // We must handle the drop here too, using lastColumnId stored during touchmove
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        if (cardRef.current) {
+          cardRef.current.style.transform = '';
+          cardRef.current.style.transition = '';
+          cardRef.current.style.opacity = '';
+        }
+        longPressArmedRef.current = false;
+
+        if (!touchDragRef.current) return;
+
+        if (touchDragRef.current.started) {
+          if (touchDragRef.current.ghost) {
+            touchDragRef.current.ghost.remove();
+          }
+          document.querySelectorAll('[data-column-id]').forEach(el => {
+            el.classList.remove('touch-drag-over');
+          });
+
+          // Use lastColumnId — touchcancel has no reliable coordinates
+          const dropColId = touchDragRef.current.lastColumnId || null;
+          if (dropColId) {
+            onTouchDrop(task.agentId, task.id, dropColId);
+          }
           setTimeout(() => { isDraggingRef.current = false; }, 50);
         } else {
           isDraggingRef.current = false;
