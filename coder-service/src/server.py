@@ -673,18 +673,25 @@ async def _token_http_request(payload: dict, description: str, agent_user: dict 
     import urllib.parse as urlparse
 
     async with _token_request_lock:
-        # Check if token was refreshed by another coroutine while we waited
-        # Use owner/agent-specific check when refreshing a non-global token
-        if agent_user and agent_user.get("_owner_id"):
-            token_expired = _is_owner_token_expired(agent_user["_owner_id"])
-        elif agent_user:
-            owner_id = agent_user.get("owner_id")
-            token_expired = _is_owner_token_expired(owner_id) if owner_id else _is_agent_token_expired(agent_user)
-        else:
-            token_expired = _is_token_expired()
-        if not token_expired:
-            logger.info("Token already valid (refreshed by another request)")
-            return {"_already_valid": True}
+        # Skip the "already valid" optimisation for authorization_code exchanges:
+        # the user explicitly provided a code, so we must exchange it even if
+        # a global token happens to be valid (the owner/agent may still need
+        # their own token).
+        is_code_exchange = payload.get("grant_type") == "authorization_code"
+
+        if not is_code_exchange:
+            # Check if token was refreshed by another coroutine while we waited
+            # Use owner/agent-specific check when refreshing a non-global token
+            if agent_user and agent_user.get("_owner_id"):
+                token_expired = _is_owner_token_expired(agent_user["_owner_id"])
+            elif agent_user:
+                owner_id = agent_user.get("owner_id")
+                token_expired = _is_owner_token_expired(owner_id) if owner_id else _is_agent_token_expired(agent_user)
+            else:
+                token_expired = _is_token_expired()
+            if not token_expired:
+                logger.info("Token already valid (refreshed by another request)")
+                return {"_already_valid": True}
 
         body_str = urlparse.urlencode(payload)
         # Use Node.js fetch to avoid Cloudflare blocking Python's TLS fingerprint
@@ -1001,18 +1008,28 @@ async def _try_exchange_code_from_prompt(prompt: str, agent_id: Optional[str] = 
         logger.info(f"[Owner Auth] Exchanging code for owner {owner_id}")
         try:
             result = await _token_http_request(payload, f"owner {owner_id} in-chat code exchange")
-            if result and not result.get("_already_valid") and not result.get("_invalid_grant"):
-                access_token = result.get("access_token")
-                if access_token:
-                    refresh_token = result.get("refresh_token")
-                    expires_in = result.get("expires_in", 28800)
-                    _save_owner_token(owner_id, access_token, refresh_token=refresh_token, expires_in=expires_in)
-                    _owner_oauth_flows.pop(owner_id, None)
-                    email = result.get("account", {}).get("email", "")
-                    logger.info(f"[Owner Auth] In-chat OAuth exchange successful for owner {owner_id}: {email}")
-                    return {"status": "authenticated", "email": email}
+            if not result:
+                _owner_oauth_flows.pop(owner_id, None)
+                return {"status": "error", "message": "Token exchange failed (rate-limited or network error). Try again in 2 minutes."}
+            if result.get("_already_valid"):
+                # Another concurrent request already exchanged the token
+                _owner_oauth_flows.pop(owner_id, None)
+                return {"status": "authenticated", "email": ""}
+            if result.get("_invalid_grant"):
+                _owner_oauth_flows.pop(owner_id, None)
+                return {"status": "error", "message": "The verification code was rejected. Please start a new login flow."}
+            access_token = result.get("access_token")
+            if not access_token:
+                logger.error(f"[Owner Auth] Token response missing access_token: {result}")
+                _owner_oauth_flows.pop(owner_id, None)
+                return {"status": "error", "message": "Token exchange returned no access token."}
+            refresh_token = result.get("refresh_token")
+            expires_in = result.get("expires_in", 28800)
+            _save_owner_token(owner_id, access_token, refresh_token=refresh_token, expires_in=expires_in)
             _owner_oauth_flows.pop(owner_id, None)
-            return {"status": "error", "message": "Token exchange failed for owner flow."}
+            email = result.get("account", {}).get("email", "")
+            logger.info(f"[Owner Auth] In-chat OAuth exchange successful for owner {owner_id}: {email}")
+            return {"status": "authenticated", "email": email}
         except Exception as e:
             logger.error(f"[Owner Auth] In-chat code exchange error: {e}", exc_info=True)
             _owner_oauth_flows.pop(owner_id, None)
@@ -1031,20 +1048,29 @@ async def _try_exchange_code_from_prompt(prompt: str, agent_id: Optional[str] = 
         logger.info(f"[Agent Auth] Exchanging code for agent {agent_id[:12]}")
         try:
             result = await _token_http_request(payload, f"agent {agent_id[:12]} in-chat code exchange")
-            if result and not result.get("_already_valid") and not result.get("_invalid_grant"):
-                access_token = result.get("access_token")
-                if access_token:
-                    refresh_token = result.get("refresh_token")
-                    expires_in = result.get("expires_in", 28800)
-                    agent_user = await ensure_agent_user(agent_id, owner_id=owner_id)
-                    if agent_user:
-                        _save_agent_token(agent_user, access_token, refresh_token=refresh_token, expires_in=expires_in)
-                    _agent_oauth_flows.pop(agent_id, None)
-                    email = result.get("account", {}).get("email", "")
-                    logger.info(f"[Agent Auth] In-chat OAuth exchange successful for agent {agent_id[:12]}: {email}")
-                    return {"status": "authenticated", "email": email}
+            if not result:
+                _agent_oauth_flows.pop(agent_id, None)
+                return {"status": "error", "message": "Token exchange failed (rate-limited or network error). Try again in 2 minutes."}
+            if result.get("_already_valid"):
+                _agent_oauth_flows.pop(agent_id, None)
+                return {"status": "authenticated", "email": ""}
+            if result.get("_invalid_grant"):
+                _agent_oauth_flows.pop(agent_id, None)
+                return {"status": "error", "message": "The verification code was rejected. Please start a new login flow."}
+            access_token = result.get("access_token")
+            if not access_token:
+                logger.error(f"[Agent Auth] Token response missing access_token: {result}")
+                _agent_oauth_flows.pop(agent_id, None)
+                return {"status": "error", "message": "Token exchange returned no access token."}
+            refresh_token = result.get("refresh_token")
+            expires_in = result.get("expires_in", 28800)
+            agent_user = await ensure_agent_user(agent_id, owner_id=owner_id)
+            if agent_user:
+                _save_agent_token(agent_user, access_token, refresh_token=refresh_token, expires_in=expires_in)
             _agent_oauth_flows.pop(agent_id, None)
-            return {"status": "error", "message": "Token exchange failed for agent flow."}
+            email = result.get("account", {}).get("email", "")
+            logger.info(f"[Agent Auth] In-chat OAuth exchange successful for agent {agent_id[:12]}: {email}")
+            return {"status": "authenticated", "email": email}
         except Exception as e:
             logger.error(f"[Agent Auth] In-chat code exchange error: {e}", exc_info=True)
             _agent_oauth_flows.pop(agent_id, None)
