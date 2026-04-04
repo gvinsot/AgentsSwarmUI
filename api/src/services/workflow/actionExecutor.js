@@ -84,7 +84,7 @@ export function stripToolCalls(text) {
 
 /**
  * @typedef {Object} ActionResult
- * @property {boolean} executed   - true if the action ran to completion
+ * @property {boolean}  executed   - true if the action ran to completion
  * @property {boolean} skipped    - true if the action was skipped (no agent, lock held, etc.)
  * @property {string}  [reason]   - why it was skipped
  * @property {boolean} [error]    - true if an error occurred
@@ -331,6 +331,13 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId }) {
       delete actualTask.actionRunningAgentId;
       saveAgent(agentManager.agents.get(task.agentId));
       io?.to(`agent:${task.agentId}`)?.emit('task:updated', { agentId: task.agentId, task: actualTask });
+    }
+    // Non-execute modes (decide, refine, title, set_type) should not leave the
+    // agent as the permanent assignee — clear it so the task loop won't send
+    // the task to the wrong agent if the next workflow action is delayed.
+    if (mode !== AgentMode.EXECUTE && actualTask && actualTask.assignee === agent.id) {
+      actualTask.assignee = null;
+      saveTaskToDb({ ...actualTask, agentId: task.agentId });
     }
   }
 }
