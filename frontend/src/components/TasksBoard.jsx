@@ -6,7 +6,7 @@ import {
   Bug, Sparkles, Wrench, BookOpen, ArrowUpCircle, HelpCircle, Layers,
   ArrowUpDown, Flag, Sun, RotateCcw, Archive, Users, Share2
 } from 'lucide-react';
-import { api, deleteTask as deleteTaskById } from '../api';
+import { api, deleteTask as deleteTaskById, updateTask as updateTaskById } from '../api';
 import { getDeletedTasks, restoreTask as restoreTaskApi, hardDeleteTask as hardDeleteTaskApi } from '../api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1368,6 +1368,7 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
               if (dropColEl) dropColId = dropColEl.getAttribute('data-column-id');
             }
           }
+          console.log('[TaskCard] touchEnd drop:', { dropColId, taskId: task.id, agentId: task.agentId });
           if (dropColId) {
             onTouchDrop(task.agentId, task.id, dropColId);
           }
@@ -2809,28 +2810,38 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent 
         ? (task.errorFromStatus || fallbackColId) === col.id
         : col.statuses.includes(task.status || fallbackColId);
       if (isAlreadyInColumn) return;
-      await api.setTaskStatus(agentId, taskId, col.dropStatus);
+      await updateTaskById(taskId, { column: col.dropStatus });
       refreshAll();
     } catch (err) {
       console.error('[TasksBoard] Drop status change failed:', err.message);
     }
-  }, [allTasks, refreshAll]);
+  }, [allTasks, columns, refreshAll, isReadOnly]);
 
   // Touch drag-and-drop handler
   const handleTouchDrop = useCallback(async (agentId, taskId, targetColumnId) => {
     if (isReadOnly) return;
     try {
       const task = allTasks.find(t => t.id === taskId && t.agentId === agentId);
-      if (!task) return;
-      if (task.actionRunning) return; // Cannot move task while agent is processing it
+      if (!task) {
+        console.warn('[TasksBoard] Touch drop: task not found', { agentId, taskId });
+        return;
+      }
+      if (task.actionRunning) return;
       const col = columns.find(c => c.id === targetColumnId);
-      if (!col) return;
+      if (!col) {
+        console.warn('[TasksBoard] Touch drop: column not found', targetColumnId);
+        return;
+      }
       const fallbackColId = columns[0]?.id;
       const isAlreadyInColumn = task.status === 'error'
         ? (task.errorFromStatus || fallbackColId) === col.id
         : col.statuses.includes(task.status || fallbackColId);
-      if (isAlreadyInColumn) return;
-      await api.setTaskStatus(agentId, taskId, col.dropStatus);
+      if (isAlreadyInColumn) {
+        console.log('[TasksBoard] Touch drop: already in column', col.id);
+        return;
+      }
+      console.log('[TasksBoard] Touch drop: moving task', taskId, '→', col.dropStatus);
+      await updateTaskById(taskId, { column: col.dropStatus });
       refreshAll();
     } catch (err) {
       console.error('[TasksBoard] Touch drop status change failed:', err.message);
