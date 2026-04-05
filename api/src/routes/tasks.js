@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardShare, rowToTask } from '../services/database.js';
+import { listStarredRepos } from '../services/githubProjects.js';
 
 const router = Router();
 
@@ -523,23 +524,28 @@ router.post('/purge', requireRole('admin'), async (req, res) => {
 });
 
 // ── Helper: extract owner/repo from task context ────────────────────────────
-function resolveOwnerRepo(task, mgr) {
+async function resolveOwnerRepo(task, mgr) {
+  // 1. task.project in "owner/repo" format
   if (task.project && task.project.includes('/')) {
     const [owner, repo] = task.project.split('/');
     if (owner && repo) return { owner, repo };
   }
+  // 2. Explicit githubIssue
   if (task.githubIssue?.owner && task.githubIssue?.repo) {
     return { owner: task.githubIssue.owner, repo: task.githubIssue.repo };
   }
-  if (task.agentId) {
-    const agent = mgr.agents.get(task.agentId);
-    if (agent?.sshUrl) {
-      const m = agent.sshUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
-      if (m) return { owner: m[1], repo: m[2] };
-    }
-    if (agent?.projectName && agent.projectName.includes('/')) {
-      const [owner, repo] = agent.projectName.split('/');
-      if (owner && repo) return { owner, repo };
+  // 3. Look up project name in starred repos to get fullName (owner/repo)
+  const projectName = task.project || mgr.agents.get(task.agentId)?.project;
+  if (projectName && !projectName.includes('/')) {
+    try {
+      const repos = await listStarredRepos();
+      const repo = repos.find(r => r.name.toLowerCase() === projectName.toLowerCase());
+      if (repo?.fullName) {
+        const [owner, repoName] = repo.fullName.split('/');
+        if (owner && repoName) return { owner, repo: repoName };
+      }
+    } catch (err) {
+      console.warn('resolveOwnerRepo: failed to look up starred repos:', err.message);
     }
   }
   return null;
@@ -555,7 +561,7 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
     const task = mgr.getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const ownerRepo = resolveOwnerRepo(task, mgr);
+    const ownerRepo = await resolveOwnerRepo(task, mgr);
     if (!ownerRepo) {
       return res.status(400).json({ error: 'Cannot determine GitHub repository for this task' });
     }
