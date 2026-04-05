@@ -401,8 +401,8 @@ export const chatMethods = {
     const shouldCompact = isTopLevelUserMessage || isNewDelegationTask;
 
     // Determine if agent is currently executing a task (has an active task with startedAt).
-    // For direct user messages (isTopLevelUserMessage), only check the agent's own task list
-    // so that chatting with an agent always sends the full history.
+    // For direct user messages (isTopLevelUserMessage), chat context is scoped to the
+    // last task's startedAt (or full history if no tasks were ever executed).
     // For workflow messages (tool-result, delegation, etc.), also check cross-agent assignments
     // so that utility agents (titles-manager, product-manager) get task-scoped history.
     const agentId = [...this.agents.entries()].find(([, a]) => a === agent)?.[0];
@@ -416,8 +416,30 @@ export const chatMethods = {
     }
     const isTaskExecution = !!activeTask;
 
+    // Find the most recent task start time for this agent (used for chat context scoping).
+    // When the user chats directly and no task is active, we still scope the history
+    // to the last executed task's startedAt to avoid sending the entire history.
+    let lastTaskStartTime = null;
+    if (!isTaskExecution && agentId) {
+      const _checkTime = (ts) => { if (ts && (!lastTaskStartTime || ts > lastTaskStartTime)) lastTaskStartTime = ts; };
+      const _checkTask = (t) => {
+        if (t.startedAt) _checkTime(new Date(t.startedAt).getTime());
+        if (Array.isArray(t.history)) {
+          for (const h of t.history) {
+            if (h.type === 'execution' && h.startedAt) _checkTime(new Date(h.startedAt).getTime());
+          }
+        }
+      };
+      for (const t of this._getAgentTasks(agentId)) _checkTask(t);
+      for (const [, tasks] of this._tasks) {
+        for (const t of tasks) {
+          if (t.assignee === agentId || t.actionRunningAgentId === agentId) _checkTask(t);
+        }
+      }
+    }
+
     // Proactive compaction: only during task execution, non-managed context.
-    // Chat mode sends the FULL history — no compaction.
+    // Chat mode scopes to last task start — no compaction needed.
     // Workflow one-shot actions skip compaction (no history included).
     if (shouldCompact && !managesContext && isTaskExecution && !isWorkflowAction) {
       const nonSummaryMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
@@ -454,9 +476,21 @@ export const chatMethods = {
           messages.push(...agent.conversationHistory.slice(startIdx));
         }
       } else if (isTopLevelUserMessage) {
-        // Direct user message with no active task: send full history so the
-        // agent retains context from its recent work (e.g. after being stopped).
-        messages.push(...agent.conversationHistory);
+        // Direct user message with no active task: scope to last task's startedAt
+        // to avoid sending the entire conversation history.
+        let scopedToTask = false;
+        if (lastTaskStartTime) {
+          const startIdx = agent.conversationHistory.findIndex(
+            m => m.timestamp && new Date(m.timestamp).getTime() >= lastTaskStartTime
+          );
+          if (startIdx >= 0) {
+            messages.push(...agent.conversationHistory.slice(startIdx));
+            scopedToTask = true;
+          }
+        }
+        if (!scopedToTask) {
+          messages.push(...agent.conversationHistory);
+        }
       }
       // Otherwise (workflow message, no active task): start fresh
     } else if (isTaskExecution) {
@@ -476,17 +510,32 @@ export const chatMethods = {
       }
       console.log(`📋 [Task Context] "${agent.name}": task execution — sending ${messages.length - 1} messages from task start (of ${agent.conversationHistory.length} total)`);
     } else {
-      // Chat mode: send the FULL conversation history
-      const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
-      const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
-      if (summary) messages.push(summary);
-      messages.push(...realMessages);
+      // Chat mode: scope to last task's startedAt to reduce context size.
+      // Only sends the full history as fallback when no task has ever been executed.
+      let scopedToTask = false;
+      if (lastTaskStartTime) {
+        const startIdx = agent.conversationHistory.findIndex(
+          m => m.timestamp && new Date(m.timestamp).getTime() >= lastTaskStartTime
+        );
+        if (startIdx >= 0) {
+          messages.push(...agent.conversationHistory.slice(startIdx));
+          scopedToTask = true;
+        }
+      }
+      if (!scopedToTask) {
+        // Fallback: send full history (no task history found or no matching messages)
+        const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
+        const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
+        if (summary) messages.push(summary);
+        messages.push(...realMessages);
+      }
+      console.log(`📋 [Chat Context] "${agent.name}": chat mode — sending ${messages.length - 1} messages${scopedToTask ? ' (scoped to last task start)' : ' (full history)'} of ${agent.conversationHistory.length} total`);
     }
 
     messages.push({ role: 'user', content: userMessage });
 
     // Safety token check: only during task execution, non-managed context.
-    // Chat mode sends the FULL history — no token-based compaction.
+    // Chat mode scopes to last task start — no token-based compaction.
     if (shouldCompact && !managesContext && isTaskExecution) {
       const realMessages = agent.conversationHistory.filter(m => m.type !== 'compaction-summary');
       const estimatedTokens = this._estimateTokens(messages);
