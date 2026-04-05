@@ -204,22 +204,52 @@ export class CoderExecutionProvider extends ExecutionProvider {
         } catch { /* ignore */ }
       }
 
-      // Step 5: Pull --rebase
+      // Step 5 & 6: Pull --rebase + Push with retry (up to 3 attempts)
       const GIT_SSH = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"';
-      try {
-        await this._execShell(agentId, `${GIT_SSH} git pull --rebase --autostash`, 60);
-      } catch (pullErr) {
-        try { await this._execShell(agentId, 'git rebase --abort', 10); } catch { /* ignore */ }
-        return {
-          success: false,
-          error: 'Push failed: remote has conflicting changes that could not be auto-rebased.',
-          result: `${commitOutput}\n\nPull --rebase failed:\n${pullErr.stdout || pullErr.message}\n\nYour commit ${commitHash || '(unknown)'} is saved locally.`.trim().slice(0, 5000),
-          meta: { commitHash }
-        };
-      }
+      const MAX_PUSH_RETRIES = 3;
+      let pushOut = '';
+      let pushSuccess = false;
 
-      // Step 6: Push
-      const { stdout: pushOut } = await this._execShell(agentId, `${GIT_SSH} git push`, 60);
+      for (let attempt = 1; attempt <= MAX_PUSH_RETRIES; attempt++) {
+        // Pull --rebase to integrate remote changes
+        try {
+          await this._execShell(agentId, `${GIT_SSH} git pull --rebase --autostash`, 60);
+        } catch (pullErr) {
+          try { await this._execShell(agentId, 'git rebase --abort', 10); } catch { /* ignore */ }
+          if (attempt === MAX_PUSH_RETRIES) {
+            return {
+              success: false,
+              error: `Push failed after ${MAX_PUSH_RETRIES} attempts: remote has conflicting changes that could not be auto-rebased.`,
+              result: `${commitOutput}\n\nPull --rebase failed (attempt ${attempt}/${MAX_PUSH_RETRIES}):\n${pullErr.stdout || pullErr.message}\n\nYour commit is saved locally. Use @run_command(git push origin main) to retry manually.`.trim().slice(0, 5000),
+              meta: { commitHash }
+            };
+          }
+          console.warn(`[git_commit_push] Pull --rebase failed (attempt ${attempt}/${MAX_PUSH_RETRIES}), retrying...`);
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+
+        // Push
+        try {
+          const { stdout: out } = await this._execShell(agentId, `${GIT_SSH} git push`, 60);
+          pushOut = out;
+        } catch (pushErr) {
+          if (attempt === MAX_PUSH_RETRIES) {
+            return {
+              success: false,
+              error: `Push failed after ${MAX_PUSH_RETRIES} attempts: ${pushErr.message || 'unknown error'}`,
+              result: `${commitOutput}\n\nPush failed (attempt ${attempt}/${MAX_PUSH_RETRIES}):\n${pushErr.stdout || pushErr.message}\n\nYour commit is saved locally. Use @run_command(git push origin main) to retry manually.`.trim().slice(0, 5000),
+              meta: { commitHash }
+            };
+          }
+          console.warn(`[git_commit_push] Push failed (attempt ${attempt}/${MAX_PUSH_RETRIES}), retrying...`);
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+
+        pushSuccess = true;
+        break;
+      }
 
       // Re-capture hash after rebase
       try {
@@ -227,7 +257,27 @@ export class CoderExecutionProvider extends ExecutionProvider {
         commitHash = revOut.trim() || commitHash;
       } catch { /* keep original */ }
 
-      const output = [commitOutput, pushOut].filter(Boolean).join('\n').trim();
+      // Step 7: Verify push actually reached the remote
+      try {
+        const { stdout: localHead } = await this._execShell(agentId, 'git rev-parse HEAD', 5);
+        const { stdout: remoteHead } = await this._execShell(agentId, `${GIT_SSH} git ls-remote origin HEAD`, 10);
+        const localSha = localHead.trim();
+        const remoteSha = (remoteHead.trim().split(/\s/)[0] || '').trim();
+        if (remoteSha && localSha && !remoteSha.startsWith(localSha.slice(0, 7)) && localSha !== remoteSha) {
+          console.warn(`[git_commit_push] Push verification: local HEAD ${localSha.slice(0, 8)} != remote HEAD ${remoteSha.slice(0, 8)}`);
+          return {
+            success: false,
+            error: `Push appeared to succeed but verification failed: local HEAD (${localSha.slice(0, 8)}) does not match remote HEAD (${remoteSha.slice(0, 8)}). Use @run_command(git push origin main) to retry.`,
+            result: `${commitOutput}\n${pushOut}\n\n⚠️ Push verification FAILED. Use @run_command(git push origin main 2>&1) to push manually.`.trim().slice(0, 5000),
+            meta: { commitHash }
+          };
+        }
+        console.log(`[git_commit_push] Push verified: local=${localSha.slice(0, 8)} remote=${remoteSha.slice(0, 8)}`);
+      } catch (verifyErr) {
+        console.warn(`[git_commit_push] Push verification check failed (non-fatal): ${verifyErr.message}`);
+      }
+
+      const output = [commitOutput, pushOut, `✅ Push verified on remote.`].filter(Boolean).join('\n').trim();
       return { success: true, result: output.slice(0, 10000), meta: { commitHash } };
     } catch (err) {
       const fullOutput = [commitOutput, err.stdout || err.message].filter(Boolean).join('\n').trim();
