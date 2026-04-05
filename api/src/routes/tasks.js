@@ -566,13 +566,15 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
       return res.status(400).json({ error: 'Cannot determine GitHub repository for this task' });
     }
 
-    const { Octokit } = await import('@octokit/rest');
-    const octokit = new Octokit({ auth: token });
-    const { data: commit } = await octokit.repos.getCommit({
-      owner: ownerRepo.owner,
-      repo: ownerRepo.repo,
-      ref: req.params.hash,
-    });
+    const resp = await fetch(
+      `https://api.github.com/repos/${ownerRepo.owner}/${ownerRepo.repo}/commits/${req.params.hash}`,
+      { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } }
+    );
+    if (!resp.ok) {
+      if (resp.status === 404) return res.status(404).json({ error: 'Commit not found on GitHub' });
+      throw new Error(`GitHub API error: ${resp.status} ${resp.statusText}`);
+    }
+    const commit = await resp.json();
 
     res.json({
       sha: commit.sha,
@@ -591,7 +593,6 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
     });
   } catch (err) {
     console.error('Commit diff error:', err.message);
-    if (err.status === 404) return res.status(404).json({ error: 'Commit not found on GitHub' });
     res.status(500).json({ error: err.message });
   }
 });
