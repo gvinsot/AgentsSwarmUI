@@ -388,7 +388,7 @@ async function toolAppendFile(provider, agentId, filePath, content) {
 
 // ─── Tool Call Parsing ──────────────────────────────────────────────────────
 
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'update_task', 'list_my_tasks', 'check_status', 'mcp_call', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete'];
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'update_task', 'list_my_tasks', 'check_status', 'mcp_call', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete', 'search_skill', 'create_skill', 'update_skill', 'delete_skill'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -429,6 +429,16 @@ function jsonToToolCall(name, args) {
     case 'search_logs':
     case 'get_log_metadata':
       return { tool: toolName, args: [JSON.stringify(args)] };
+
+    // Agent skills management tools
+    case 'search_skill':
+      return { tool: 'search_skill', args: [args.query || args.search || args.keyword || ''] };
+    case 'create_skill':
+      return { tool: 'create_skill', args: [args.name || '', JSON.stringify({ description: args.description || '', category: args.category || 'general', instructions: args.instructions || '', mcpServerIds: args.mcpServerIds || [] })] };
+    case 'update_skill':
+      return { tool: 'update_skill', args: [args.id || '', JSON.stringify({ name: args.name, description: args.description, category: args.category, instructions: args.instructions, mcpServerIds: args.mcpServerIds })] };
+    case 'delete_skill':
+      return { tool: 'delete_skill', args: [args.id || ''] };
 
     default:
       return null;
@@ -528,9 +538,9 @@ export function parseToolCalls(response) {
     .replace(/<\|?\/?tool_use\|?>/gi, '')
     .replace(/\[TOOL_CALLS?\]/gi, '');
 
-  const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata'];
+  const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'search_skill', 'delete_skill'];
   const READ_FILE_TOOLS = ['read_file'];  // 1-arg or 3-arg (path, startLine, endLine)
-  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files'];
+  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files', 'create_skill', 'update_skill'];
   const THREE_ARG_TOOLS = ['mcp_call', 'update_task', 'task_execution_complete'];
   const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...READ_FILE_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');

@@ -266,5 +266,71 @@ Call them using the @mcp_call(Swarm API, tool_name, {"param": "value"}) syntax s
       "mcp-code-index"
     ],
     "instructions": "You can use the internal Code Index plugin to explore codebases faster than raw grep alone.\\n\\nThe MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\\nCall them using the @mcp_call(Code Index, tool_name, {\"param\": \"value\"}) syntax.\\n\\nRECOMMENDED WORKFLOW:\\n1. BEFORE any search, call @mcp_call(Code Index, list_repos, {}) to check if your current project is already indexed.\\n2. If the current project appears in the list, reuse its repoId — do NOT re-index.\\n3. If the current project is NOT in the list, index it first:\\n   - @mcp_call(Code Index, index_folder, {\"path\": \"/projects/YOUR_PROJECT_NAME\", \"repoName\": \"YOUR_PROJECT_NAME\"})\\n   - Use the project name from the PROJECT CONTEXT section of your prompt.\\n4. Search symbols or semantics first, then fetch outlines/source for the best matches.\\n5. Fall back to normal file tools when you need to edit files.\\n\\nMOST USEFUL TOOLS:\\n- @mcp_call(Code Index, list_repos, {})\\n  List all indexed repositories and their repoIds. ALWAYS call this first.\\n- @mcp_call(Code Index, index_folder, {\"path\": \"/projects/MyProject\", \"repoName\": \"MyProject\"})\\n  Index a project folder. Use the project name from your PROJECT CONTEXT.\\n- @mcp_call(Code Index, index_workspace, {\"subpath\": \"server/src\", \"repoName\": \"server-src\"})\\n  Index the current application workspace or a subfolder under it.\\n- @mcp_call(Code Index, search_symbols, {\"repoId\": \"...\", \"query\": \"authenticateToken\", \"topK\": 5})\\n  Find classes, functions, and methods by lexical match.\\n- @mcp_call(Code Index, search_semantic, {\"repoId\": \"...\", \"query\": \"JWT auth middleware\", \"topK\": 5})\\n  Find relevant code by meaning.\\n- @mcp_call(Code Index, get_file_outline, {\"repoId\": \"...\", \"filePath\": \"src/middleware/auth.js\"})\\n  Inspect all symbols in a file.\\n- @mcp_call(Code Index, get_symbol, {\"repoId\": \"...\", \"symbolId\": \"...\", \"verify\": true, \"contextLines\": 2})\\n  Retrieve a symbol's source and metadata.\\n\\nPATH GUIDANCE:\\n- index_folder with \"/projects/PROJECT_NAME\" is the preferred way to index a project.\\n- index_workspace resolves paths under the backend workspace root.\\n- For monorepos, you can index subfolders like \"server/src\", \"client/src\".\\n\\nUSE CASES:\\n- Quickly understand a large codebase before editing\\n- Locate auth, routing, service, and data-access logic\\n- Find all methods on a class\\n- Search conceptually (\"rate limiting\", \"token verification\", \"file upload flow\")\\n- Inspect exact source for a symbol before making changes"
+  },
+  {
+    "id": "skill-skills-management",
+    "name": "Skills Management",
+    "description": "Search, create, update, and delete reusable agent skills — procedures documented by agents for future reuse across projects",
+    "category": "general",
+    "icon": "📚",
+    "builtin": true,
+    "instructions": `You can manage reusable skills — procedures that you or other agents have documented for future reuse.
+Skills are step-by-step instructions for tasks that required many steps and are applicable to any project.
+Each time you use a skill, if corrections were needed, UPDATE the skill so it stays accurate.
+
+## AVAILABLE TOOLS
+
+@search_skill(query)
+  — Search for existing skills by keyword. Returns matching skills with their IDs.
+  Example: @search_skill(deploy nodejs)
+  Example: @search_skill(database migration)
+
+@create_skill(name, """JSON""")
+  — Create a new skill with a name and details as JSON.
+  The JSON object can contain:
+  - description: A short summary of what the skill does
+  - category: Category for the skill (e.g. devops, coding, testing, general)
+  - instructions: The full step-by-step procedure
+  - mcpServerIds: Array of MCP server IDs this skill requires (e.g. ["mcp-pulsarcd-actions"])
+  Example:
+  @create_skill(Deploy Node.js to Swarm, """{"description": "Full deployment procedure for a Node.js project to Docker Swarm", "category": "devops", "instructions": "Step 1: Ensure devops/ folder exists with docker-compose.swarm.yml\\nStep 2: Build the stack using @mcp_call(PulsarCD Actions, build_stack, {...})\\nStep 3: Monitor build with get_action_status\\nStep 4: Deploy with deploy_stack\\nStep 5: Verify containers are running with list_containers", "mcpServerIds": ["mcp-pulsarcd-actions", "mcp-pulsarcd-read"]}""")
+
+@update_skill(skill-id, """JSON""")
+  — Update an existing skill. Pass the skill ID and a JSON object with fields to update.
+  Use this after applying a skill if you found corrections or improvements.
+  Example:
+  @update_skill(agent-skill-abc-123, """{"instructions": "Updated step-by-step procedure..."}""")
+  Example (update name and category):
+  @update_skill(agent-skill-abc-123, """{"name": "Deploy Node.js v2", "category": "devops"}""")
+
+@delete_skill(skill-id)
+  — Delete a skill that is no longer useful.
+  Example: @delete_skill(agent-skill-abc-123)
+
+## WORKFLOW
+
+### Before starting a complex task:
+1. Search for existing skills: @search_skill(relevant keywords)
+2. If a matching skill exists, follow its instructions
+3. If the skill needed corrections, update it after completing the task
+
+### After completing a complex multi-step task:
+1. Consider if the procedure would be useful for future tasks
+2. If yes, create a skill documenting the exact steps you followed
+3. Include any MCP servers required (mcpServerIds)
+4. Be specific: include exact tool calls, file paths patterns, and common pitfalls
+
+### When a skill needs improvement:
+1. After using a skill, if you had to deviate or fix steps, update it
+2. Use @update_skill to refine the instructions
+3. This ensures the skill stays accurate for future use
+
+## BEST PRACTICES
+- Write skills that are PROJECT-AGNOSTIC — they should work on any project
+- Include error handling steps (what to do if a step fails)
+- Mention which MCP servers are required via mcpServerIds
+- Use clear, numbered steps in the instructions
+- Include examples of actual tool calls in the procedure
+- Keep skills focused on one procedure (don't combine unrelated tasks)`
   }
 ];

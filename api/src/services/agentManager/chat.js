@@ -184,7 +184,7 @@ export const chatMethods = {
       // ── Transient stream error → retry with backoff ──
       const isUserStop = err.message === 'Agent stopped by user';
       const isAuthError = err.status === 401 || err.status === 403;
-      const hasPartialToolCalls = fullResponse && /@(read_file|write_file|list_dir|search_files|run_command|append_file|mcp_call|report_error|task_execution_complete)\b/i.test(fullResponse);
+      const hasPartialToolCalls = fullResponse && /@(read_file|write_file|list_dir|search_files|run_command|append_file|mcp_call|report_error|task_execution_complete|search_skill|create_skill|update_skill|delete_skill)\b/i.test(fullResponse);
       const isTransient = !isUserStop && !isAuthError && !err.isRateLimit && !this._isContextExceededError(err.message);
       const MAX_STREAM_RETRIES = 3;
       const retryCount = agent._streamRetryCount || 0;

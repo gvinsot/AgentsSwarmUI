@@ -1,9 +1,10 @@
 // ─── Tools: _processToolCalls ────────────────────────────────────────────────
 import { parseToolCalls, executeTool } from '../agentTools.js';
 import { getProjectGitUrl } from '../githubProjects.js';
-import { saveAgent } from '../database.js';
+import { saveAgent, searchAgentSkills, getAgentSkillById, saveAgentSkill, deleteAgentSkillFromDb } from '../database.js';
 import { getWorkflowForBoard } from '../configManager.js';
 import { setTaskSignal } from './tasks.js';
+import { v4 as uuidv4 } from 'uuid';
 
 /** @this {import('./index.js').AgentManager} */
 export const toolsMethods = {
@@ -372,6 +373,132 @@ export const toolsMethods = {
 
         console.log(`📊 [Check Status] Agent "${agent.name}": ${agent.status} | project=${agent.project || 'none'} | task=${currentTaskInfo}`);
         results.push({ tool: 'check_status', args: [], success: true, result: lines.join('\n') });
+        continue;
+      }
+
+      // ── @search_skill(query) ──
+      if (call.tool === 'search_skill') {
+        const query = (call.args[0] || '').trim();
+        if (!query) {
+          results.push({ tool: 'search_skill', args: call.args, success: false, error: 'Search query is required. Use: @search_skill(keyword)' });
+          continue;
+        }
+        try {
+          const skills = await searchAgentSkills(query);
+          if (skills.length === 0) {
+            results.push({ tool: 'search_skill', args: call.args, success: true, result: `No skills found matching "${query}".` });
+          } else {
+            const lines = skills.map(s => {
+              const mcps = Array.isArray(s.mcpServerIds) && s.mcpServerIds.length > 0 ? ` [MCPs: ${s.mcpServerIds.join(', ')}]` : '';
+              return `- **${s.name}** (${s.id})\n  Category: ${s.category || 'general'}${mcps}\n  ${s.description || 'No description'}\n  Created by: ${s.createdBy || 'unknown'} | Updated: ${s.updatedAt || 'unknown'} | Used: ${s.useCount || 0} times`;
+            });
+            results.push({ tool: 'search_skill', args: call.args, success: true, result: `Found ${skills.length} skill(s) matching "${query}":\n\n${lines.join('\n\n')}` });
+          }
+          console.log(`🔍 [Skill Search] Agent "${agent.name}" searched for "${query}" — ${skills.length} result(s)`);
+        } catch (err) {
+          results.push({ tool: 'search_skill', args: call.args, success: false, error: err.message });
+        }
+        continue;
+      }
+
+      // ── @create_skill(name, JSON) ──
+      if (call.tool === 'create_skill') {
+        const skillName = (call.args[0] || '').trim();
+        const dataArg = call.args[1] || '{}';
+        if (!skillName) {
+          results.push({ tool: 'create_skill', args: call.args, success: false, error: 'Skill name is required. Use: @create_skill(name, """{"description": "...", "instructions": "...", "category": "...", "mcpServerIds": [...]}""")' });
+          continue;
+        }
+        try {
+          let parsed = {};
+          if (typeof dataArg === 'string') {
+            try { parsed = JSON.parse(dataArg); } catch {
+              // If not valid JSON, treat the entire second arg as instructions
+              parsed = { instructions: dataArg };
+            }
+          }
+          const skillId = `agent-skill-${uuidv4()}`;
+          const now = new Date().toISOString();
+          const skill = {
+            id: skillId,
+            name: skillName,
+            description: parsed.description || '',
+            category: parsed.category || 'general',
+            instructions: parsed.instructions || '',
+            mcpServerIds: Array.isArray(parsed.mcpServerIds) ? parsed.mcpServerIds : [],
+            createdBy: agent.name,
+            createdByAgentId: agentId,
+            useCount: 0,
+            lastUsedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          await saveAgentSkill(skill);
+          console.log(`✨ [Skill Create] Agent "${agent.name}" created skill "${skillName}" (${skillId})`);
+          results.push({ tool: 'create_skill', args: call.args, success: true, result: `Skill created successfully:\n- ID: ${skillId}\n- Name: ${skillName}\n- Category: ${skill.category}\n- Description: ${skill.description || '(none)'}\n- MCPs: ${skill.mcpServerIds.length > 0 ? skill.mcpServerIds.join(', ') : 'none'}` });
+        } catch (err) {
+          results.push({ tool: 'create_skill', args: call.args, success: false, error: err.message });
+        }
+        continue;
+      }
+
+      // ── @update_skill(id, JSON) ──
+      if (call.tool === 'update_skill') {
+        const skillId = (call.args[0] || '').trim();
+        const dataArg = call.args[1] || '{}';
+        if (!skillId) {
+          results.push({ tool: 'update_skill', args: call.args, success: false, error: 'Skill ID is required. Use: @update_skill(skill-id, """{"instructions": "updated instructions", ...}""")' });
+          continue;
+        }
+        try {
+          const existing = await getAgentSkillById(skillId);
+          if (!existing) {
+            results.push({ tool: 'update_skill', args: call.args, success: false, error: `Skill not found: ${skillId}` });
+            continue;
+          }
+          let parsed = {};
+          if (typeof dataArg === 'string') {
+            try { parsed = JSON.parse(dataArg); } catch {
+              // If not valid JSON, treat the entire second arg as updated instructions
+              parsed = { instructions: dataArg };
+            }
+          }
+          const allowedFields = ['name', 'description', 'category', 'instructions', 'mcpServerIds'];
+          for (const key of allowedFields) {
+            if (parsed[key] !== undefined) {
+              existing[key] = parsed[key];
+            }
+          }
+          existing.updatedAt = new Date().toISOString();
+          existing.lastUpdatedBy = agent.name;
+          await saveAgentSkill(existing);
+          console.log(`📝 [Skill Update] Agent "${agent.name}" updated skill "${existing.name}" (${skillId})`);
+          results.push({ tool: 'update_skill', args: call.args, success: true, result: `Skill "${existing.name}" (${skillId}) updated successfully.\nUpdated fields: ${Object.keys(parsed).filter(k => allowedFields.includes(k)).join(', ') || 'none'}` });
+        } catch (err) {
+          results.push({ tool: 'update_skill', args: call.args, success: false, error: err.message });
+        }
+        continue;
+      }
+
+      // ── @delete_skill(id) ──
+      if (call.tool === 'delete_skill') {
+        const skillId = (call.args[0] || '').trim();
+        if (!skillId) {
+          results.push({ tool: 'delete_skill', args: call.args, success: false, error: 'Skill ID is required. Use: @delete_skill(skill-id)' });
+          continue;
+        }
+        try {
+          const existing = await getAgentSkillById(skillId);
+          if (!existing) {
+            results.push({ tool: 'delete_skill', args: call.args, success: false, error: `Skill not found: ${skillId}` });
+            continue;
+          }
+          await deleteAgentSkillFromDb(skillId);
+          console.log(`🗑️ [Skill Delete] Agent "${agent.name}" deleted skill "${existing.name}" (${skillId})`);
+          results.push({ tool: 'delete_skill', args: call.args, success: true, result: `Skill "${existing.name}" (${skillId}) deleted successfully.` });
+        } catch (err) {
+          results.push({ tool: 'delete_skill', args: call.args, success: false, error: err.message });
+        }
         continue;
       }
 
