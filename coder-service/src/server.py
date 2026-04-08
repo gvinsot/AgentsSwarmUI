@@ -37,6 +37,19 @@ if not VERBOSE:
     for noisy in ("httpx", "httpcore", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+
+class HealthCheckFilter(logging.Filter):
+    """Filter out noisy health-check access logs from uvicorn."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "GET /health" in message and "200" in message:
+            return False
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
+
 app = FastAPI(
     title="Coder Service",
     description="AI agent powered by Claude Code CLI (headless mode)",
