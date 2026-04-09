@@ -1560,6 +1560,29 @@ export async function getTasksByBoard(boardId) {
 }
 
 /**
+ * Find the board that has the most tasks for a given project.
+ * Returns the board_id or null if no tasks exist for this project.
+ */
+export async function getBoardWithMostTasksForProject(project) {
+  if (!pool || !project) return null;
+  try {
+    const result = await pool.query(
+      `SELECT board_id, COUNT(*) as task_count
+       FROM tasks
+       WHERE project ILIKE $1 AND board_id IS NOT NULL AND deleted_at IS NULL
+       GROUP BY board_id
+       ORDER BY task_count DESC
+       LIMIT 1`,
+      [project]
+    );
+    return result.rows.length > 0 ? result.rows[0].board_id : null;
+  } catch (err) {
+    console.error('Failed to get board with most tasks for project:', err.message);
+    return null;
+  }
+}
+
+/**
  * Get all tasks assigned to an agent (either as assignee or as owner when no assignee).
  */
 export async function getTasksByAssignee(agentId) {

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
-import { getAllBoards, getBoardById } from './database.js';
+import { getAllBoards, getBoardById, getBoardWithMostTasksForProject } from './database.js';
 
 /**
  * Creates an MCP server exposing swarm management tools:
@@ -179,23 +179,29 @@ export function createSwarmApiMcpServer(agentManager) {
         };
       }
 
-      // Resolve board_id: auto-pick if only one board exists
+      // Resolve board_id: pick the board with the most tasks for the project,
+      // fall back to single board or default board
       let resolvedBoardId = board_id || null;
       if (!resolvedBoardId) {
         const boards = await getAllBoards();
         if (boards.length === 1) {
           resolvedBoardId = boards[0].id;
         } else if (boards.length > 1) {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                error: 'Multiple boards exist. Please specify board_id. Use list_boards to see available boards.',
-                boards: boards.map(b => ({ id: b.id, name: b.name, user: b.display_name || b.username })),
-              }, null, 2),
-            }],
-            isError: true,
-          };
+          // Find the board with the most tasks for this project
+          const taskProject = project || agent.project;
+          if (taskProject) {
+            const bestBoardId = await getBoardWithMostTasksForProject(taskProject);
+            if (bestBoardId) {
+              resolvedBoardId = bestBoardId;
+              console.log(`📋 [SwarmMCP] Auto-resolved board for project "${taskProject}": ${resolvedBoardId}`);
+            }
+          }
+          // Fallback: use the default board if no project match found
+          if (!resolvedBoardId) {
+            const defaultBoard = boards.find(b => b.is_default);
+            resolvedBoardId = defaultBoard ? defaultBoard.id : boards[0].id;
+            console.log(`📋 [SwarmMCP] No project-specific board found, using fallback: ${resolvedBoardId}`);
+          }
         }
       } else {
         // Validate board exists

@@ -1,6 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
-import { getAllBoards, getBoardById } from '../services/database.js';
+import { getAllBoards, getBoardById, getBoardWithMostTasksForProject } from '../services/database.js';
 
 const createTaskSchema = z.object({
   task: z.string().min(1).max(5000),
@@ -131,17 +131,29 @@ export function swarmApiRoutes(agentManager) {
       agentManager.update(agent.id, { project });
     }
 
-    // Resolve board_id: auto-pick if only one board exists
+    // Resolve board_id: pick the board with the most tasks for the project,
+    // fall back to single board or default board
     let resolvedBoardId = board_id || null;
     if (!resolvedBoardId) {
       const boards = await getAllBoards();
       if (boards.length === 1) {
         resolvedBoardId = boards[0].id;
       } else if (boards.length > 1) {
-        return res.status(400).json({
-          error: 'Multiple boards exist. Please specify board_id. Use GET /api/swarm/boards to list them.',
-          boards: boards.map(b => ({ id: b.id, name: b.name, user: b.display_name || b.username })),
-        });
+        // Find the board with the most tasks for this project
+        const taskProject = project || agent.project;
+        if (taskProject) {
+          const bestBoardId = await getBoardWithMostTasksForProject(taskProject);
+          if (bestBoardId) {
+            resolvedBoardId = bestBoardId;
+            console.log(`📋 [SwarmAPI] Auto-resolved board for project "${taskProject}": ${resolvedBoardId}`);
+          }
+        }
+        // Fallback: use the default board if no project match found
+        if (!resolvedBoardId) {
+          const defaultBoard = boards.find(b => b.is_default);
+          resolvedBoardId = defaultBoard ? defaultBoard.id : boards[0].id;
+          console.log(`📋 [SwarmAPI] No project-specific board found, using fallback: ${resolvedBoardId}`);
+        }
       }
     } else {
       const board = await getBoardById(resolvedBoardId);
