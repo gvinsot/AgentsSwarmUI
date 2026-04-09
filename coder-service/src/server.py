@@ -1513,6 +1513,8 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
         else:
             raise
 
+    has_content = False  # Track whether any meaningful output was received
+
     try:
         async for line in proc.stdout:
             line = line.decode("utf-8", errors="replace").strip()
@@ -1613,6 +1615,7 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                     return
 
             if not is_json_event:
+                has_content = True
                 yield {"type": "text", "content": line}
                 continue
 
@@ -1625,22 +1628,27 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 if isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict) and block.get("type") == "thinking":
+                            has_content = True
                             yield {"type": "thinking", "content": block.get("thinking", "")}
                         elif isinstance(block, dict) and block.get("type") == "text":
+                            has_content = True
                             yield {"type": "text", "content": block.get("text", "")}
                         elif isinstance(block, dict) and block.get("type") == "tool_use":
+                            has_content = True
                             tool_name = block.get("name", "unknown")
                             yield {"type": "status", "content": f"Using tool: {tool_name}"}
                 elif isinstance(content, str) and content:
+                    has_content = True
                     yield {"type": "text", "content": content}
 
             elif event_type == "tool_use":
+                has_content = True
                 tool_name = event.get("name", "unknown")
                 yield {"type": "status", "content": f"Using tool: {tool_name}"}
 
             elif event_type == "tool_result":
                 # Tool execution result (skip in stream, agent processes it)
-                pass
+                has_content = True
 
             elif event_type == "result":
                 # Final result — always yield so cost/token metadata is forwarded
@@ -1653,6 +1661,8 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
                 input_tokens = usage.get("input_tokens", 0) or 0
                 output_tokens = usage.get("output_tokens", 0) or 0
                 total_tokens = event.get("total_tokens", 0) or (input_tokens + output_tokens)
+                if input_tokens > 0 or output_tokens > 0 or result_text:
+                    has_content = True
                 yield {"type": "result", "content": result_text or "", "cost_usd": cost, "duration_ms": duration, "total_tokens": total_tokens, "input_tokens": input_tokens, "output_tokens": output_tokens}
 
             elif event_type == "error":
@@ -1707,6 +1717,28 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
         stderr_text = stderr.decode("utf-8", errors="replace").strip()
         if stderr_text:
             yield {"type": "error", "content": stderr_text}
+
+    # Detect empty response from a session resume: Claude CLI exited with rc=0
+    # but produced no meaningful output (0 tokens, no text). This typically
+    # happens when the session file is corrupted or the session state is stale.
+    # Reset the session and retry once with a fresh session.
+    if not has_content and proc.returncode == 0 and agent_id:
+        session_key = f"{agent_id}:{task_id}" if agent_id and task_id else agent_id
+        was_resume = session_key and session_key in _agent_sessions
+        # Capture stderr for diagnostics even on rc=0
+        try:
+            stderr_out = (await proc.stderr.read()).decode("utf-8", errors="replace").strip()
+        except Exception:
+            stderr_out = ""
+        if stderr_out:
+            logger.warning(f"[Session] Empty response stderr: {stderr_out[:300]}")
+        if was_resume and _auth_retry < 1:
+            logger.warning(f"[Session] Empty response from resumed session for agent {agent_id[:12]} — resetting session and retrying")
+            _agent_sessions.pop(session_key, None)
+            async for ev in stream_claude_events(prompt, system_prompt, agent_id=agent_id, owner_id=owner_id, task_id=task_id, _auth_retry=_auth_retry + 1):
+                yield ev
+        else:
+            logger.warning(f"[Session] Empty response from Claude CLI for agent {agent_id[:12] if agent_id else 'none'} (rc=0, was_resume={was_resume})")
 
 
 # --- Direct Code Execution (bypass Claude) ------------------------------------

@@ -38,7 +38,6 @@ import { userRoutes } from './routes/users.js';
 import { llmConfigRoutes } from './routes/llmConfigs.js';
 import { boardRoutes } from './routes/boards.js';
 import taskRoutes from './routes/tasks.js';
-import { agentSkillRoutes } from './routes/agentSkills.js';
 import { startJiraSync, registerWebhook } from './services/jiraSync.js';
 
 const app = express();
@@ -53,8 +52,8 @@ const contentSecurityPolicy = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: https://lh3.googleusercontent.com",
-  "connect-src 'self' wss: ws: https://api.openai.com https://accounts.google.com https://oauth2.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self' wss: ws: https://api.openai.com https://fonts.googleapis.com https://fonts.gstatic.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "frame-ancestors 'none'"
@@ -137,7 +136,6 @@ app.use('/api/settings/general', authenticateToken, settingsRoutes());
 app.use('/api/jira', authenticateToken, jiraRoutes(agentManager));
 app.use('/api/boards', authenticateToken, boardRoutes(agentManager));
 app.use('/api/tasks', authenticateToken, taskRoutes);
-app.use('/api/agent-skills', authenticateToken, agentSkillRoutes());
 
 // Internal MCP endpoints (used by the MCP client for tool discovery and calls)
 const onedriveMcpHandler = createOneDriveMcpHandler();

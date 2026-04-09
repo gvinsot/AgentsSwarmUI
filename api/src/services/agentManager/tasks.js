@@ -581,8 +581,63 @@ export const tasksMethods = {
     setTaskSignal(taskId, 'watching', true);
     updateTaskExecutionStatus(taskId, 'watching');
 
+    // ── Immediate retry: if the agent went idle without producing any output
+    // (empty response from coder-service, e.g. session corruption), re-send
+    // the task immediately instead of waiting for the slow reminder loop.
+    // Check if executor is already idle (not busy from another concurrent task).
+    const immediateExecutor = this.agents.get(executorId);
+    if (immediateExecutor && immediateExecutor.status === 'idle' && !getTaskSignal(taskId, 'stopped')) {
+      // Brief delay to let any in-flight state settle (e.g. socket events)
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Re-check signals after the short wait
+      const earlyCompleted = await _checkCompleted();
+      if (earlyCompleted) return earlyCompleted;
+      const earlyTask = await getTaskById(taskId);
+      if (!earlyTask || !this._isActiveTaskStatus(earlyTask.status)) {
+        return earlyTask ? 'moved' : 'deleted';
+      }
+      if (getTaskSignal(taskId, 'stopped')) {
+        clearTaskSignal(taskId, 'stopped');
+        return 'stopped';
+      }
+
+      if (immediateExecutor.status === 'idle') {
+        console.log(`🔄 [Execution] Agent "${executorName}" went idle without completing task ${taskId} "${taskText.slice(0, 60)}" — retrying immediately`);
+        this._emit('agent:stream:start', { agentId: executorId });
+        try {
+          const retryStartIdx = immediateExecutor.conversationHistory.length;
+          const retryStartedAt = new Date().toISOString();
+          await this.sendMessage(
+            executorId,
+            `[SYSTEM] You went idle without completing your task. Continue working on it now:\n"${taskText.slice(0, 500)}"\n\nUse your tools to complete the task. When done, call @task_execution_complete(summary).`,
+            (chunk) => {
+              this._emit('agent:stream:chunk', { agentId: executorId, chunk });
+              this._emit('agent:thinking', { agentId: executorId, thinking: immediateExecutor.currentThinking || '' });
+            }
+          );
+          this._saveExecutionLog(creatorAgentId, taskId, executorId, retryStartIdx, retryStartedAt, true);
+        } catch (retryErr) {
+          console.error(`🔄 [Execution] Immediate retry failed: ${retryErr.message}`);
+        }
+        this._emit('agent:stream:end', { agentId: executorId });
+        this._emit('agent:updated', this._sanitize(immediateExecutor));
+
+        // Check if the immediate retry completed the task
+        const retryResult = await _checkCompleted();
+        if (retryResult) return retryResult;
+        const retryTask = this._getAgentTasks(creatorAgentId).find(t => t.id === taskId);
+        if (retryTask?._executionCompleted) {
+          const comment = retryTask._executionComment || '';
+          delete retryTask._executionCompleted;
+          delete retryTask._executionComment;
+          return 'completed';
+        }
+      }
+    }
+
     const reminderConfig = await getReminderConfig();
-    console.log(`🔔 [Execution] Agent "${executorName}" went idle without completing task ${taskId} "${taskText.slice(0, 60)}" — starting reminder loop (interval=${reminderConfig.intervalMinutes}min, cooldown=${reminderConfig.cooldownMinutes}min)`);
+    console.log(`🔔 [Execution] Agent "${executorName}" still idle after immediate retry for task ${taskId} "${taskText.slice(0, 60)}" — falling back to reminder loop (interval=${reminderConfig.intervalMinutes}min, cooldown=${reminderConfig.cooldownMinutes}min)`);
     const { intervalMs: REMINDER_INTERVAL_MS, maxReminders: MAX_REMINDERS, cooldownMs: COOLDOWN_MS } = reminderConfig;
     let reminded = 0;
     let lastReminderSentAt = 0;

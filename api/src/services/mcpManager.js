@@ -372,8 +372,8 @@ export class MCPManager {
         raw: result.content
       };
     } catch (err) {
-      if (err.message?.includes('404') || err.message?.includes('session')) {
-        console.log(`🔌 [MCP] Session expired for "${server.name}", reconnecting...`);
+      if (err.message?.includes('404') || err.message?.includes('session') || err.message?.includes('Invalid token') || err.message?.includes('token') || err.message?.includes('401')) {
+        console.log(`🔌 [MCP] Session/token expired for "${server.name}", reconnecting...`);
         try {
           await this.connect(serverId);
           const retryClient = this.clients.get(serverId);
@@ -483,8 +483,8 @@ export class MCPManager {
       };
     } catch (err) {
       // Session expired — reconnect and retry once
-      if (err.message?.includes('404') || err.message?.includes('session')) {
-        console.log(`🔌 [MCP] Agent session expired for "${server.name}", reconnecting...`);
+      if (err.message?.includes('404') || err.message?.includes('session') || err.message?.includes('Invalid token') || err.message?.includes('token') || err.message?.includes('401')) {
+        console.log(`🔌 [MCP] Agent session/token expired for "${server.name}", reconnecting...`);
         const newClient = new MCPClient('PulsarTeam');
         const connectOpts = { headers: { Authorization: `Bearer ${apiKey}` } };
         const internalConfig = resolveInternalMcpConfig(server.url);
