@@ -326,6 +326,11 @@ export const chatMethods = {
       for (const task of activeTasks) {
         const mark = this._isActiveTaskStatus(task.status) ? '~' : '!';
         systemContent += `- [${mark}] (${task.id.slice(0, 8)}) ${task.text}\n`;
+        if (task.commits && task.commits.length > 0) {
+          for (const c of task.commits) {
+            systemContent += `    commit ${c.hash.slice(0, 8)}: ${c.message || '(no message)'}\n`;
+          }
+        }
       }
       if (doneTasks.length > 0) {
         systemContent += `(${doneTasks.length} completed task${doneTasks.length > 1 ? 's' : ''} omitted)\n`;

@@ -33,6 +33,19 @@ function _emitTaskUpdated(agentManager, agentId, task) {
 
 // ── Prompt Builders ─────────────────────────────────────────────────────────
 
+/**
+ * Format task commits into a readable context block for the agent prompt.
+ * Returns an empty string if no commits are associated.
+ */
+function formatCommitsContext(task) {
+  if (!task.commits || task.commits.length === 0) return '';
+  const lines = task.commits.map(c => {
+    const dateStr = c.date ? ` (${c.date.slice(0, 16).replace('T', ' ')})` : '';
+    return `- ${c.hash.slice(0, 8)}: ${c.message || '(no message)'}${dateStr}`;
+  });
+  return `\nAssociated commits:\n${lines.join('\n')}\n`;
+}
+
 function buildTitlePrompt(description) {
   return `Generate a short, concise title (max 20 words) for the following task description. Reply with ONLY the title, nothing else.\n\n${description}`;
 }
@@ -49,13 +62,13 @@ function buildInstructionsPrompt(task, instructions, columns) {
   const columnList = columns?.length
     ? `\nValid statuses (column IDs): ${columns.map(c => c.id).join(', ')}`
     : '';
+  const commits = formatCommitsContext(task);
   return `You have been assigned instructions for the following task.
 
 Task ID: ${task.id}
 Task title: ${task.text}
 Current status: ${task.status}${columnList}
-${task.error ? `Previous error: ${task.error}` : ''}
-
+${task.error ? `Previous error: ${task.error}\n` : ''}${commits}
 Instructions:
 ${instructions}
 
@@ -68,12 +81,12 @@ RULES:
 }
 
 function buildExecutePrompt(task) {
+  const commits = formatCommitsContext(task);
   return `You have been assigned the following task to execute.
 
 Task ID: ${task.id}
 Task: ${task.text}
-${task.error ? `Previous error: ${task.error}` : ''}
-
+${task.error ? `Previous error: ${task.error}\n` : ''}${commits}
 Start by exploring the project structure.`;
 }
 
