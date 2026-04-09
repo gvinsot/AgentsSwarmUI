@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { getUserByUsername, getUserById, createUser, countUsers } from '../services/database.js';
+import { getUserByUsername, getUserById, createUser, countUsers, getUserByGoogleId, createGoogleUser, linkGoogleId } from '../services/database.js';
 
 const router = express.Router();
 
@@ -92,7 +92,7 @@ router.post('/login', async (req, res) => {
     }
 
     const user = await getUserByUsername(username);
-    if (!user) {
+    if (!user || !user.password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -178,6 +178,124 @@ router.post('/impersonate/:userId', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Impersonate error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+
+function isGoogleConfigured() {
+  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+}
+
+// Returns the Google OAuth consent URL for the frontend to redirect to
+router.get('/google/url', (req, res) => {
+  if (!isGoogleConfigured()) {
+    return res.status(501).json({ error: 'Google OAuth not configured' });
+  }
+
+  const redirectUri = req.query.redirect_uri;
+  if (!redirectUri) {
+    return res.status(400).json({ error: 'redirect_uri query parameter required' });
+  }
+
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'offline',
+    prompt: 'select_account',
+  });
+
+  res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+});
+
+// Returns whether Google OAuth is available
+router.get('/google/status', (_req, res) => {
+  res.json({ enabled: isGoogleConfigured(), clientId: process.env.GOOGLE_CLIENT_ID || null });
+});
+
+// Exchanges the Google authorization code for user info and returns a JWT
+router.post('/google/callback', async (req, res) => {
+  if (!isGoogleConfigured()) {
+    return res.status(501).json({ error: 'Google OAuth not configured' });
+  }
+
+  const { code, redirect_uri } = req.body;
+  if (!code || !redirect_uri) {
+    return res.status(400).json({ error: 'code and redirect_uri required' });
+  }
+
+  try {
+    // Exchange authorization code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error('Google token exchange failed:', tokenData);
+      return res.status(401).json({ error: 'Google authentication failed' });
+    }
+
+    // Fetch user info from Google
+    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+
+    const profile = await userInfoRes.json();
+    if (!userInfoRes.ok || !profile.id) {
+      console.error('Google userinfo failed:', profile);
+      return res.status(401).json({ error: 'Failed to fetch Google profile' });
+    }
+
+    const googleId = profile.id;
+    const email = profile.email;
+    const displayName = profile.name || email;
+    const avatarUrl = profile.picture || null;
+
+    // Find or create user
+    let user = await getUserByGoogleId(googleId);
+
+    if (!user) {
+      // Check if a user with this email already exists (link accounts)
+      const existingUser = await getUserByUsername(email);
+      if (existingUser) {
+        await linkGoogleId(existingUser.id, googleId, avatarUrl);
+        user = await getUserById(existingUser.id);
+      } else {
+        // Determine role — first user gets admin, others get basic
+        const userCount = await countUsers();
+        const role = userCount === 0 ? 'admin' : 'basic';
+        user = await createGoogleUser(googleId, email, displayName, avatarUrl, role);
+      }
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      getJwtSecret(),
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      displayName: user.display_name,
+      avatarUrl: user.avatar_url || avatarUrl,
+    });
+  } catch (err) {
+    console.error('Google OAuth error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

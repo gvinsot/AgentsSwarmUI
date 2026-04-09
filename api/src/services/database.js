@@ -150,6 +150,11 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
           updated_at TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Google OAuth columns
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE').catch(() => {});
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT').catch(() => {});
+      // Allow null password for OAuth-only users
+      await pool.query('ALTER TABLE users ALTER COLUMN password DROP NOT NULL').catch(() => {});
       console.log('✅ Users table ready');
 
       // Add owner_id column to agents table (nullable for backwards compat)
@@ -752,7 +757,7 @@ export async function getAllUsers() {
   if (!pool) return [];
   try {
     const result = await pool.query(
-      'SELECT id, username, role, display_name, created_at, updated_at FROM users ORDER BY created_at'
+      'SELECT id, username, role, display_name, google_id, avatar_url, created_at, updated_at FROM users ORDER BY created_at'
     );
     return result.rows;
   } catch (err) {
@@ -836,6 +841,49 @@ export async function deleteUser(id) {
   } catch (err) {
     console.error('Failed to delete user:', err.message);
     return false;
+  }
+}
+
+export async function getUserByGoogleId(googleId) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to get user by google_id:', err.message);
+    return null;
+  }
+}
+
+export async function createGoogleUser(googleId, email, displayName, avatarUrl, role = 'basic') {
+  if (!pool) throw new Error('Database not connected');
+  try {
+    const result = await pool.query(
+      `INSERT INTO users (username, password, role, display_name, google_id, avatar_url)
+       VALUES ($1, NULL, $2, $3, $4, $5)
+       RETURNING id, username, role, display_name, google_id, avatar_url, created_at, updated_at`,
+      [email, role, displayName || email, googleId, avatarUrl || null]
+    );
+    return result.rows[0];
+  } catch (err) {
+    if (err.code === '23505') throw new Error('Username already exists');
+    throw err;
+  }
+}
+
+export async function linkGoogleId(userId, googleId, avatarUrl) {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `UPDATE users SET google_id = $2, avatar_url = COALESCE($3, avatar_url), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, username, role, display_name, google_id, avatar_url`,
+      [userId, googleId, avatarUrl]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to link google_id:', err.message);
+    return null;
   }
 }
 

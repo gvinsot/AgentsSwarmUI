@@ -21,6 +21,7 @@ export default function App() {
   const streamEndedAgents = useRef(new Set()); // Track agents whose stream just ended
   const lastAgentJson = useRef(new Map());    // Dedup: last JSON per agentId
   const [toasts, setToasts] = useState([]);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const showToast = useCallback((message, type = 'error', duration = 5000) => {
     const id = Date.now();
@@ -281,6 +282,38 @@ export default function App() {
     }
   }, []);
 
+  // Handle Google OAuth callback URL
+  useEffect(() => {
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+
+    if (path === '/auth/google/callback' && code) {
+      setGoogleLoading(true);
+      const redirectUri = `${window.location.origin}/auth/google/callback`;
+
+      // Clean the URL immediately
+      window.history.replaceState({}, '', '/');
+
+      api.googleCallback(code, redirectUri)
+        .then(async (data) => {
+          localStorage.setItem('token', data.token);
+          setUser({ username: data.username, role: data.role, userId: data.userId, displayName: data.displayName });
+          await loadData();
+          initSocket(data.token);
+          await checkDbHealth();
+        })
+        .catch((err) => {
+          console.error('Google login failed:', err);
+          showToast(err.message || 'Google login failed', 'error');
+        })
+        .finally(() => {
+          setGoogleLoading(false);
+          setLoading(false);
+        });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleLogin = async (username, password) => {
     const data = await api.login(username, password);
     localStorage.setItem('token', data.token);
@@ -343,7 +376,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={handleLogin} />;
+    return <LoginPage onLogin={handleLogin} googleLoading={googleLoading} />;
   }
 
   return (

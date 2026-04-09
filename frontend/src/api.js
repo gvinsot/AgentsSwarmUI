@@ -30,6 +30,20 @@ export const api = {
   verify: () =>
     fetch(`${API_BASE}/auth/verify`, { headers: getHeaders() }).then(handleResponse),
 
+  // Google OAuth
+  googleStatus: () =>
+    fetch(`${API_BASE}/auth/google/status`).then(handleResponse),
+
+  googleAuthUrl: (redirectUri) =>
+    fetch(`${API_BASE}/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}`).then(handleResponse),
+
+  googleCallback: (code, redirectUri) =>
+    fetch(`${API_BASE}/auth/google/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, redirect_uri: redirectUri })
+    }).then(handleResponse),
+
   // Agents
   getAgents: () =>
     fetch(`${API_BASE}/agents`, { headers: getHeaders() }).then(handleResponse),
