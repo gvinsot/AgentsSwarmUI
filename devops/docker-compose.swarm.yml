@@ -237,6 +237,9 @@ volumes:
     driver: local
 
 networks:
+  default:
+    driver: overlay
+    attachable: true
   proxy:
     external: true
   postgresqlcluster_internal:
