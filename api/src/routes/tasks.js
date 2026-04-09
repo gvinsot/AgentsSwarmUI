@@ -108,6 +108,45 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── PUT /tasks/reorder — update positions for tasks in a column ────────────
+// IMPORTANT: This must be defined BEFORE /:id to prevent Express from
+// matching '/reorder' as a task :id parameter.
+router.put('/reorder', async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return res.status(400).json({ error: 'orderedIds must be a non-empty array of task IDs' });
+    }
+
+    const pool = getPool();
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+
+    const mgr = req.app.get('agentManager');
+
+    // Update position for each task in the given order
+    const promises = orderedIds.map((taskId, index) =>
+      pool.query('UPDATE tasks SET position = $1, updated_at = NOW() WHERE id = $2', [index, taskId])
+    );
+    await Promise.all(promises);
+
+    // Also update in-memory positions
+    for (let i = 0; i < orderedIds.length; i++) {
+      const task = mgr.getTask(orderedIds[i]);
+      if (task) {
+        const memAgent = mgr.agents.get(task.agentId);
+        if (memAgent) {
+          const memTask = mgr._getAgentTasks(task.agentId).find(t => t.id === orderedIds[i]);
+          if (memTask) memTask.position = i;
+        }
+      }
+    }
+
+    res.json({ ok: true, count: orderedIds.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PUT /tasks/:id — update a task ──────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   try {
@@ -228,7 +267,7 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    mgr.saveTaskDirectly(task);
+    await mgr.saveTaskDirectly(task);
 
     // ── Trigger workflow processing when status changed ──────────────────
     if (statusChanged && task.status !== 'error') {
@@ -261,43 +300,6 @@ router.put('/:id', async (req, res) => {
     });
 
     res.json(task);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PUT /tasks/reorder — update positions for tasks in a column ────────────
-router.put('/reorder', async (req, res) => {
-  try {
-    const { orderedIds } = req.body;
-    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
-      return res.status(400).json({ error: 'orderedIds must be a non-empty array of task IDs' });
-    }
-
-    const pool = getPool();
-    if (!pool) return res.status(500).json({ error: 'Database not available' });
-
-    const mgr = req.app.get('agentManager');
-
-    // Update position for each task in the given order
-    const promises = orderedIds.map((taskId, index) =>
-      pool.query('UPDATE tasks SET position = $1, updated_at = NOW() WHERE id = $2', [index, taskId])
-    );
-    await Promise.all(promises);
-
-    // Also update in-memory positions
-    for (let i = 0; i < orderedIds.length; i++) {
-      const task = mgr.getTask(orderedIds[i]);
-      if (task) {
-        const memAgent = mgr.agents.get(task.agentId);
-        if (memAgent) {
-          const memTask = mgr._getAgentTasks(task.agentId).find(t => t.id === orderedIds[i]);
-          if (memTask) memTask.position = i;
-        }
-      }
-    }
-
-    res.json({ ok: true, count: orderedIds.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

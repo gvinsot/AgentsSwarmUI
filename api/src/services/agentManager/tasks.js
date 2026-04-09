@@ -755,10 +755,10 @@ export const tasksMethods = {
     return { ...result.task, agentId: result.agentId };
   },
 
-  /** Save a task to the database */
+  /** Save a task to the database (returns a promise for awaitable saves) */
   saveTaskDirectly(task) {
     if (!task || !task.agentId) return;
-    saveTaskToDb(task);
+    return saveTaskToDb(task);
   },
 
   _enqueueAgentTask(agentId, taskFn) {
