@@ -67,7 +67,7 @@ export default function BudgetDashboard({ agents = [] }) {
   const dailyChartData = {
     labels: daily.map(d => d.day?.slice(5) || ''),
     datasets: [
-      { label: `Cost (${currency})`, data: daily.map(d => d.cost || 0), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)', fill: true, tension: 0.3 },
+      { label: `Cost (${currency})`, data: daily.map(d => d.total_cost || 0), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)', fill: true, tension: 0.3 },
       ...(dailyBudget > 0 ? [{ label: 'Budget', data: daily.map(() => dailyBudget), borderColor: '#ef4444', borderDash: [5,5], pointRadius: 0, fill: false }] : []),
     ],
   };
