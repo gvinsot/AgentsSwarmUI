@@ -56,8 +56,8 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-dark-700 shrink-0">
           <div className="flex items-center gap-2">
-            <GithubIcon className="w-5 h-5 text-white" />
-            <h2 className="text-base font-semibold text-white">{owner}/{repo}</h2>
+            <GithubIcon className="w-5 h-5 text-dark-100" />
+            <h2 className="text-base font-semibold text-dark-100">{owner}/{repo}</h2>
             <span className="text-xs text-dark-400">Activity</span>
           </div>
           <div className="flex items-center gap-2">
@@ -65,14 +65,14 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
               href={`https://github.com/${owner}/${repo}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors"
+              className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors"
               title="Open on GitHub"
             >
               <ExternalLink size={14} />
             </a>
             <button
               onClick={onClose}
-              className="p-1.5 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors"
+              className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors"
             >
               <X size={16} />
             </button>
@@ -85,8 +85,8 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
             onClick={() => setTab('commits')}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'commits'
-                ? 'text-white border-b-2 border-purple-500'
-                : 'text-dark-400 hover:text-white'
+                ? 'text-dark-100 border-b-2 border-purple-500'
+                : 'text-dark-400 hover:text-dark-100'
             }`}
           >
             <GitCommit size={14} />
@@ -97,8 +97,8 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
             onClick={() => setTab('tags')}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'tags'
-                ? 'text-white border-b-2 border-purple-500'
-                : 'text-dark-400 hover:text-white'
+                ? 'text-dark-100 border-b-2 border-purple-500'
+                : 'text-dark-400 hover:text-dark-100'
             }`}
           >
             <Tag size={14} />
@@ -144,7 +144,7 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-white truncate group-hover:text-purple-300">{c.message}</p>
+                      <p className="text-sm text-dark-100 truncate group-hover:text-purple-300">{c.message}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <code className="text-xs text-purple-400 font-mono">{c.shortSha}</code>
                         <span className="text-xs text-dark-500">{c.author}</span>
@@ -176,7 +176,7 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
                   >
                     <Tag size={14} className="text-green-400 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-white font-medium group-hover:text-green-300">{t.name}</p>
+                      <p className="text-sm text-dark-100 font-medium group-hover:text-green-300">{t.name}</p>
                       <code className="text-xs text-dark-500 font-mono">{t.shortSha}</code>
                     </div>
                     <ExternalLink size={12} className="text-dark-600 group-hover:text-dark-400 shrink-0" />
