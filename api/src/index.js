@@ -53,7 +53,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data:",
-  "connect-src 'self' wss: ws: https://api.openai.com https://fonts.googleapis.com https://fonts.gstatic.com",
+  "connect-src 'self' wss: ws: https://api.openai.com https://accounts.google.com https://oauth2.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "frame-ancestors 'none'"
