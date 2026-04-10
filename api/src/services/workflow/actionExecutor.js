@@ -12,6 +12,7 @@
 import { ActionType, AgentMode, columnExists } from './taskStateMachine.js';
 import { findAgentByRole, findAgentForAssignment, acquireLock, releaseLock, markAgentBusy, clearAgentBusy } from './agentSelector.js';
 import { saveTaskToDb } from '../database.js';
+import { getProjectGitUrl } from '../githubProjects.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -323,11 +324,41 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
 
   // Auto-switch agent to task project if needed
   if (task.project && task.project !== agent.project) {
-    console.log(`[ActionExecutor] Switching "${agent.name}" to project "${task.project}"`);
-    if (agentManager._switchProjectContext) {
-      agentManager._switchProjectContext(agent, agent.project, task.project);
+    console.log(`[ActionExecutor] Switching "${agent.name}" from "${agent.project || '(none)'}" to project "${task.project}"`);
+    try {
+      // 1. Switch conversation context (saves/restores history)
+      if (agentManager._switchProjectContext) {
+        agentManager._switchProjectContext(agent, agent.project, task.project);
+      }
+      // 2. Switch execution environment (coder-service / sandbox)
+      if (agentManager.executionManager) {
+        const gitUrl = await getProjectGitUrl(task.project);
+        if (gitUrl) {
+          await agentManager.executionManager.switchProject(agent.id, task.project, gitUrl);
+        } else {
+          console.warn(`[ActionExecutor] No git URL for project "${task.project}" — execution env may not match`);
+        }
+        // 3. Verify execution environment matches
+        const envProject = agentManager.executionManager.getProject(agent.id);
+        if (envProject && envProject !== task.project) {
+          throw new Error(`Execution environment is on "${envProject}" but task requires "${task.project}"`);
+        }
+      }
+      agent.project = task.project;
+    } catch (switchErr) {
+      console.error(`[ActionExecutor] Project switch failed for "${agent.name}": ${switchErr.message}`);
+      releaseLock(lockKey);
+      clearAgentBusy(agent.id);
+      if (actualTask) {
+        actualTask.actionRunning = false;
+        delete actualTask.actionRunningAgentId;
+        delete actualTask.actionRunningMode;
+        actualTask.error = `Project switch failed: ${switchErr.message}`;
+        _emitTaskUpdated(agentManager, task.agentId, actualTask);
+        saveTaskToDb({ ...actualTask, agentId: task.agentId });
+      }
+      return { executed: false, error: true, message: `Project switch failed: ${switchErr.message}` };
     }
-    agent.project = task.project;
   }
 
   const execStartMsgIdx = (agent.conversationHistory || []).length;

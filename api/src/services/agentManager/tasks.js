@@ -4,6 +4,7 @@ import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromD
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { onTaskStatusChanged } from '../jiraSync.js';
 import { isActiveStatus, getWorkflowManagedStatuses } from '../workflow/index.js';
+import { getProjectGitUrl } from '../githubProjects.js';
 
 // ── Ephemeral task signals ──────────────────────────────────────────────────
 // Transient coordination flags between async coroutines (NOT persisted).
@@ -756,9 +757,27 @@ export const tasksMethods = {
 
     try {
       if (task.project && task.project !== executor.project) {
-        console.log(`🔄 [TaskLoop] Switching "${executor.name}" to project "${task.project}" for resume`);
+        console.log(`🔄 [TaskLoop] Switching "${executor.name}" from "${executor.project || '(none)'}" to project "${task.project}" for resume`);
+        // 1. Switch conversation context (saves/restores history)
         if (this._switchProjectContext) {
           this._switchProjectContext(executor, executor.project, task.project);
+        }
+        // 2. Switch execution environment (coder-service / sandbox)
+        if (this.executionManager) {
+          try {
+            const gitUrl = await getProjectGitUrl(task.project);
+            if (gitUrl) {
+              await this.executionManager.switchProject(executorId, task.project, gitUrl);
+            }
+            // Verify execution environment matches
+            const envProject = this.executionManager.getProject(executorId);
+            if (envProject && envProject !== task.project) {
+              throw new Error(`Execution environment is on "${envProject}" but task requires "${task.project}"`);
+            }
+          } catch (switchErr) {
+            console.error(`🔄 [TaskLoop] Execution env switch failed for "${executor.name}": ${switchErr.message}`);
+            throw switchErr;
+          }
         }
         executor.project = task.project;
       }

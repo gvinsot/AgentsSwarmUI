@@ -54,24 +54,40 @@ export const chatMethods = {
     }
     this._emit('agent:status', { id, status: 'busy', project: agent.project || null, currentTask: agent.currentTask || null });
 
-    if (this.executionManager && agent.project && !this.executionManager.getFileTree(id)) {
-      try {
-        // Bind agent to the correct execution provider based on LLM config
-        const earlyLlm = this.resolveLlmConfig(agent);
-        const providerType = earlyLlm.managesContext ? 'coder' : 'sandbox';
-        this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null });
-
-        const gitUrl = await getProjectGitUrl(agent.project);
-        if (gitUrl) {
-          // ensureProject handles both sandbox and coder-service cloning
-          await this.executionManager.ensureProject(id, agent.project, gitUrl);
-          if (!this.executionManager.getFileTree(id)) {
-            // Only refresh if the background generation hasn't completed yet
-            await this.executionManager.refreshFileTree(id);
+    if (this.executionManager && agent.project) {
+      // Verify execution environment matches agent's assigned project
+      const envProject = this.executionManager.getProject(id);
+      if (envProject && envProject !== agent.project) {
+        console.warn(`⚠️  [Chat] Project mismatch detected for "${agent.name}": agent.project="${agent.project}" but execution env has "${envProject}". Re-syncing execution environment.`);
+        try {
+          const gitUrl = await getProjectGitUrl(agent.project);
+          if (gitUrl) {
+            await this.executionManager.switchProject(id, agent.project, gitUrl);
           }
+        } catch (syncErr) {
+          console.error(`⚠️  [Chat] Failed to re-sync execution env for "${agent.name}": ${syncErr.message}`);
         }
-      } catch (err) {
-        console.warn(`⚠️  [Execution] Early init for file tree failed: ${err.message}`);
+      }
+
+      if (!this.executionManager.getFileTree(id)) {
+        try {
+          // Bind agent to the correct execution provider based on LLM config
+          const earlyLlm = this.resolveLlmConfig(agent);
+          const providerType = earlyLlm.managesContext ? 'coder' : 'sandbox';
+          this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null });
+
+          const gitUrl = await getProjectGitUrl(agent.project);
+          if (gitUrl) {
+            // ensureProject handles both sandbox and coder-service cloning
+            await this.executionManager.ensureProject(id, agent.project, gitUrl);
+            if (!this.executionManager.getFileTree(id)) {
+              // Only refresh if the background generation hasn't completed yet
+              await this.executionManager.refreshFileTree(id);
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️  [Execution] Early init for file tree failed: ${err.message}`);
+        }
       }
     }
 

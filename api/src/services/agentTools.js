@@ -150,6 +150,13 @@ export async function executeTool(toolName, args, projectPath, provider, agentId
     }
   }
 
+  // Verify execution environment matches the expected project
+  const envProject = provider.getProject(agentId);
+  if (projectPath && envProject && envProject !== projectPath) {
+    console.error(`🚫 [Tool] Project mismatch! Agent ${agentId.slice(0, 8)} expects "${projectPath}" but execution env has "${envProject}". Blocking tool to prevent wrong-project execution.`);
+    return { success: false, error: `Project mismatch: expected "${projectPath}" but execution environment is on "${envProject}". The task cannot safely execute. Please report this error.` };
+  }
+
   const cleanArgs = args.map(a => sanitizeArg(a));
 
   console.log(`🔧 [Tool] ${toolName}(${cleanArgs.map(a => a?.length > 100 ? a.slice(0, 100) + '...' : a).join(', ')}) | agent=${agentId.slice(0, 8)} project=${projectPath}`);
