@@ -21,6 +21,9 @@ import { getProjectGitUrl } from '../githubProjects.js';
  * Enriches with assigneeName/assigneeIcon for the frontend.
  */
 function _emitTaskUpdated(agentManager, agentId, task) {
+  // Stamp updatedAt so the frontend's timestamp-based merge logic preserves
+  // this update over stale loadTasks() responses (same pattern as setTaskStatus).
+  task.updatedAt = new Date().toISOString();
   if (task.assignee) {
     const assigneeAgent = agentManager.agents.get(task.assignee);
     task.assigneeName = assigneeAgent?.name || null;
@@ -197,9 +200,12 @@ function executeAssignAgent(action, task, { agentManager, io, ownerId }) {
       type: 'reassign',
       assignee: agent.id,
     });
-    saveTaskToDb({ ...actualTask, agentId: task.agentId });
     task.assignee = agent.id;
-    _emitTaskUpdated(agentManager, task.agentId, actualTask);
+    const assignPayload = { ...actualTask, agentId: task.agentId };
+    const assignSave = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+    Promise.resolve(assignSave)
+      .catch(() => {})
+      .then(() => _emitTaskUpdated(agentManager, task.agentId, assignPayload));
     console.log(`[ActionExecutor] assign_agent: assigned to "${agent.name}" (role: ${action.role}) task="${task.id}"`);
   }
 
@@ -222,9 +228,12 @@ function executeAssignAgentIndividual(action, task, { agentManager, io }) {
       type: 'reassign',
       assignee: targetAgentId,
     });
-    saveTaskToDb({ ...actualTask, agentId: task.agentId });
     task.assignee = targetAgentId;
-    _emitTaskUpdated(agentManager, task.agentId, actualTask);
+    const indivPayload = { ...actualTask, agentId: task.agentId };
+    const indivSave = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+    Promise.resolve(indivSave)
+      .catch(() => {})
+      .then(() => _emitTaskUpdated(agentManager, task.agentId, indivPayload));
     const targetName = targetAgentId ? (agentManager.agents.get(targetAgentId)?.name || targetAgentId) : 'none';
     console.log(`[ActionExecutor] assign_agent_individual: "${prev || 'none'}" → "${targetName}"`);
   }
@@ -318,8 +327,15 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
         assignee: agent.id,
       });
     }
-    _emitTaskUpdated(agentManager, task.agentId, actualTask);
-    saveTaskToDb({ ...actualTask, agentId: task.agentId });
+    // Defer emit until after DB save so that any loadTasks() triggered by the
+    // concurrent agent:updated event reads the committed row with actionRunning=true.
+    // Without this, the frontend's loadTasks() can overwrite the real-time update
+    // with stale DB data (same pattern as setTaskStatus in tasks.js).
+    const taskPayload = { ...actualTask, agentId: task.agentId };
+    const savePromise = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+    Promise.resolve(savePromise)
+      .catch(() => {})
+      .then(() => _emitTaskUpdated(agentManager, task.agentId, taskPayload));
   }
 
   // Auto-switch agent to task project if needed
@@ -354,8 +370,11 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
         delete actualTask.actionRunningAgentId;
         delete actualTask.actionRunningMode;
         actualTask.error = `Project switch failed: ${switchErr.message}`;
-        _emitTaskUpdated(agentManager, task.agentId, actualTask);
-        saveTaskToDb({ ...actualTask, agentId: task.agentId });
+        const errPayload = { ...actualTask, agentId: task.agentId };
+        const errSave = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+        Promise.resolve(errSave)
+          .catch(() => {})
+          .then(() => _emitTaskUpdated(agentManager, task.agentId, errPayload));
       }
       return { executed: false, error: true, message: `Project switch failed: ${switchErr.message}` };
     }
@@ -411,8 +430,11 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
       actualTask.actionRunning = false;
       delete actualTask.actionRunningAgentId;
       delete actualTask.actionRunningMode;
-      _emitTaskUpdated(agentManager, task.agentId, actualTask);
-      saveTaskToDb({ ...actualTask, agentId: task.agentId });
+      const clearPayload = { ...actualTask, agentId: task.agentId };
+      const clearSave = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+      Promise.resolve(clearSave)
+        .catch(() => {})
+        .then(() => _emitTaskUpdated(agentManager, task.agentId, clearPayload));
     }
     // Non-execute modes (decide, refine, title, set_type) should not leave the
     // agent as the permanent assignee — clear it so the task loop won't send
