@@ -124,6 +124,19 @@ export const chatMethods = {
         timestamp: new Date().toISOString()
       });
 
+      // Hard cap: prevent unbounded history growth even if compaction hasn't triggered.
+      // Keep the compaction summary (if any) plus the most recent messages.
+      const MAX_HISTORY_ENTRIES = 200;
+      if (agent.conversationHistory.length > MAX_HISTORY_ENTRIES) {
+        const summary = agent.conversationHistory.find(m => m.type === 'compaction-summary');
+        const trimmed = agent.conversationHistory.slice(-MAX_HISTORY_ENTRIES);
+        if (summary && !trimmed.includes(summary)) {
+          trimmed.unshift(summary);
+        }
+        agent.conversationHistory = trimmed;
+        console.log(`🗜️  [Hard Cap] "${agent.name}": trimmed history to ${agent.conversationHistory.length} entries`);
+      }
+
       agent.metrics.totalMessages += 1;
       agent.metrics.lastActiveAt = new Date().toISOString();
       agent.currentThinking = '';

@@ -32,6 +32,15 @@ export function clearTaskSignals(taskId) {
   _taskSignals.delete(taskId);
 }
 
+/** Purge signals for task IDs that no longer exist in the active task set */
+export function purgeStaleTaskSignals(activeTaskIds) {
+  for (const taskId of _taskSignals.keys()) {
+    if (!activeTaskIds.has(taskId)) {
+      _taskSignals.delete(taskId);
+    }
+  }
+}
+
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {
 
@@ -453,6 +462,7 @@ export const tasksMethods = {
   startTaskLoop(intervalMs = 5000) {
     if (this._taskLoopInterval) return;
     this._loopProcessing = new Set();
+    this._taskResumeFailures = new Map(); // taskId -> { count, lastFailedAt }
     this._workflowManagedStatuses = new Set();
     this._refreshWorkflowManagedStatuses();
     this._taskLoopInterval = setInterval(() => this._processNextPendingTasks(), intervalMs);
@@ -510,6 +520,13 @@ export const tasksMethods = {
   _processNextPendingTasks() {
     this._recheckConditionalTransitions();
 
+    // Periodically purge stale task signals to prevent unbounded Map growth
+    const allTaskIds = new Set();
+    for (const tasks of this._tasks.values()) {
+      for (const t of tasks) allTaskIds.add(t.id);
+    }
+    purgeStaleTaskSignals(allTaskIds);
+
     // Use DB query to find tasks that need resume
     getTasksForResume().then(async (dbTasks) => {
       for (const dbTask of dbTasks) {
@@ -530,9 +547,32 @@ export const tasksMethods = {
         }
         if (dbTask.executionStatus === 'watching' || getTaskSignal(dbTask.id, 'watching')) continue;
 
+        // Circuit breaker: stop retrying tasks that fail repeatedly
+        const MAX_RESUME_FAILURES = 3;
+        const FAILURE_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+        const failureInfo = this._taskResumeFailures?.get(dbTask.id);
+        if (failureInfo && failureInfo.count >= MAX_RESUME_FAILURES) {
+          if (Date.now() - failureInfo.lastFailedAt < FAILURE_COOLDOWN_MS) {
+            continue; // Still in cooldown, skip silently
+          }
+          // Cooldown expired — reset and allow one more attempt
+          this._taskResumeFailures.delete(dbTask.id);
+        }
+
         this._loopProcessing.add(executorId);
         console.log(`🔄 [TaskLoop] Agent "${executor.name}" is idle but has started task "${dbTask.text.slice(0, 60)}" (${dbTask.status}) — resuming`);
-        this._resumeActiveTask(dbTask.agentId, this.agents.get(dbTask.agentId), dbTask).finally(() => {
+        this._resumeActiveTask(dbTask.agentId, this.agents.get(dbTask.agentId), dbTask).then(() => {
+          // Successful resume — reset failure counter
+          this._taskResumeFailures?.delete(dbTask.id);
+        }).catch(() => {
+          // Track consecutive failures for this task
+          const prev = this._taskResumeFailures?.get(dbTask.id) || { count: 0 };
+          const newCount = prev.count + 1;
+          this._taskResumeFailures?.set(dbTask.id, { count: newCount, lastFailedAt: Date.now() });
+          if (newCount >= MAX_RESUME_FAILURES) {
+            console.log(`🔴 [TaskLoop] Circuit breaker: task "${dbTask.text.slice(0, 60)}" failed ${newCount} consecutive resumes — pausing for ${FAILURE_COOLDOWN_MS / 60000}min`);
+          }
+        }).finally(() => {
           this._loopProcessing.delete(executorId);
         });
       }

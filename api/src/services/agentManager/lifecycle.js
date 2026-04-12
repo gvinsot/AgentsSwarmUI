@@ -655,6 +655,13 @@ export const lifecycleMethods = {
         console.error(`Failed to disconnect MCP for agent ${id}:`, err.message);
       });
     }
+    // Clean up all in-memory state for this agent
+    this._tasks.delete(id);
+    this._taskQueues.delete(id);
+    this._chatLocks.delete(id);
+    this._updateTimers.delete(id);
+    this._updatePending.delete(id);
+    this._conditionProcessing.delete(id);
     this.agents.delete(id);
     await deleteAgentFromDb(id);
     this._emit('agent:deleted', { id, ownerId });
