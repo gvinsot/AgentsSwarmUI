@@ -432,7 +432,7 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
                       ))}
                     </select>
                     {editBoardId !== originalBoardId.current && (
-                      <p className="mt-1 text-xs text-amber-400">Board will change &mdash; column will be validated</p>
+                      <p className="mt-1 text-xs text-amber-400">Board will change &mdash; choose the destination column below or when confirming</p>
                     )}
                   </>
                 )}
@@ -567,18 +567,26 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
                 <p className="text-gray-400 text-xs mt-0.5">This will move the task between boards</p>
               </div>
             </div>
-            <div className="bg-gray-800/60 rounded-lg p-3 mb-4 text-xs space-y-1">
+            <div className="bg-gray-800/60 rounded-lg p-3 mb-4 text-xs space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 w-12">From:</span>
+                <span className="text-gray-500 w-16">From:</span>
                 <span className="text-gray-300 font-medium">{srcBoardName}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 w-12">To:</span>
+                <span className="text-gray-500 w-16">To:</span>
                 <span className="text-amber-300 font-medium">{destBoardName}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 w-12">Column:</span>
-                <span className="text-gray-300">{availableColumns.find(c => c.id === editColumn)?.title || editColumn}</span>
+                <span className="text-gray-500 w-16 shrink-0">Column:</span>
+                <select
+                  className="flex-1 bg-gray-700 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                  value={editColumn}
+                  onChange={e => setEditColumn(e.target.value)}
+                >
+                  {availableColumns.map(col => (
+                    <option key={col.id} value={col.id}>{col.title}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="flex justify-end gap-2">
