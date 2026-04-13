@@ -148,10 +148,19 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
     }
   };
 
-  // Fetch tasks from API
+  // Fetch tasks and boards from API — only keep tasks on boards the user can see
   const [tasks, setTasks] = useState([]);
+  const [userBoardIds, setUserBoardIds] = useState(null); // null = loading, Set = ready
   useEffect(() => {
-    api.getAllTasks().then(setTasks).catch(() => setTasks([]));
+    Promise.all([
+      api.getAllTasks().catch(() => []),
+      api.getBoards().catch(() => []),
+    ]).then(([allTasks, boards]) => {
+      const boardIds = new Set(boards.map(b => b.id));
+      setUserBoardIds(boardIds);
+      // Only keep tasks that belong to a board the user can see
+      setTasks(allTasks.filter(t => t.boardId && boardIds.has(t.boardId)));
+    });
   }, [agents]);
 
   // Build a lookup of GitHub info by project name
@@ -177,24 +186,23 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
     return map;
   }, [githubProjects, projectContexts]);
 
-  // Derive projects from agents + tasks
+  // Derive projects — only show projects that have tasks on the user's boards
   const projects = useMemo(() => {
     const projectMap = new Map();
 
-    for (const a of agents) {
-      if (!a.project) continue;
-      if (!projectMap.has(a.project)) {
-        projectMap.set(a.project, { name: a.project, agents: [], tasks: [], stats: {} });
-      }
-      projectMap.get(a.project).agents.push(a);
-    }
-
+    // First, collect projects from tasks (only tasks on user's boards are in `tasks`)
     for (const t of tasks) {
       if (!t.project) continue;
       if (!projectMap.has(t.project)) {
         projectMap.set(t.project, { name: t.project, agents: [], tasks: [], stats: {} });
       }
       projectMap.get(t.project).tasks.push(t);
+    }
+
+    // Attach agents to projects that already have tasks
+    for (const a of agents) {
+      if (!a.project || !projectMap.has(a.project)) continue;
+      projectMap.get(a.project).agents.push(a);
     }
 
     for (const [, p] of projectMap) {
