@@ -542,6 +542,8 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
           taskId={task.id}
           commits={task.commits}
           onClose={() => setShowAllCommits(false)}
+          agentId={task.agentId}
+          project={task.project}
         />
       )}
 

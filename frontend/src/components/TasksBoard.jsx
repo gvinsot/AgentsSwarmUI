@@ -1234,6 +1234,8 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
         commits={task.commits}
         initialHash={clickedCommitHash}
         onClose={() => { setShowAllCommits(false); setClickedCommitHash(null); }}
+        agentId={task.agentId}
+        project={task.project}
       />
     )}
 
@@ -3517,6 +3519,8 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           taskId={commitModalTask.id}
           commits={commitModalTask.commits}
           onClose={() => setCommitModalTask(null)}
+          agentId={commitModalTask.agentId}
+          project={commitModalTask.project}
         />
       )}
 

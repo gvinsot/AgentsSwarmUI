@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getCommitDiff } from '../api';
+import { getCommitDiff, api } from '../api';
 
 // ── Commit colours (deterministic per hash prefix) ───────────────────────────
 const COMMIT_COLORS = [
@@ -45,39 +45,60 @@ function renderPatch(patch) {
 // ═════════════════════════════════════════════════════════════════════════════
 // Single commit section (collapsible)
 // ═════════════════════════════════════════════════════════════════════════════
-function CommitSection({ commit, diff, loading, error }) {
+function CommitSection({ commit, diff, loading, error, selected, onToggleSelect, showSelect }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
-    <div className="border border-white/10 rounded-xl overflow-hidden">
+    <div className={`border rounded-xl overflow-hidden transition-colors ${selected ? 'border-red-500/50 ring-1 ring-red-500/20' : 'border-white/10'}`}>
       {/* Commit header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-800/60 hover:bg-gray-800 transition-colors text-left"
-      >
-        <svg
-          className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span
-          className="font-mono px-2 py-0.5 rounded text-white text-xs shrink-0"
-          style={{ backgroundColor: commitColor(commit.hash) }}
-        >
-          {commit.hash?.substring(0, 7)}
-        </span>
-        <span className="text-white font-medium text-sm truncate flex-1">{commit.message}</span>
-        {diff?.stats && (
-          <span className="text-xs text-gray-400 shrink-0">
-            <span className="text-green-400">+{diff.stats.additions}</span>
-            {' / '}
-            <span className="text-red-400">-{diff.stats.deletions}</span>
-            {' in '}
-            {diff.files?.length || 0} file{(diff.files?.length || 0) !== 1 ? 's' : ''}
-          </span>
+      <div className="flex items-center bg-gray-800/60">
+        {showSelect && (
+          <button
+            onClick={() => onToggleSelect(commit.hash)}
+            className="pl-3 pr-1 py-3 flex items-center"
+            title={selected ? 'Deselect commit' : 'Select commit for revert'}
+          >
+            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+              selected
+                ? 'bg-red-500 border-red-500'
+                : 'border-gray-500 hover:border-red-400'
+            }`}>
+              {selected && (
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+          </button>
         )}
-      </button>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-gray-800 transition-colors text-left"
+        >
+          <svg
+            className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <span
+            className="font-mono px-2 py-0.5 rounded text-white text-xs shrink-0"
+            style={{ backgroundColor: commitColor(commit.hash) }}
+          >
+            {commit.hash?.substring(0, 7)}
+          </span>
+          <span className="text-white font-medium text-sm truncate flex-1">{commit.message}</span>
+          {diff?.stats && (
+            <span className="text-xs text-gray-400 shrink-0">
+              <span className="text-green-400">+{diff.stats.additions}</span>
+              {' / '}
+              <span className="text-red-400">-{diff.stats.deletions}</span>
+              {' in '}
+              {diff.files?.length || 0} file{(diff.files?.length || 0) !== 1 ? 's' : ''}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Expanded content */}
       {expanded && (
@@ -131,12 +152,79 @@ function CommitSection({ commit, diff, loading, error }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Revert Confirmation Modal
+// ═════════════════════════════════════════════════════════════════════════════
+function RevertConfirmModal({ selectedCommits, commits, onConfirm, onCancel, reverting }) {
+  const selected = commits.filter(c => selectedCommits.has(c.hash));
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-gray-900 border border-red-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 010 10H3m0-10l4-4m-4 4l4 4" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-white font-semibold">Revert {selected.length} commit{selected.length > 1 ? 's' : ''}?</h3>
+            <p className="text-gray-400 text-xs mt-0.5">An agent will be asked to revert the selected commits using <code className="text-gray-300">git revert</code>.</p>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 mb-5 max-h-40 overflow-y-auto">
+          {selected.map(c => (
+            <div key={c.hash} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/60 border border-white/5">
+              <code className="text-xs text-amber-300 font-mono shrink-0">{c.hash?.slice(0, 7)}</code>
+              <span className="text-xs text-gray-300 truncate">{c.message}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={reverting}
+            className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-800 border border-white/10 hover:border-white/20 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={reverting}
+            className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {reverting ? (
+              <>
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white" />
+                Creating task...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 010 10H3m0-10l4-4m-4 4l4 4" />
+                </svg>
+                Revert commits
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // All Commits Diff Modal
 // ═════════════════════════════════════════════════════════════════════════════
-export default function AllCommitsDiffModal({ taskId, commits, onClose, initialHash }) {
+export default function AllCommitsDiffModal({ taskId, commits, onClose, initialHash, agentId, project }) {
   const [diffs, setDiffs] = useState({});      // hash -> diff data
   const [loading, setLoading] = useState({});   // hash -> boolean
   const [errors, setErrors] = useState({});     // hash -> error string
+  const [revertMode, setRevertMode] = useState(false);
+  const [selectedCommits, setSelectedCommits] = useState(new Set());
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [revertSuccess, setRevertSuccess] = useState(null); // null | { taskId }
   const modalRef = useRef(null);
   const scrollRef = useRef(null);
 
@@ -176,7 +264,11 @@ export default function AllCommitsDiffModal({ taskId, commits, onClose, initialH
       if (modalRef.current && !modalRef.current.contains(e.target)) onClose();
     }
     function handleKey(e) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (showConfirm) { setShowConfirm(false); return; }
+        if (revertMode) { setRevertMode(false); setSelectedCommits(new Set()); return; }
+        onClose();
+      }
     }
     document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
@@ -184,7 +276,41 @@ export default function AllCommitsDiffModal({ taskId, commits, onClose, initialH
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [onClose]);
+  }, [onClose, revertMode, showConfirm]);
+
+  function toggleSelect(hash) {
+    setSelectedCommits(prev => {
+      const next = new Set(prev);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    if (selectedCommits.size === commits.length) {
+      setSelectedCommits(new Set());
+    } else {
+      setSelectedCommits(new Set(commits.map(c => c.hash)));
+    }
+  }
+
+  async function handleRevert() {
+    if (!agentId || selectedCommits.size === 0) return;
+    setReverting(true);
+    try {
+      const selected = commits.filter(c => selectedCommits.has(c.hash));
+      const hashList = selected.map(c => `${c.hash.slice(0, 7)} (${c.message || 'no message'})`).join('\n- ');
+      const taskText = `[REVERT] Revert the following commit${selected.length > 1 ? 's' : ''} using \`git revert --no-edit\`:\n- ${hashList}\n\nFull commit hashes: ${selected.map(c => c.hash).join(', ')}\n\nAfter reverting, push the changes to the remote repository.`;
+      const result = await api.addTask(agentId, taskText, project || undefined);
+      setRevertSuccess({ taskId: result.id || result.taskId });
+      setShowConfirm(false);
+    } catch (err) {
+      alert('Failed to create revert task: ' + err.message);
+    } finally {
+      setReverting(false);
+    }
+  }
 
   // Totals
   const allLoaded = Object.values(loading).every(v => !v);
@@ -218,15 +344,70 @@ export default function AllCommitsDiffModal({ taskId, commits, onClose, initialH
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Revert button */}
+            {agentId && !revertSuccess && (
+              revertMode ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={selectAll}
+                    className="text-xs text-gray-400 hover:text-white transition-colors px-2 py-1"
+                  >
+                    {selectedCommits.size === commits.length ? 'Deselect all' : 'Select all'}
+                  </button>
+                  <button
+                    onClick={() => { setRevertMode(false); setSelectedCommits(new Set()); }}
+                    className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 border border-white/10 hover:border-white/20 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    disabled={selectedCommits.size === 0}
+                    className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 010 10H3m0-10l4-4m-4 4l4 4" />
+                    </svg>
+                    Revert ({selectedCommits.size})
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setRevertMode(true)}
+                  className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 rounded-lg transition-colors flex items-center gap-1.5"
+                  title="Select commits to revert"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 010 10H3m0-10l4-4m-4 4l4 4" />
+                  </svg>
+                  Revert
+                </button>
+              )
+            )}
+            {/* Close button */}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* Success banner */}
+        {revertSuccess && (
+          <div className="mx-5 mt-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30 flex items-center gap-3">
+            <svg className="w-5 h-5 text-green-400 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm text-green-300">
+              Revert task created successfully. The agent will process it shortly.
+            </span>
+          </div>
+        )}
 
         {/* Body — scrollable list of all commits */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -237,11 +418,25 @@ export default function AllCommitsDiffModal({ taskId, commits, onClose, initialH
                 diff={diffs[c.hash] || null}
                 loading={loading[c.hash] || false}
                 error={errors[c.hash] || null}
+                selected={selectedCommits.has(c.hash)}
+                onToggleSelect={toggleSelect}
+                showSelect={revertMode}
               />
             </div>
           ))}
         </div>
       </div>
+
+      {/* Revert confirmation overlay */}
+      {showConfirm && (
+        <RevertConfirmModal
+          selectedCommits={selectedCommits}
+          commits={commits}
+          onConfirm={handleRevert}
+          onCancel={() => setShowConfirm(false)}
+          reverting={reverting}
+        />
+      )}
     </div>
   );
 }
