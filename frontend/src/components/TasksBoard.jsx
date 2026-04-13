@@ -3509,7 +3509,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         <ShareBoardModal
           board={shareBoard}
           onClose={() => setShareBoard(null)}
-          currentUserId={user?.id}
+          currentUserId={user?.userId}
         />
       )}
 
