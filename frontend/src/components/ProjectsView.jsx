@@ -208,7 +208,7 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
       // Attach GitHub info
       p.github = githubLookup.get(p.name) || null;
       // Build daily activity for mini chart
-      p.dailyActivity = buildDailyActivity(p.tasks, 14);
+      p.dailyActivity = buildDailyActivity(p.tasks, 30);
     }
 
     let result = Array.from(projectMap.values());
@@ -418,7 +418,7 @@ export default function ProjectsView({ agents = [], githubProjects = [], project
             {/* Activity chart (last 14 days) */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] text-dark-500 uppercase tracking-wider">Activity (14d)</span>
+                <span className="text-[10px] text-dark-500 uppercase tracking-wider">Activity (30d)</span>
                 <div className="flex items-center gap-3 text-[10px]">
                   <span className="flex items-center gap-1"><span className="inline-block w-1.5 h-1.5 rounded-sm bg-purple-500" /> Created</span>
                   <span className="flex items-center gap-1"><span className="inline-block w-1.5 h-1.5 rounded-sm bg-green-500" /> Done</span>
