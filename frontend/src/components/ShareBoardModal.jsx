@@ -19,7 +19,11 @@ export default function ShareBoardModal({ board, onClose, currentUserId }) {
   const modalRef = useRef(null);
   const inputRef = useRef(null);
 
-  const isOwner = board.user_id === currentUserId;
+  // Owned boards from getBoardsByUser have share_permission=null; shared boards have a value
+  // Use both UUID comparison and share_permission for robust ownership detection
+  const isOwner = String(board.user_id) === String(currentUserId) || (!board.share_permission && !board.is_default);
+  // Owner and admin-level shared users can manage shares (invite, change perms, revoke)
+  const canManageShares = isOwner || board.share_permission === 'admin';
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +151,7 @@ export default function ShareBoardModal({ board, onClose, currentUserId }) {
           </div>
 
           {/* Add user form */}
-          {isOwner && (
+          {canManageShares && (
             <form onSubmit={handleShare} className="space-y-2">
               <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide">
                 <UserPlus className="inline w-3 h-3 mr-1" />
@@ -241,7 +245,7 @@ export default function ShareBoardModal({ board, onClose, currentUserId }) {
                         </div>
                         <div className="text-xs text-dark-500">{share.username}</div>
                       </div>
-                      {isOwner ? (
+                      {canManageShares ? (
                         <div className="flex items-center gap-1.5">
                           <select
                             value={share.permission}
