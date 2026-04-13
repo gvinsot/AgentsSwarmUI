@@ -2,7 +2,7 @@ import React from 'react';
 
 const SOURCE_META = {
   agent: { color: '#a855f7', label: name => `Agent: ${name}` },
-  user:  { color: '#3b82f6', label: () => 'User' },
+  user:  { color: '#3b82f6', label: (name) => name || 'User' },
   api:   { color: '#6b7280', label: () => 'API' },
   mcp:   { color: '#f97316', label: () => 'MCP' },
 };

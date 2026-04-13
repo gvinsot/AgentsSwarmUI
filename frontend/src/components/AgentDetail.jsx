@@ -13,7 +13,7 @@ import PluginEditor from './PluginEditor';
 
 const SOURCE_META = {
   agent: { label: s => `Agent: ${s.name || ''}`, color: 'text-violet-400', bg: 'bg-violet-500/10 ring-violet-500/20' },
-  user:  { label: () => 'User',                  color: 'text-blue-400',   bg: 'bg-blue-500/10 ring-blue-500/20' },
+  user:  { label: s => s?.name ? s.name : 'User', color: 'text-blue-400',   bg: 'bg-blue-500/10 ring-blue-500/20' },
   api:   { label: () => 'API',                   color: 'text-slate-400',  bg: 'bg-slate-500/10 ring-slate-500/20' },
   mcp:   { label: () => 'MCP',                   color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
 };

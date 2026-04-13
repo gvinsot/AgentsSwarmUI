@@ -86,7 +86,7 @@ function formatDate(iso) {
 }
 
 const SOURCE_META = {
-  user:       { label: () => 'User',              cls: 'text-blue-400 bg-blue-500/10 ring-blue-500/20' },
+  user:       { label: (s) => s?.name ? s.name : 'User', cls: 'text-blue-400 bg-blue-500/10 ring-blue-500/20' },
   agent:      { label: (s) => s.name || 'Agent',  cls: 'text-purple-400 bg-purple-500/10 ring-purple-500/20' },
   api:        { label: () => 'API',               cls: 'text-slate-400 bg-slate-500/10 ring-slate-500/20' },
   mcp:        { label: () => 'MCP',               cls: 'text-orange-400 bg-orange-500/10 ring-orange-500/20' },

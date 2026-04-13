@@ -284,7 +284,7 @@ export function agentRoutes(agentManager) {
       if (project && project !== agent.project) {
         agentManager.update(agent.id, { project });
       }
-      const resolvedSource = source || { type: 'user' };
+      const resolvedSource = source || { type: 'user', name: req.user?.username || undefined };
       let resolvedStatus = status && typeof status === 'string' ? status : undefined;
       let resolvedBoardId = boardId || undefined;
 
