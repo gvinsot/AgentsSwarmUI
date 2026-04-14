@@ -318,8 +318,15 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
 
   markAgentBusy(agent.id);
 
+  // Wrap everything after markAgentBusy in try/finally so the busy flag is
+  // always cleared — even if task setup or project-switch throws unexpectedly.
+  let actualTask;
+  let execStartMsgIdx;
+  let execStartedAt;
+  try {
+
   // Set actionRunning flag on the task
-  const actualTask = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
+  actualTask = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
   if (actualTask) {
     actualTask.actionRunning = true;
     actualTask.actionRunningAgentId = agent.id;
@@ -389,10 +396,9 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
     }
   }
 
-  const execStartMsgIdx = (agent.conversationHistory || []).length;
-  const execStartedAt = new Date().toISOString();
+  execStartMsgIdx = (agent.conversationHistory || []).length;
+  execStartedAt = new Date().toISOString();
 
-  try {
     let result;
     switch (mode) {
       case AgentMode.TITLE:
