@@ -3,6 +3,7 @@ import { requireRole } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardShare, rowToTask } from '../services/database.js';
 import { listStarredRepos } from '../services/githubProjects.js';
 import { onTaskStatusChanged } from '../services/jiraSync.js';
+import { setTaskSignal } from '../services/agentManager/tasks.js';
 
 const router = Router();
 
@@ -162,11 +163,19 @@ router.put('/:id', async (req, res) => {
     const now = new Date().toISOString();
     const username = req.user?.username || 'user';
 
-    // ── Block column/board move when an agent is actively processing ─────
+    // ── Stop agent when task is moved to another column/board ───────────
     const wantsColumnChange = column !== undefined && column !== task.status;
     const wantsBoardChange = boardId !== undefined && boardId !== (task.boardId || null);
     if (task.actionRunning && (wantsColumnChange || wantsBoardChange)) {
-      return res.status(409).json({ error: 'Cannot move task while an agent is processing it. Stop the agent first.' });
+      // Stop the executing agent so the task can be moved
+      const executorId = task.actionRunningAgentId || task.assignee || task.agentId;
+      if (executorId) {
+        mgr.stopAgent(executorId);
+      }
+      // Clear actionRunning on our copy so it persists correctly
+      task.actionRunning = false;
+      delete task.actionRunningAgentId;
+      delete task.actionRunningMode;
     }
 
     // Track what changed for history / notifications
@@ -215,6 +224,17 @@ router.put('/:id', async (req, res) => {
     if (position !== undefined) { task.position = position; }
     task.updatedAt = now;
 
+    // Clear execution state on the copy when status changed — this ensures
+    // the DB row is also cleaned up when saveTaskDirectly persists the copy.
+    if (statusChanged) {
+      task.startedAt = null;
+      task.executionStatus = null;
+      task.actionRunning = false;
+      delete task.actionRunningAgentId;
+      delete task.actionRunningMode;
+      if (task.status === 'done') task.completedAt = now;
+    }
+
     // ── History entry ──────────────────────────────────────────────────────
     const hasChanges = boardChanged || statusChanged || editedFields.length > 0;
     if (hasChanges) {
@@ -257,13 +277,20 @@ router.put('/:id', async (req, res) => {
 
         // When status changed, clear stale execution state so the workflow
         // engine starts fresh and the task loop doesn't incorrectly resume.
+        // Also signal the reminder loop to stop — the agent should no longer
+        // work on this task since it was moved by a user.
         if (statusChanged) {
           memTask.startedAt = null;
           memTask.executionStatus = null;
           delete memTask._pendingOnEnter;
           delete memTask._completedActionIdx;
           memTask.completedActionIdx = null;
+          memTask.actionRunning = false;
+          delete memTask.actionRunningAgentId;
+          delete memTask.actionRunningMode;
           if (task.status === 'done') memTask.completedAt = now;
+          // Signal the reminder loop / execution wait to exit
+          setTaskSignal(req.params.id, 'stopped', true);
         }
       }
     }
@@ -337,7 +364,14 @@ router.post('/bulk-move', async (req, res) => {
       const task = mgr.getTask(taskId);
       if (!task) { results.failed.push({ taskId, error: 'Task not found' }); continue; }
       if (!await requireTaskAccess(mgr, task, req.user)) { results.failed.push({ taskId, error: 'Access denied' }); continue; }
-      if (task.actionRunning) { results.failed.push({ taskId, error: 'Task is being processed by an agent. Stop the agent first.' }); continue; }
+      // Stop the executing agent if it's actively processing this task
+      if (task.actionRunning) {
+        const executorId = task.actionRunningAgentId || task.assignee || task.agentId;
+        if (executorId) mgr.stopAgent(executorId);
+        task.actionRunning = false;
+        delete task.actionRunningAgentId;
+        delete task.actionRunningMode;
+      }
 
       const oldBoardId = task.boardId;
       const oldStatus = task.status;
@@ -370,7 +404,12 @@ router.post('/bulk-move', async (req, res) => {
           delete memTask._pendingOnEnter;
           delete memTask._completedActionIdx;
           memTask.completedActionIdx = null;
+          memTask.actionRunning = false;
+          delete memTask.actionRunningAgentId;
+          delete memTask.actionRunningMode;
         }
+        // Signal the reminder loop / execution wait to exit
+        setTaskSignal(taskId, 'stopped', true);
         onTaskStatusChanged(task, targetColumn, mgr);
         if (targetColumn !== 'error') {
           mgr._checkAutoRefine({ ...task }, { by: username });

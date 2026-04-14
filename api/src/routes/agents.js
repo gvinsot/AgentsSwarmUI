@@ -4,6 +4,7 @@ import { globalTaskStore } from '../services/globalTaskStore.js';
 import { getWorkflowForBoard } from '../services/configManager.js';
 import { getAllBoards } from '../services/database.js';
 import { stripToolCalls } from '../services/workflow/index.js';
+import { setTaskSignal } from '../services/agentManager/tasks.js';
 
 // Schema for creating a new agent
 const createAgentSchema = z.object({
@@ -331,9 +332,12 @@ export function agentRoutes(agentManager) {
     const agent = agentManager.agents.get(req.params.id);
     const oldTask = agentManager._getAgentTasks(req.params.id).find(t => t.id === req.params.taskId);
 
-    // Block status change on tasks being executed — user must stop the agent first
-    if (status && oldTask?.startedAt && agentManager._isActiveTaskStatus(oldTask.status) && agent?.status === 'busy') {
-      return res.status(409).json({ error: 'Task is being executed. Stop the agent first.' });
+    // When a user changes the task status while it's being executed, stop the agent
+    // so it no longer works on this task or receives reminders.
+    if (status && status !== oldTask?.status && oldTask?.startedAt && agentManager._isActiveTaskStatus(oldTask.status) && agent?.status === 'busy') {
+      agentManager.stopAgent(req.params.id);
+      // Signal the reminder loop to exit for this task
+      setTaskSignal(req.params.taskId, 'stopped', true);
     }
 
     // Handle recurrence update
