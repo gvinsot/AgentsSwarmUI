@@ -376,6 +376,27 @@ export const api = {
       body: JSON.stringify(agentId ? { agentId } : {})
     }).then(handleResponse),
 
+  // Gmail OAuth (supports optional agentId for per-agent auth)
+  getGmailStatus: (agentId) =>
+    fetch(`${API_BASE}/gmail/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  getGmailAuthUrl: (agentId) =>
+    fetch(`${API_BASE}/gmail/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  gmailCallback: (code, state) =>
+    fetch(`${API_BASE}/gmail/callback`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ code, state })
+    }).then(handleResponse),
+
+  disconnectGmail: (agentId) =>
+    fetch(`${API_BASE}/gmail/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(agentId ? { agentId } : {})
+    }).then(handleResponse),
+
   // Realtime (Voice)
   getRealtimeToken: (agentId) =>
     fetch(`${API_BASE}/realtime/token`, {

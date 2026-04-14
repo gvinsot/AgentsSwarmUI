@@ -15,6 +15,7 @@ export function resolveInternalMcpConfig(serverUrl, {
     '__internal__code-index': `http://localhost:${port}/api/code-index/mcp`,
     '__internal__gandi_dns': `http://localhost:${port}/api/gandi-dns/mcp`,
     '__internal__swarm_api': `http://localhost:${port}/api/swarm-api/mcp`,
+    '__internal__gmail': `http://localhost:${port}/api/gmail/mcp`,
   };
 
   if (!mappings[serverUrl]) {
@@ -440,9 +441,9 @@ export class MCPManager {
       return this._callToolWithAgentAuth(server, toolName, args, agentId, agentAuth.apiKey);
     }
 
-    // For internal OneDrive: always use per-agent connection to pass agentId context
-    // so the MCP handler can resolve agent-specific OAuth tokens
-    if (agentId && server.url === '__internal__onedrive') {
+    // For internal OAuth-based MCPs (OneDrive, Gmail): always use per-agent connection
+    // to pass agentId context so the MCP handler can resolve agent-specific OAuth tokens
+    if (agentId && (server.url === '__internal__onedrive' || server.url === '__internal__gmail')) {
       return this._callToolWithAgentContext(server, toolName, args, agentId);
     }
 

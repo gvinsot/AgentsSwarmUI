@@ -58,5 +58,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-gmail',
+    name: 'Gmail',
+    url: '__internal__gmail',
+    description: 'Gmail — read, search, send, reply, draft emails and manage labels via Gmail API (per-agent OAuth)',
+    icon: '📧',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

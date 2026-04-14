@@ -25,6 +25,8 @@ import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase, isDatabaseConnected } from './services/database.js';
 import { onedriveRoutes } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
+import { gmailRoutes } from './routes/gmail.js';
+import { createGmailMcpHandler } from './services/gmailMcp.js';
 import { apiKeyRoutes } from './routes/apiKeys.js';
 import { settingsRoutes } from './routes/settings.js';
 import { createSwarmApiMcpHandler, createSwarmApiMcpSseHandlers } from './services/swarmApiMcp.js';
@@ -127,6 +129,7 @@ app.use('/api/plugins', authenticateToken, pluginRoutes(skillManager, mcpManager
 app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager));
 app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/onedrive', authenticateToken, onedriveRoutes());
+app.use('/api/gmail', authenticateToken, gmailRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 app.use('/api/budget', authenticateToken, budgetRoutes);
@@ -140,6 +143,9 @@ app.use('/api/tasks', authenticateToken, taskRoutes);
 // Internal MCP endpoints (used by the MCP client for tool discovery and calls)
 const onedriveMcpHandler = createOneDriveMcpHandler();
 app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler(req, res));
+
+const gmailMcpHandler = createGmailMcpHandler();
+app.all('/api/gmail/mcp', authenticateToken, (req, res) => gmailMcpHandler(req, res));
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));

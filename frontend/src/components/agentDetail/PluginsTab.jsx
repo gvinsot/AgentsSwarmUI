@@ -6,6 +6,7 @@ import {
 import { api } from '../../api';
 import PluginEditor from '../PluginEditor';
 import OneDriveConnect from '../OneDriveConnect';
+import GmailConnect from '../GmailConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -125,6 +126,13 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasOneDriveMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === ONEDRIVE_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(ONEDRIVE_MCP_ID)
+  );
+
+  // Detect if Gmail MCP is among the assigned plugins' MCPs
+  const GMAIL_MCP_ID = 'mcp-gmail';
+  const hasGmailMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === GMAIL_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(GMAIL_MCP_ID)
   );
 
   const handleSaveAuth = async () => {
@@ -306,6 +314,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasOneDriveMcp && (
           <div className="mt-3">
             <OneDriveConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasGmailMcp && (
+          <div className="mt-3">
+            <GmailConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>
