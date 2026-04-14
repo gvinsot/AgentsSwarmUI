@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { X, GitCommit, Tag, ExternalLink, Loader2, AlertCircle, Clock } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { X, GitCommit, Tag, ExternalLink, Loader2, AlertCircle, Clock, FolderOpen, File, ChevronRight, ChevronDown, GitBranch, ArrowLeft, FileText } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '../api';
 
 export default function GitHubActivityModal({ owner, repo, onClose }) {
@@ -50,7 +52,7 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
     >
       <div
         className="bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        style={{ width: '700px', maxWidth: '90vw', maxHeight: '80vh' }}
+        style={{ width: '800px', maxWidth: '92vw', maxHeight: '85vh' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -105,18 +107,29 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
             Tags / Releases
             {data && <span className="text-xs text-dark-500 ml-1">({data.tags.length})</span>}
           </button>
+          <button
+            onClick={() => setTab('explorer')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'explorer'
+                ? 'text-dark-100 border-b-2 border-purple-500'
+                : 'text-dark-400 hover:text-dark-100'
+            }`}
+          >
+            <FolderOpen size={14} />
+            Explorer
+          </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading && (
+        <div className="flex-1 overflow-y-auto p-4" style={{ minHeight: 0 }}>
+          {tab !== 'explorer' && loading && (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={24} className="animate-spin text-purple-400" />
               <span className="ml-2 text-dark-400">Loading activity...</span>
             </div>
           )}
 
-          {error && (
+          {tab !== 'explorer' && error && (
             <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
               <AlertCircle size={16} className="text-red-400" />
               <span className="text-sm text-red-400">{error}</span>
@@ -186,7 +199,11 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
             </div>
           )}
 
-          {data?.fetchedAt && (
+          {tab === 'explorer' && (
+            <RepoExplorer owner={owner} repo={repo} />
+          )}
+
+          {tab !== 'explorer' && data?.fetchedAt && (
             <p className="text-xs text-dark-600 text-right mt-3">
               Fetched {formatDate(data.fetchedAt)}
             </p>
@@ -196,6 +213,387 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
     </div>
   );
 }
+
+/* ── Repo Explorer sub-component ─────────────────────────────────────────── */
+
+function RepoExplorer({ owner, repo }) {
+  const [branches, setBranches] = useState([]);
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [tree, setTree] = useState(null);
+  const [loadingBranches, setLoadingBranches] = useState(true);
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileContent, setFileContent] = useState(null);
+  const [loadingFile, setLoadingFile] = useState(false);
+  const [expandedDirs, setExpandedDirs] = useState(new Set());
+  const [error, setError] = useState(null);
+
+  // Load branches on mount
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingBranches(true);
+    api.getGitHubBranches(owner, repo)
+      .then(data => {
+        if (cancelled) return;
+        setBranches(data);
+        // Auto-select main/master or first branch
+        const main = data.find(b => b.name === 'main') || data.find(b => b.name === 'master') || data[0];
+        if (main) setSelectedBranch(main.name);
+      })
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoadingBranches(false); });
+    return () => { cancelled = true; };
+  }, [owner, repo]);
+
+  // Load tree when branch changes
+  useEffect(() => {
+    if (!selectedBranch) return;
+    let cancelled = false;
+    setLoadingTree(true);
+    setTree(null);
+    setSelectedFile(null);
+    setFileContent(null);
+    setExpandedDirs(new Set());
+    setError(null);
+    api.getGitHubTree(owner, repo, selectedBranch)
+      .then(data => { if (!cancelled) setTree(data); })
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoadingTree(false); });
+    return () => { cancelled = true; };
+  }, [owner, repo, selectedBranch]);
+
+  // Build nested tree structure from flat list
+  const nestedTree = useMemo(() => {
+    if (!tree?.tree) return [];
+    return buildNestedTree(tree.tree);
+  }, [tree]);
+
+  const toggleDir = useCallback((path) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const openFile = useCallback((filePath) => {
+    setSelectedFile(filePath);
+    setFileContent(null);
+    setLoadingFile(true);
+    api.getGitHubFile(owner, repo, selectedBranch, filePath)
+      .then(data => setFileContent(data))
+      .catch(err => setFileContent({ error: err.message }))
+      .finally(() => setLoadingFile(false));
+  }, [owner, repo, selectedBranch]);
+
+  const goBackToTree = useCallback(() => {
+    setSelectedFile(null);
+    setFileContent(null);
+  }, []);
+
+  const isMarkdown = selectedFile && /\.(md|mdx|markdown)$/i.test(selectedFile);
+
+  if (loadingBranches) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 size={24} className="animate-spin text-purple-400" />
+        <span className="ml-2 text-dark-400">Loading branches...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Branch selector */}
+      <div className="flex items-center gap-2">
+        <GitBranch size={14} className="text-purple-400 shrink-0" />
+        <select
+          value={selectedBranch}
+          onChange={e => setSelectedBranch(e.target.value)}
+          className="bg-dark-800 border border-dark-600 text-dark-100 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-purple-500 min-w-0 flex-1 max-w-xs"
+        >
+          {branches.map(b => (
+            <option key={b.name} value={b.name}>{b.name}</option>
+          ))}
+        </select>
+        {selectedFile && (
+          <button
+            onClick={goBackToTree}
+            className="flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300 transition-colors ml-auto"
+          >
+            <ArrowLeft size={14} />
+            Back to files
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+          <AlertCircle size={14} className="text-red-400" />
+          <span className="text-sm text-red-400">{error}</span>
+        </div>
+      )}
+
+      {loadingTree && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={20} className="animate-spin text-purple-400" />
+          <span className="ml-2 text-dark-400 text-sm">Loading file tree...</span>
+        </div>
+      )}
+
+      {/* File viewer */}
+      {selectedFile && (
+        <div className="space-y-2">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1 text-xs text-dark-400 px-1 flex-wrap">
+            <FileText size={12} className="text-purple-400 shrink-0" />
+            {selectedFile.split('/').map((part, i, arr) => (
+              <span key={i} className="flex items-center gap-1">
+                {i > 0 && <span className="text-dark-600">/</span>}
+                <span className={i === arr.length - 1 ? 'text-dark-100 font-medium' : ''}>{part}</span>
+              </span>
+            ))}
+            {fileContent?.htmlUrl && (
+              <a
+                href={fileContent.htmlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto text-dark-500 hover:text-dark-300 transition-colors"
+                title="View on GitHub"
+              >
+                <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+
+          {loadingFile ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={20} className="animate-spin text-purple-400" />
+              <span className="ml-2 text-dark-400 text-sm">Loading file...</span>
+            </div>
+          ) : fileContent?.error ? (
+            <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+              <AlertCircle size={14} className="text-red-400" />
+              <span className="text-sm text-red-400">{fileContent.error}</span>
+            </div>
+          ) : fileContent?.isBinary ? (
+            <div className="text-center py-8">
+              <p className="text-dark-400 text-sm mb-2">Binary file — cannot display inline</p>
+              {fileContent.downloadUrl && (
+                <a
+                  href={fileContent.downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-400 hover:text-purple-300 text-sm underline"
+                >
+                  Download file
+                </a>
+              )}
+            </div>
+          ) : fileContent?.content != null ? (
+            isMarkdown ? (
+              <div className="bg-dark-800 border border-dark-700 rounded-lg p-4 overflow-x-auto">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  className="prose prose-invert prose-sm max-w-none break-words"
+                  components={mdComponents}
+                >
+                  {fileContent.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="bg-dark-800 border border-dark-700 rounded-lg p-4 overflow-x-auto text-xs font-mono text-dark-200 leading-relaxed whitespace-pre">
+                {fileContent.content}
+              </pre>
+            )
+          ) : null}
+        </div>
+      )}
+
+      {/* File tree */}
+      {!selectedFile && tree && !loadingTree && (
+        <div className="border border-dark-700 rounded-lg overflow-hidden">
+          <FileTreeView
+            nodes={nestedTree}
+            expandedDirs={expandedDirs}
+            toggleDir={toggleDir}
+            openFile={openFile}
+            depth={0}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Markdown components (dark theme) ────────────────────────────────────── */
+
+const mdComponents = {
+  pre: ({ children }) => <pre className="bg-dark-900 rounded-lg p-3 overflow-x-auto my-2 border border-dark-600">{children}</pre>,
+  code: ({ inline, children }) => inline
+    ? <code className="bg-dark-700 px-1.5 py-0.5 rounded text-purple-300 text-xs">{children}</code>
+    : <code className="text-green-300 text-xs">{children}</code>,
+  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{children}</a>,
+  table: ({ children }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-dark-600 w-full text-xs">{children}</table></div>,
+  th: ({ children }) => <th className="border border-dark-600 px-2 py-1 bg-dark-700 text-left">{children}</th>,
+  td: ({ children }) => <td className="border border-dark-600 px-2 py-1">{children}</td>,
+  ul: ({ children }) => <ul className="list-disc list-inside space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal list-inside space-y-1">{children}</ol>,
+  h1: ({ children }) => <h1 className="text-lg font-bold text-dark-100 mt-4 mb-2 pb-1 border-b border-dark-700">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-bold text-dark-100 mt-4 mb-2 pb-1 border-b border-dark-700">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-bold text-dark-100 mt-3 mb-1">{children}</h3>,
+  h4: ({ children }) => <h4 className="text-sm font-semibold text-dark-200 mt-2 mb-1">{children}</h4>,
+  blockquote: ({ children }) => <blockquote className="border-l-2 border-purple-500 pl-3 my-2 text-dark-400 italic">{children}</blockquote>,
+  p: ({ children }) => <p className="my-1.5 leading-relaxed">{children}</p>,
+  hr: () => <hr className="border-dark-600 my-3" />,
+  li: ({ children }) => <li className="text-dark-200">{children}</li>,
+  img: ({ src, alt }) => <img src={src} alt={alt || ''} className="max-w-full rounded-lg my-2" />,
+};
+
+/* ── File tree view component ────────────────────────────────────────────── */
+
+function FileTreeView({ nodes, expandedDirs, toggleDir, openFile, depth }) {
+  return (
+    <div>
+      {nodes.map(node => (
+        <FileTreeNode
+          key={node.path}
+          node={node}
+          expandedDirs={expandedDirs}
+          toggleDir={toggleDir}
+          openFile={openFile}
+          depth={depth}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FileTreeNode({ node, expandedDirs, toggleDir, openFile, depth }) {
+  const isDir = node.type === 'tree';
+  const isExpanded = expandedDirs.has(node.path);
+  const paddingLeft = 12 + depth * 16;
+
+  const ext = node.name.split('.').pop()?.toLowerCase();
+  const iconColor = getFileIconColor(ext, isDir);
+
+  return (
+    <>
+      <button
+        className="w-full flex items-center gap-2 py-1.5 px-2 hover:bg-dark-800 transition-colors text-left group"
+        style={{ paddingLeft: `${paddingLeft}px` }}
+        onClick={() => isDir ? toggleDir(node.path) : openFile(node.path)}
+      >
+        {isDir ? (
+          <>
+            {isExpanded ? <ChevronDown size={12} className="text-dark-500 shrink-0" /> : <ChevronRight size={12} className="text-dark-500 shrink-0" />}
+            <FolderOpen size={14} className={`shrink-0 ${iconColor}`} />
+          </>
+        ) : (
+          <>
+            <span className="w-3 shrink-0" />
+            <File size={14} className={`shrink-0 ${iconColor}`} />
+          </>
+        )}
+        <span className={`text-sm truncate ${isDir ? 'text-dark-100 font-medium' : 'text-dark-200 group-hover:text-dark-100'}`}>
+          {node.name}
+        </span>
+        {!isDir && node.size > 0 && (
+          <span className="text-xs text-dark-600 ml-auto shrink-0">{formatFileSize(node.size)}</span>
+        )}
+      </button>
+      {isDir && isExpanded && node.children && (
+        <FileTreeView
+          nodes={node.children}
+          expandedDirs={expandedDirs}
+          toggleDir={toggleDir}
+          openFile={openFile}
+          depth={depth + 1}
+        />
+      )}
+    </>
+  );
+}
+
+/* ── Helper: build nested tree from flat GitHub tree ─────────────────────── */
+
+function buildNestedTree(flatTree) {
+  const root = [];
+  const dirMap = new Map();
+
+  // Sort: directories first, then alphabetical
+  const sorted = [...flatTree].sort((a, b) => {
+    if (a.type === 'tree' && b.type !== 'tree') return -1;
+    if (a.type !== 'tree' && b.type === 'tree') return 1;
+    return a.path.localeCompare(b.path);
+  });
+
+  for (const item of sorted) {
+    const parts = item.path.split('/');
+    const name = parts[parts.length - 1];
+    const node = { ...item, name, children: item.type === 'tree' ? [] : undefined };
+
+    if (parts.length === 1) {
+      root.push(node);
+    } else {
+      const parentPath = parts.slice(0, -1).join('/');
+      const parent = dirMap.get(parentPath);
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        root.push(node);
+      }
+    }
+
+    if (item.type === 'tree') {
+      dirMap.set(item.path, node);
+    }
+  }
+
+  // Sort each directory's children: dirs first, then files, alphabetical
+  const sortChildren = (nodes) => {
+    nodes.sort((a, b) => {
+      if (a.type === 'tree' && b.type !== 'tree') return -1;
+      if (a.type !== 'tree' && b.type === 'tree') return 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) {
+      if (n.children) sortChildren(n.children);
+    }
+  };
+  sortChildren(root);
+
+  return root;
+}
+
+/* ── Helper: file size formatting ────────────────────────────────────────── */
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ── Helper: file icon colors by extension ───────────────────────────────── */
+
+function getFileIconColor(ext, isDir) {
+  if (isDir) return 'text-blue-400';
+  const colors = {
+    js: 'text-yellow-400', jsx: 'text-yellow-400', ts: 'text-blue-400', tsx: 'text-blue-400',
+    json: 'text-yellow-300', md: 'text-purple-400', mdx: 'text-purple-400',
+    css: 'text-blue-300', scss: 'text-pink-400', html: 'text-orange-400',
+    py: 'text-green-400', go: 'text-cyan-400', rs: 'text-orange-300',
+    yml: 'text-red-300', yaml: 'text-red-300', toml: 'text-red-300',
+    sh: 'text-green-300', bash: 'text-green-300',
+    dockerfile: 'text-blue-300', docker: 'text-blue-300',
+    svg: 'text-orange-300', png: 'text-green-300', jpg: 'text-green-300',
+    lock: 'text-dark-500', gitignore: 'text-dark-500',
+  };
+  return colors[ext] || 'text-dark-300';
+}
+
+/* ── GitHub icon ─────────────────────────────────────────────────────────── */
 
 function GithubIcon({ className }) {
   return (

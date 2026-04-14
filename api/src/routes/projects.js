@@ -5,6 +5,14 @@ import { listStarredRepos, invalidateProjectCache, createProjectFromBoilerplate 
 const ACTIVITY_CACHE_TTL = 60 * 60 * 1000;
 const _activityCache = new Map();
 
+// In-memory cache for repo explorer (branches, tree, file content)
+const BRANCHES_CACHE_TTL = 15 * 60 * 1000; // 15 min
+const TREE_CACHE_TTL = 5 * 60 * 1000;      // 5 min
+const FILE_CACHE_TTL = 5 * 60 * 1000;      // 5 min
+const _branchesCache = new Map();
+const _treeCache = new Map();
+const _fileCache = new Map();
+
 export function projectRoutes() {
   const router = express.Router();
 
@@ -112,6 +120,134 @@ export function projectRoutes() {
       // Return stale cache on error
       if (cached) return res.json(cached.data);
       res.status(500).json({ error: 'Failed to fetch GitHub activity' });
+    }
+  });
+
+  // ── Repo Explorer endpoints ────────────────────────────────────────────
+
+  const ghHeaders = () => ({
+    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  });
+
+  // List branches for a repo
+  router.get('/github-branches/:owner/:repo', async (req, res) => {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+
+    const { owner, repo } = req.params;
+    const cacheKey = `branches:${owner}/${repo}`;
+    const cached = _branchesCache.get(cacheKey);
+    if (cached && Date.now() - cached.time < BRANCHES_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`,
+        { headers: ghHeaders() }
+      );
+      if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
+      const data = await ghRes.json();
+      const branches = data.map(b => ({ name: b.name, sha: b.commit.sha }));
+      _branchesCache.set(cacheKey, { data: branches, time: Date.now() });
+      res.json(branches);
+    } catch (err) {
+      console.error(`Failed to fetch branches for ${owner}/${repo}:`, err.message);
+      if (cached) return res.json(cached.data);
+      res.status(500).json({ error: 'Failed to fetch branches' });
+    }
+  });
+
+  // Get file tree for a given ref (branch/tag/sha)
+  router.get('/github-tree/:owner/:repo/:ref', async (req, res) => {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+
+    const { owner, repo, ref } = req.params;
+    const cacheKey = `tree:${owner}/${repo}:${ref}`;
+    const cached = _treeCache.get(cacheKey);
+    if (cached && Date.now() - cached.time < TREE_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`,
+        { headers: ghHeaders() }
+      );
+      if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
+      const data = await ghRes.json();
+      const tree = (data.tree || []).map(item => ({
+        path: item.path,
+        type: item.type,   // 'blob' or 'tree'
+        size: item.size || 0,
+        sha: item.sha,
+      }));
+      const result = { tree, truncated: !!data.truncated };
+      _treeCache.set(cacheKey, { data: result, time: Date.now() });
+      res.json(result);
+    } catch (err) {
+      console.error(`Failed to fetch tree for ${owner}/${repo}@${ref}:`, err.message);
+      if (cached) return res.json(cached.data);
+      res.status(500).json({ error: 'Failed to fetch file tree' });
+    }
+  });
+
+  // Get file content for a given path and ref
+  router.get('/github-file/:owner/:repo/:ref/*', async (req, res) => {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+
+    const { owner, repo, ref } = req.params;
+    const filePath = req.params[0]; // wildcard captures the rest
+    if (!filePath) return res.status(400).json({ error: 'File path required' });
+
+    const cacheKey = `file:${owner}/${repo}:${ref}:${filePath}`;
+    const cached = _fileCache.get(cacheKey);
+    if (cached && Date.now() - cached.time < FILE_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`,
+        { headers: ghHeaders() }
+      );
+      if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
+      const data = await ghRes.json();
+
+      // GitHub returns base64-encoded content for files
+      let content = null;
+      let isBinary = false;
+      if (data.encoding === 'base64' && data.content) {
+        try {
+          content = Buffer.from(data.content, 'base64').toString('utf-8');
+        } catch {
+          isBinary = true;
+        }
+      } else if (data.type === 'file' && data.download_url) {
+        // Large files: fetch via download_url
+        isBinary = true;
+      }
+
+      const result = {
+        name: data.name,
+        path: data.path,
+        size: data.size,
+        type: data.type,
+        content,
+        isBinary,
+        htmlUrl: data.html_url,
+        downloadUrl: data.download_url,
+      };
+      _fileCache.set(cacheKey, { data: result, time: Date.now() });
+      res.json(result);
+    } catch (err) {
+      console.error(`Failed to fetch file ${filePath} for ${owner}/${repo}@${ref}:`, err.message);
+      if (cached) return res.json(cached.data);
+      res.status(500).json({ error: 'Failed to fetch file content' });
     }
   });
 

@@ -442,6 +442,22 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // GitHub repo explorer
+  getGitHubBranches: (owner, repo) =>
+    fetch(`${API_BASE}/projects/github-branches/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  getGitHubTree: (owner, repo, ref) =>
+    fetch(`${API_BASE}/projects/github-tree/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}`, {
+      headers: getHeaders()
+    }).then(handleResponse),
+
+  getGitHubFile: (owner, repo, ref, filePath) =>
+    fetch(`${API_BASE}/projects/github-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${filePath}`, {
+      headers: getHeaders()
+    }).then(handleResponse),
+
   // API Key (MCP)
   getApiKeyInfo: () =>
     fetch(`${API_BASE}/settings/api-key`, { headers: getHeaders() }).then(handleResponse),
