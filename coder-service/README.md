@@ -43,6 +43,24 @@ docker run -it --rm -v claude-config:/root/.config coder-service claude auth log
 
 After that, all subsequent container starts reuse the stored credentials automatically.
 
+## Code structure
+
+The server source is split into focused modules under `src/`:
+
+| File | Lines | Responsibility |
+|---|---|---|
+| `server.py` | ~100 | Entry point — FastAPI app, lifespan, route mounting |
+| `config.py` | ~70 | Configuration constants, logging setup |
+| `models.py` | ~135 | Pydantic request/response models, helper functions |
+| `security.py` | ~25 | API key extraction and verification |
+| `agent_user.py` | ~165 | Per-agent Linux user isolation and project management |
+| `token_store.py` | ~660 | OAuth token persistence (global, agent, owner) + refresh |
+| `auth_oauth.py` | ~380 | OAuth PKCE flow, login URL generation, code exchange |
+| `claude_executor.py` | ~700 | Claude Code CLI command builder, sync + streaming exec |
+| `code_executor.py` | ~55 | Direct Python/shell execution (bypass Claude) |
+| `routes_auth.py` | ~380 | Auth HTTP endpoints (global, per-agent, per-owner) |
+| `routes_api.py` | ~500 | API HTTP endpoints (health, execute, stream, OpenAI compat) |
+
 ## Endpoints
 
 | Method | Path | Description |

@@ -67,8 +67,8 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 # Make dev tools available globally (for scripts calling /usr/bin/python3 -m pytest)
 RUN pip install --break-system-packages pytest black
 
-# Copy server code and entrypoint
-COPY coder-service/src/server.py .
+# Copy server code (modular Python files) and entrypoint
+COPY coder-service/src/*.py .
 COPY coder-service/src/entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
