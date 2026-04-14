@@ -435,7 +435,7 @@ function jsonToToolCall(name, args) {
     case 'list_computers':
     case 'search_logs':
     case 'get_log_metadata':
-      return { tool: toolName, args: [JSON.stringify(args)] };
+      return { tool: name, args: [JSON.stringify(args)] };
 
     // Agent skills management tools
     case 'search_skill':

@@ -659,9 +659,12 @@ export const lifecycleMethods = {
     this._tasks.delete(id);
     this._taskQueues.delete(id);
     this._chatLocks.delete(id);
+    const pendingTimer = this._updateTimers.get(id);
+    if (pendingTimer) clearTimeout(pendingTimer);
     this._updateTimers.delete(id);
     this._updatePending.delete(id);
     this._conditionProcessing.delete(id);
+    this.abortControllers.delete(id);
     this.agents.delete(id);
     await deleteAgentFromDb(id);
     this._emit('agent:deleted', { id, ownerId });

@@ -369,6 +369,10 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('voice:ask', async (data) => {
       const { agentId, targetAgentName, question } = data;
       if (!agentId || !targetAgentName || !question) return;
+      if (!checkSocketRate()) {
+        socket.emit('voice:ask:result', { agentId, targetAgentName, error: 'Rate limit exceeded', result: null });
+        return;
+      }
 
       try {
         const targetAgent = agentManager.getAllForUser(userId, userRole).find(
@@ -491,7 +495,7 @@ export function setupSocketHandlers(io, agentManager) {
           case 'rollback': {
             const target = findAgent(args.agent_name);
             if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
-            const histLen = target.conversationHistory.length;
+            const histLen = (target.conversationHistory || []).length;
             const count = Math.min(args.count || 0, histLen);
             if (count === 0) { result = `${target.name} has no messages to rollback`; break; }
             const newLen = histLen - count;
