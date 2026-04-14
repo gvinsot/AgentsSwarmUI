@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardShare, rowToTask } from '../services/database.js';
 import { listStarredRepos } from '../services/githubProjects.js';
+import { onTaskStatusChanged } from '../services/jiraSync.js';
 
 const router = Router();
 
@@ -269,9 +270,12 @@ router.put('/:id', async (req, res) => {
 
     await mgr.saveTaskDirectly(task);
 
-    // ── Trigger workflow processing when status changed ──────────────────
-    if (statusChanged && task.status !== 'error') {
-      mgr._checkAutoRefine({ ...task }, { by: username });
+    // ── Trigger Jira sync and workflow processing when status changed ────
+    if (statusChanged) {
+      onTaskStatusChanged(task, task.status, mgr);
+      if (task.status !== 'error') {
+        mgr._checkAutoRefine({ ...task }, { by: username });
+      }
     }
 
     // ── Notifications ──────────────────────────────────────────────────────
@@ -360,12 +364,14 @@ router.post('/bulk-move', async (req, res) => {
         if (memTask) {
           memTask.status = targetColumn;
           memTask.boardId = boardId;
+          memTask.updatedAt = now;
           memTask.startedAt = null;
           memTask.executionStatus = null;
           delete memTask._pendingOnEnter;
           delete memTask._completedActionIdx;
           memTask.completedActionIdx = null;
         }
+        onTaskStatusChanged(task, targetColumn, mgr);
         if (targetColumn !== 'error') {
           mgr._checkAutoRefine({ ...task }, { by: username });
         }

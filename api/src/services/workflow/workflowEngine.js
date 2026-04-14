@@ -449,14 +449,25 @@ function _autoAssignByColumn(task, workflow, agentManager, ownerId, io) {
     const actualTask = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
     if (actualTask) {
       actualTask.assignee = autoAgent.id;
-      saveTaskToDb({ ...actualTask, agentId: task.agentId });
+      // Record history for consistency with other assignment paths
+      if (!actualTask.history) actualTask.history = [];
+      actualTask.history.push({
+        status: actualTask.status,
+        at: new Date().toISOString(),
+        by: 'workflow',
+        type: 'reassign',
+        assignee: autoAgent.id,
+      });
+      // Defer emit until after DB save so the frontend's loadTasks() reads
+      // the committed row (same pattern as executeAssignAgent).
+      const assignPayload = { ...actualTask, agentId: task.agentId };
+      const assigneeAgent = agentManager.agents.get(autoAgent.id);
+      assignPayload.assigneeName = assigneeAgent?.name || null;
+      assignPayload.assigneeIcon = assigneeAgent?.icon || null;
+      const savePromise = saveTaskToDb({ ...actualTask, agentId: task.agentId });
+      Promise.resolve(savePromise)
+        .catch(() => {})
+        .then(() => agentManager._emit('task:updated', { agentId: task.agentId, task: assignPayload }));
     }
-    // Enrich with assignee info for the frontend
-    if (task.assignee) {
-      const assigneeAgent = agentManager.agents.get(task.assignee);
-      task.assigneeName = assigneeAgent?.name || null;
-      task.assigneeIcon = assigneeAgent?.icon || null;
-    }
-    agentManager._emit('task:updated', { agentId: task.agentId, task });
   }
 }
