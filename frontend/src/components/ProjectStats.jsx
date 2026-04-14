@@ -170,7 +170,7 @@ export default function ProjectStats({ projectName, onClose, embedded = false })
       {/* Header */}
       <div className="flex items-center justify-between">
         {!embedded && (
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-dark-100 flex items-center gap-2">
             <BarChart3 size={16} className="text-purple-400" />
             Statistics: {projectName}
           </h3>
@@ -186,11 +186,11 @@ export default function ProjectStats({ projectName, onClose, embedded = false })
             <option value={30}>30 days</option>
             <option value={90}>90 days</option>
           </select>
-          <button onClick={loadData} className="text-dark-400 hover:text-white p-1" title="Refresh">
+          <button onClick={loadData} className="text-dark-400 hover:text-dark-100 p-1" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
           {!embedded && (
-            <button onClick={onClose} className="text-dark-400 hover:text-white p-1" title="Close">
+            <button onClick={onClose} className="text-dark-400 hover:text-dark-100 p-1" title="Close">
               <X size={14} />
             </button>
           )}
@@ -278,7 +278,7 @@ export default function ProjectStats({ projectName, onClose, embedded = false })
             {Object.entries(stats.avgStateDurations).map(([state, data]) => (
               <div key={state} className="bg-dark-700/50 rounded px-3 py-2">
                 <div className="text-xs text-dark-400 capitalize">{state}</div>
-                <div className="text-sm text-white font-medium">{formatDuration(data.avg)}</div>
+                <div className="text-sm text-dark-100 font-medium">{formatDuration(data.avg)}</div>
                 <div className="text-xs text-dark-500">{data.count} transitions</div>
               </div>
             ))}
@@ -298,7 +298,7 @@ function MiniCard({ label, value, icon }) {
       <div className="text-xs text-dark-400 flex items-center gap-1 mb-0.5">
         {icon} {label}
       </div>
-      <div className="text-sm text-white font-medium">{value}</div>
+      <div className="text-sm text-dark-100 font-medium">{value}</div>
     </div>
   );
 }

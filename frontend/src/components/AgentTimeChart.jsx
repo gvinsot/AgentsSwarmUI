@@ -175,7 +175,7 @@ export default function AgentTimeChart({ projectName, days = 30 }) {
           </h4>
           <button
             onClick={loadData}
-            className="text-dark-400 hover:text-white p-1"
+            className="text-dark-400 hover:text-dark-100 p-1"
             title="Refresh"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -197,7 +197,7 @@ function MiniStat({ icon, label, value }) {
       <div className="text-xs text-dark-400 flex items-center gap-1 mb-0.5">
         {icon} {label}
       </div>
-      <div className="text-sm text-white font-medium">{value}</div>
+      <div className="text-sm text-dark-100 font-medium">{value}</div>
     </div>
   );
 }
