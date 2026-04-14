@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { updateTask, deleteTask, getCommitDiff, getBoards } from '../api';
+import { getSocket } from '../socket';
 import RealtimeTaskModal from './RealtimeTaskModal';
 import AllCommitsDiffModal from './AllCommitsDiffModal';
 
@@ -302,8 +303,17 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
     }
   };
 
+  const handleResume = useCallback(() => {
+    const socket = getSocket();
+    const agentId = task.agentId || task.assignee;
+    if (!socket || !agentId) return;
+    socket.emit('agent:task:execute', { agentId, taskId: task.id });
+    onClose();
+  }, [task.id, task.agentId, task.assignee, onClose]);
+
   const assignedAgent = agents?.find(a => a.id === task.agentId);
   const hasCommits = task.commits?.length > 0;
+  const canResume = !task.actionRunning && (task.agentId || task.assignee);
 
   return (
     <>
@@ -513,6 +523,16 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
               Delete
             </button>
             <div className="flex gap-2">
+              {canResume && (
+                <button
+                  onClick={handleResume}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-400 hover:bg-emerald-500/10 transition-colors flex items-center gap-1.5"
+                  title="Resume task execution"
+                >
+                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" /></svg>
+                  Resume
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:bg-white/10 transition-colors"

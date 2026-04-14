@@ -4,7 +4,7 @@ import {
   Edit3, Save, Check, Tag, Calendar, ChevronDown, ChevronRight, Plus, Settings,
   ArrowRight, Zap, User, GitCommit, KanbanSquare, Repeat, MessageSquare, FolderKanban, Code, Loader2, Square,
   Bug, Sparkles, Wrench, BookOpen, ArrowUpCircle, HelpCircle, Layers,
-  ArrowUpDown, Flag, Sun, RotateCcw, Archive, Users, Share2
+  ArrowUpDown, Flag, Sun, RotateCcw, Archive, Users, Share2, Play
 } from 'lucide-react';
 import { api, deleteTask as deleteTaskById, updateTask as updateTaskById, reorderTasks } from '../api';
 import { getDeletedTasks, restoreTask as restoreTaskApi, hardDeleteTask as hardDeleteTaskApi } from '../api';
@@ -1294,7 +1294,7 @@ function TaskDetailModal({ task, agents, allProjects, onClose, onRefresh, onDele
 
 // ── TaskCard ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits }) {
+function TaskCard({ task, agents, onDelete, onStop, onResume, onOpen, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits }) {
   const isError = task.status === 'error';
   const today = isToday(task.createdAt);
   const isDraggingRef = useRef(false);
@@ -1642,13 +1642,24 @@ function TaskCard({ task, agents, onDelete, onStop, onOpen, showAgent, showCreat
                 <Square className="w-3.5 h-3.5 fill-current" />
               </button>
             ) : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(task); }}
-                className="p-1.5 rounded text-dark-500 hover:text-red-400 hover:bg-dark-700 transition-colors"
-                title="Delete task"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <>
+                {task.assignee && onResume && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onResume(task); }}
+                    className="p-1.5 rounded text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                    title="Resume task"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(task); }}
+                  className="p-1.5 rounded text-dark-500 hover:text-red-400 hover:bg-dark-700 transition-colors"
+                  title="Delete task"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1732,7 +1743,7 @@ function InstructionsEditModal({ columnLabel, instructions, agents, onClose, onS
 
 // ── KanbanColumn ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits }) {
+function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits }) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
@@ -1833,6 +1844,7 @@ function KanbanColumn({ col, tasks, agents, onDelete, onStop, onDrop, onOpen, on
               agents={agents}
               onDelete={onDelete}
               onStop={onStop}
+              onResume={onResume}
               onOpen={onOpen}
               showAgent={showAgent}
               showCreator={showCreator}
@@ -3051,6 +3063,13 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     }
   }, [refreshAll]);
 
+  const handleResumeTask = useCallback((task) => {
+    const socket = getSocket();
+    const agentId = task.agentId || task.assignee;
+    if (!socket || !agentId) return;
+    socket.emit('agent:task:execute', { agentId, taskId: task.id });
+  }, []);
+
   const lastColId = columns[columns.length - 1]?.id;
 
   const handleClearDone = useCallback(async () => {
@@ -3414,6 +3433,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
               agents={agents}
               onDelete={handleDelete}
               onStop={handleStopAction}
+              onResume={handleResumeTask}
               onDrop={handleDrop}
               onOpen={setSelectedTask}
               onClearAll={col.id === lastColId ? handleClearDone : undefined}
