@@ -318,7 +318,21 @@ export const tasksMethods = {
     }
     if (!task) return null;
     if (!task.commits) task.commits = [];
-    if (task.commits.some(c => c.hash === hash)) return task;
+    // Prefix-aware dedup: treat short and full hashes of the same commit as equal.
+    // If a full hash is provided and a short hash already exists, upgrade it.
+    const existingIdx = task.commits.findIndex(c =>
+      c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
+    );
+    if (existingIdx !== -1) {
+      const existing = task.commits[existingIdx];
+      // Upgrade: if the new hash is longer (full), replace the short one
+      if (hash.length > existing.hash.length) {
+        existing.hash = hash;
+        if (message && !existing.message) existing.message = message;
+        saveTaskToDb({ ...task, agentId: ownerAgentId });
+      }
+      return task;
+    }
     task.commits.push({ hash, message: message || '', date: new Date().toISOString() });
     saveTaskToDb({ ...task, agentId: ownerAgentId });
     const agent = this.agents.get(ownerAgentId);

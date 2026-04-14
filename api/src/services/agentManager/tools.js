@@ -6,6 +6,181 @@ import { getWorkflowForBoard } from '../configManager.js';
 import { setTaskSignal } from './tasks.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// ─── Commit detection helpers ────────────────────────────────────────────────
+
+/** Check if a command string represents a git operation that creates or moves commits */
+function _isGitMutatingCmd(rawCmd) {
+  if (!rawCmd.includes('git')) return false;
+  if (/--dry-run|--help/.test(rawCmd)) return false;
+  // Exclude read-only git commands that happen to be part of a chain
+  // but keep commit, push, merge, cherry-pick, rebase, am, pull
+  return /\b(commit|push|merge|cherry-pick|rebase|am|pull)\b/.test(rawCmd);
+}
+
+/** Check if git output indicates nothing actually happened */
+function _isGitNoop(output) {
+  return /nothing to commit/i.test(output) ||
+    /everything up-to-date/i.test(output) ||
+    /no changes added to commit/i.test(output) ||
+    /nothing added to commit/i.test(output) ||
+    /already up.to.date/i.test(output) ||
+    /^current branch .+ is up to date/im.test(output);
+}
+
+/** Check if git output indicates a fatal error (should not try to link commits) */
+function _isGitError(output) {
+  return /^fatal:/im.test(output) ||
+    /^error: failed to push/im.test(output) ||
+    /rejected\b.*\bnon-fast-forward/i.test(output) ||
+    /permission denied/i.test(output) ||
+    /authentication failed/i.test(output) ||
+    /could not read from remote/i.test(output) ||
+    /unable to access/i.test(output) ||
+    /not a git repository/i.test(output);
+}
+
+/** Check if git output suggests a successful operation */
+function _isGitSuccess(output) {
+  return (
+    // git commit indicators
+    /(\d+ files? changed|\d+ insertion|\d+ deletion|create mode|new file)/i.test(output) ||
+    // git push indicators (ref update, new branch, new tag)
+    /[a-f0-9]{7,}\.\.\.?[a-f0-9]{7,}\s+\S+\s*->\s*\S+/.test(output) ||
+    /\[new branch\]/i.test(output) ||
+    /\[new tag\]/i.test(output) ||
+    /\[new ref\]/i.test(output) ||
+    // git merge/rebase indicators
+    /merge made by/i.test(output) ||
+    /fast-forward/i.test(output) ||
+    /successfully rebased/i.test(output) ||
+    /applying:/i.test(output)
+  );
+}
+
+/**
+ * Detect commit hashes from a run_command tool call result.
+ * Returns an array of { hash, msg } objects (may be empty).
+ * Handles: git commit, git push (including push ranges), git merge,
+ * git cherry-pick, git rebase, chained commands.
+ */
+async function _detectCommitHashes(call, result, executionManager, agentId) {
+  if (typeof result.result !== 'string') return [];
+  const rawCmd = (call.args[0] || '').toLowerCase();
+  if (!_isGitMutatingCmd(rawCmd)) return [];
+
+  const output = result.result;
+  // Skip if the output indicates an error or nothing happened
+  if (_isGitNoop(output)) return [];
+  if (_isGitError(output)) return [];
+  // Skip if the command produced a non-zero exit code (meta.exitCode set by toolRunCommand)
+  if (result.meta?.exitCode && result.meta.exitCode !== 0) return [];
+
+  const commits = [];
+  const seenHashes = new Set(); // prefix-aware dedup within this detection pass
+
+  const _addCommit = (hash, msg) => {
+    if (!hash || !/^[a-f0-9]{7,40}$/.test(hash)) return;
+    // Prefix-aware dedup: check if we already have this hash (short or full)
+    for (const seen of seenHashes) {
+      if (seen === hash || seen.startsWith(hash) || hash.startsWith(seen)) {
+        // If the new hash is longer (more precise), replace the shorter one
+        if (hash.length > seen.length) {
+          seenHashes.delete(seen);
+          const idx = commits.findIndex(c => c.hash === seen);
+          if (idx !== -1) { commits[idx].hash = hash; if (msg && !commits[idx].msg) commits[idx].msg = msg; }
+          seenHashes.add(hash);
+        }
+        return;
+      }
+    }
+    seenHashes.add(hash);
+    commits.push({ hash, msg: (msg || '').slice(0, 200) });
+  };
+
+  // ── Pattern 1: git commit output — [branch hash] message ──
+  const commitMatch = output.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
+  if (commitMatch) {
+    let msg = '';
+    const fullLineMatch = output.match(/\[[^\]]+\]\s+(.+)/);
+    if (fullLineMatch) msg = fullLineMatch[1].trim();
+    _addCommit(commitMatch[1], msg);
+  }
+
+  // ── Pattern 2: git push output — old..new branch -> branch ──
+  // Also captures the range (old..new) for multi-commit push detection.
+  const pushMatch = output.match(/\+?([a-f0-9]{7,40})\.\.\.?([a-f0-9]{7,40})\s+\S+\s*->\s*\S+/);
+  let pushOldHash = null;
+  let pushNewHash = null;
+  if (pushMatch) {
+    pushOldHash = pushMatch[1];
+    pushNewHash = pushMatch[2];
+    _addCommit(pushNewHash, '');
+    console.log(`🔗 [Commit] Detected push range: ${pushOldHash.slice(0, 7)}..${pushNewHash.slice(0, 7)}`);
+  }
+
+  // ── Pattern 3: HEAD is now at <hash> (from rebase, cherry-pick, etc.) ──
+  if (commits.length === 0) {
+    const headMatch = output.match(/HEAD is now at ([a-f0-9]{7,40})/i);
+    if (headMatch) _addCommit(headMatch[1], '');
+  }
+
+  // ── Fallback: query HEAD from execution environment ──
+  // Covers: new branch pushes, unusual output formats, merge commits, etc.
+  if (commits.length === 0 && executionManager?.hasEnvironment(agentId) && _isGitSuccess(output)) {
+    try {
+      const headResult = await executionManager.exec(agentId, 'git log --format="%H %s" -1', { timeout: 10000 });
+      const headOutput = ((headResult.stdout || '') + (headResult.stderr || '')).trim();
+      const headMatch = headOutput.match(/^([a-f0-9]{40})\s+(.*)/);
+      if (headMatch) {
+        _addCommit(headMatch[1], headMatch[2]);
+        console.log(`🔗 [Commit] Fallback: captured HEAD ${headMatch[1].slice(0, 7)} via git log (cmd="${rawCmd.slice(0, 60)}")`);
+      }
+    } catch (e) {
+      console.warn(`⚠️  [Commit] Fallback git log failed: ${e.message}`);
+    }
+  }
+
+  // ── Resolve short hashes to full 40-char and fetch all commits in push range ──
+  if (commits.length > 0 && executionManager?.hasEnvironment(agentId)) {
+    // If we detected a push range, fetch ALL commits in that range
+    if (pushOldHash && pushNewHash && commits.length <= 2) {
+      try {
+        const rangeResult = await executionManager.exec(agentId, `git log --format="%H %s" ${pushOldHash}..${pushNewHash}`, { timeout: 10000 });
+        const rangeOutput = ((rangeResult.stdout || '') + (rangeResult.stderr || '')).trim();
+        if (rangeOutput) {
+          for (const line of rangeOutput.split('\n')) {
+            const m = line.match(/^([a-f0-9]{40})\s+(.*)/);
+            if (m) _addCommit(m[1], m[2]);
+          }
+          console.log(`🔗 [Commit] Push range: found ${commits.length} commit(s) in ${pushOldHash.slice(0, 7)}..${pushNewHash.slice(0, 7)}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️  [Commit] Push range log failed: ${e.message}`);
+      }
+    }
+
+    // Resolve any remaining short hashes to full 40-char hashes
+    for (const c of commits) {
+      if (c.hash.length < 40) {
+        try {
+          const revResult = await executionManager.exec(agentId, `git rev-parse ${c.hash}`, { timeout: 5000 });
+          const fullHash = ((revResult.stdout || '') + (revResult.stderr || '')).trim();
+          if (/^[a-f0-9]{40}$/.test(fullHash)) {
+            c.hash = fullHash;
+          }
+        } catch { /* keep short hash */ }
+      }
+    }
+  }
+
+  // Diagnostic: log when a git mutating command ran but no hash was detected
+  if (commits.length === 0 && !_isGitNoop(output)) {
+    console.warn(`⚠️  [Commit] No hash detected for git command. cmd="${rawCmd.slice(0, 120)}" output="${output.slice(0, 300)}"`);
+  }
+
+  return commits;
+}
+
 /** @this {import('./index.js').AgentManager} */
 export const toolsMethods = {
 
@@ -625,108 +800,11 @@ export const toolsMethods = {
           }
         }
 
-        // Auto-capture commit hash from git commands and link to task
+        // Auto-capture commit hashes from git commands and link to task
         if (call.tool === 'run_command' && result.success) {
-          let commitHash = null;
-          let commitMsg = '';
+          const detectedCommits = await _detectCommitHashes(call, result, this.executionManager, agentId);
 
-          if (typeof result.result === 'string') {
-            const rawCmd = (call.args[0] || '').toLowerCase();
-            // Detect any git command that could create or move commits
-            const isGitMutating = rawCmd.includes('git') &&
-              /\b(commit|push|merge|cherry-pick|rebase|am)\b/.test(rawCmd);
-            if (isGitMutating) {
-              const output = result.result;
-
-              // Pattern 1: git commit output — [branch hash] message
-              const commitMatch = output.match(/\[[^\]]*\s([a-f0-9]{7,40})\]/);
-              if (commitMatch) {
-                commitHash = commitMatch[1];
-                // Extract commit message from the same line
-                const fullLineMatch = output.match(/\[[^\]]+\]\s+(.+)/);
-                if (fullLineMatch) commitMsg = fullLineMatch[1].trim().slice(0, 200);
-              }
-
-              // Pattern 2: git push output — old..new branch -> branch
-              // Handles standard push (abc..def), force push (+abc...def), and leading whitespace
-              if (!commitHash) {
-                const pushMatch = output.match(/\+?([a-f0-9]{7,40})\.\.\.?([a-f0-9]{7,40})\s+\S+\s*->\s*\S+/);
-                if (pushMatch) {
-                  commitHash = pushMatch[2]; // the new (pushed) hash
-                  console.log(`🔗 [Commit] Detected push hash from ref update: ${commitHash.slice(0, 7)}`);
-                }
-              }
-
-              // Pattern 3: HEAD is now at <hash> (from rebase, cherry-pick, etc.)
-              if (!commitHash) {
-                const headMatch = output.match(/HEAD is now at ([a-f0-9]{7,40})/i);
-                if (headMatch) commitHash = headMatch[1];
-              }
-
-              // Pattern 4: git merge output — Merge made by the 'ort'/'recursive' strategy
-              // or fast-forward — the hash is not in the output, but we can detect
-              // that a merge happened and use the fallback
-              // (handled by the broadened fallback below)
-
-              if (!commitMsg) commitMsg = call.args[0] || '';
-            }
-          }
-
-          // Fallback: if a git mutating command ran but regex didn't capture a hash,
-          // query HEAD directly from the execution environment.
-          // This covers: new branch pushes (no hash in output), unusual git output
-          // formats, merge commits, and any other scenario where patterns miss.
-          if (!commitHash && typeof result.result === 'string' && this.executionManager?.hasEnvironment(agentId)) {
-            const rawCmd = (call.args[0] || '').toLowerCase();
-            const isGitMutating = rawCmd.includes('git') &&
-              /\b(commit|push|merge|cherry-pick|rebase|am)\b/.test(rawCmd) &&
-              !rawCmd.includes('--dry-run') && !rawCmd.includes('log') &&
-              !rawCmd.includes('--help');
-
-            // Output patterns that indicate nothing actually happened — skip fallback
-            const nothingHappened =
-              /nothing to commit/i.test(result.result) ||
-              /everything up-to-date/i.test(result.result) ||
-              /no changes added to commit/i.test(result.result) ||
-              /nothing added to commit/i.test(result.result);
-
-            // Output patterns that indicate a successful git operation happened
-            const outputSuggestsSuccess =
-              // git commit indicators
-              /(\d+ files? changed|\d+ insertion|\d+ deletion|create mode|new file)/i.test(result.result) ||
-              // git push indicators (ref update, new branch, new tag)
-              /\s*->\s*\S+/.test(result.result) ||
-              /\[new branch\]/i.test(result.result) ||
-              /\[new tag\]/i.test(result.result) ||
-              /\[new ref\]/i.test(result.result) ||
-              // git merge/rebase indicators
-              /merge made by/i.test(result.result) ||
-              /fast-forward/i.test(result.result) ||
-              /successfully rebased/i.test(result.result) ||
-              /applying:/i.test(result.result);
-
-            if (isGitMutating && !nothingHappened && outputSuggestsSuccess) {
-              try {
-                const headResult = await this.executionManager.exec(agentId, 'git log --format="%H %s" -1', { timeout: 10000 });
-                const headOutput = ((headResult.stdout || '') + (headResult.stderr || '')).trim();
-                const headMatch = headOutput.match(/^([a-f0-9]{40})\s+(.*)/);
-                if (headMatch) {
-                  commitHash = headMatch[1];
-                  commitMsg = headMatch[2] || commitMsg;
-                  console.log(`🔗 [Commit] Fallback: captured HEAD ${commitHash.slice(0, 7)} via git log (cmd="${rawCmd.slice(0, 60)}")`);
-                }
-              } catch (e) {
-                console.warn(`⚠️  [Commit] Fallback git log failed: ${e.message}`);
-              }
-            }
-
-            // Diagnostic: log when a git mutating command ran but no hash was detected
-            if (!commitHash && isGitMutating && !nothingHappened) {
-              console.warn(`⚠️  [Commit] No hash detected for git command. cmd="${rawCmd.slice(0, 120)}" output="${result.result.slice(0, 300)}"`);
-            }
-          }
-
-          if (commitHash) {
+          if (detectedCommits.length > 0) {
             let targetTask = null;
             let ownerAgentId = agentId;
 
@@ -736,7 +814,7 @@ export const toolsMethods = {
             ownerAgentId = found?.ownerAgentId || agentId;
 
             if (!targetTask) {
-              const taskText = agent.currentTask || commitMsg || 'Commit without task';
+              const taskText = agent.currentTask || detectedCommits[0].msg || 'Commit without task';
               const created = this.addTask(agentId, taskText, agent.project || null, { type: 'auto', reason: 'commit-link' });
               if (created) {
                 targetTask = this._getAgentTasks(agentId).find(t => t.id === created.id);
@@ -746,15 +824,18 @@ export const toolsMethods = {
             }
 
             if (targetTask) {
-              const linked = this.addTaskCommit(ownerAgentId, targetTask.id, commitHash, commitMsg);
-              if (linked) {
-                console.log(`🔗 [Commit] Auto-linked ${commitHash.slice(0, 7)} to task "${targetTask.text?.slice(0, 50)}" (status=${targetTask.status}, owner=${ownerAgentId.slice(0, 8)})`);
-                result.result = `${result.result}\n\n🔗 Commit ${commitHash.slice(0, 8)} automatically linked to task "${targetTask.text?.slice(0, 60)}"`;
-              } else {
-                console.warn(`⚠️  [Commit] addTaskCommit failed for ${commitHash.slice(0, 7)} → task "${targetTask.text?.slice(0, 50)}"`);
+              let linkedCount = 0;
+              for (const { hash, msg } of detectedCommits) {
+                const linked = this.addTaskCommit(ownerAgentId, targetTask.id, hash, msg);
+                if (linked) linkedCount++;
+              }
+              if (linkedCount > 0) {
+                const hashPreview = detectedCommits.map(c => c.hash.slice(0, 7)).join(', ');
+                console.log(`🔗 [Commit] Auto-linked ${linkedCount} commit(s) [${hashPreview}] to task "${targetTask.text?.slice(0, 50)}" (status=${targetTask.status}, owner=${ownerAgentId.slice(0, 8)})`);
+                result.result = `${result.result}\n\n🔗 ${linkedCount} commit(s) automatically linked to task "${targetTask.text?.slice(0, 60)}"`;
               }
             } else {
-              console.warn(`⚠️  [Commit] Agent "${agent.name}" committed ${commitHash.slice(0, 7)} but no task found to link`);
+              console.warn(`⚠️  [Commit] Agent "${agent.name}" committed but no task found to link`);
             }
           }
         }
