@@ -1,10 +1,26 @@
-import { useState } from 'react';
-import { Activity, Cpu, MessageSquare, TrendingUp, Zap, AlertTriangle, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Activity, Cpu, Clock, TrendingUp, Zap, AlertTriangle, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import { api } from '../api';
+
+function formatHours(ms) {
+  if (!ms || ms <= 0) return '0h';
+  const hours = ms / 3600000;
+  if (hours < 10) return hours.toFixed(1) + 'h';
+  return Math.round(hours) + 'h';
+}
 
 export default function SwarmOverview({ stats, agents }) {
   const [collapsed, setCollapsed] = useState(true);
+  const [totalHoursMs, setTotalHoursMs] = useState(null);
+
   // Count unique active projects
   const activeProjects = new Set(agents.filter(a => a.project).map(a => a.project));
+
+  useEffect(() => {
+    api.getGlobalAgentTime(30)
+      .then(data => setTotalHoursMs(data.totalMs || 0))
+      .catch(() => setTotalHoursMs(0));
+  }, []);
 
   return (
     <div className="border-b border-dark-800 bg-dark-900/30">
@@ -63,11 +79,12 @@ export default function SwarmOverview({ stats, agents }) {
             tooltip={activeProjects.size > 0 ? [...activeProjects].join(', ') : 'No projects assigned'}
           />
           <StatCard
-            icon={<MessageSquare className="w-4 h-4" />}
-            label="Messages"
-            value={stats.totalMessages}
+            icon={<Clock className="w-4 h-4" />}
+            label="Cumul. Hours"
+            value={totalHoursMs !== null ? formatHours(totalHoursMs) : '...'}
             color="text-cyan-400"
             bgColor="bg-cyan-500/10"
+            tooltip="Cumulative agent hours over the last 30 days"
           />
           <StatCard
             icon={<TrendingUp className="w-4 h-4" />}

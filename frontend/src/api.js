@@ -577,6 +577,9 @@ export const api = {
   getProjectAgentTime: (project, days = 30) =>
     fetch(`${API_BASE}/agents/tasks/stats/agent-time?project=${encodeURIComponent(project)}&days=${days}`, { headers: getHeaders() }).then(handleResponse),
 
+  getGlobalAgentTime: (days = 30) =>
+    fetch(`${API_BASE}/agents/tasks/stats/agent-time?days=${days}`, { headers: getHeaders() }).then(handleResponse),
+
   // Jira
   getJiraStatus: () =>
     fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),

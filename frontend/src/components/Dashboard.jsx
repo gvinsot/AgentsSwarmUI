@@ -113,7 +113,6 @@ export default function Dashboard({
     errors: sortedAgents.filter(a => a.status === 'error').length,
     totalTokensIn: sortedAgents.reduce((sum, a) => sum + (a.metrics?.totalTokensIn || 0), 0),
     totalTokensOut: sortedAgents.reduce((sum, a) => sum + (a.metrics?.totalTokensOut || 0), 0),
-    totalMessages: sortedAgents.reduce((sum, a) => sum + (a.metrics?.totalMessages || 0), 0),
   };
 
   return (
