@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { getAccessToken, getTokenStore } from '../routes/onedrive.js';
+import { getAccessTokenForAgent } from '../routes/onedrive.js';
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -16,9 +16,10 @@ function encodePath(path) {
 
 /**
  * Helper to call Microsoft Graph API with auto-refreshing tokens.
+ * Uses agent-specific tokens when agentId is provided.
  */
-async function graphFetch(path, username = 'default', options = {}) {
-  const token = await getAccessToken(username);
+async function graphFetch(path, agentId = null, options = {}) {
+  const token = await getAccessTokenForAgent(agentId);
   const url = path.startsWith('http') ? path : `${GRAPH_BASE}${path}`;
 
   const res = await fetch(url, {
@@ -40,17 +41,6 @@ async function graphFetch(path, username = 'default', options = {}) {
     return res.json();
   }
   return res.text();
-}
-
-/**
- * Find the first connected OneDrive user (for MCP calls where username isn't specified).
- */
-function getDefaultUser() {
-  const store = getTokenStore();
-  for (const [username, tokens] of store) {
-    if (tokens.expiresAt > Date.now()) return username;
-  }
-  return 'default';
 }
 
 /**
@@ -78,8 +68,9 @@ function formatItem(item) {
 
 /**
  * Create the OneDrive MCP server with all tools registered.
+ * @param {string|null} agentId - When provided, tools use agent-specific tokens.
  */
-export function createOneDriveMcpServer() {
+export function createOneDriveMcpServer(agentId = null) {
   const server = new McpServer({
     name: 'OneDrive',
     version: '1.0.0',
@@ -94,7 +85,6 @@ export function createOneDriveMcpServer() {
       top: z.number().optional().default(50).describe('Max number of items to return (default 50, max 200)'),
     },
     async ({ path, top }) => {
-      const username = getDefaultUser();
       const limit = Math.min(top || 50, 200);
 
       let endpoint;
@@ -104,7 +94,7 @@ export function createOneDriveMcpServer() {
         endpoint = `/me/drive/root:/${encodePath(path)}:/children?$top=${limit}&$orderby=name`;
       }
 
-      const data = await graphFetch(endpoint, username);
+      const data = await graphFetch(endpoint, agentId);
       const items = (data.value || []).map(formatItem);
 
       const summary = items.map(i => {
@@ -128,11 +118,10 @@ export function createOneDriveMcpServer() {
       top: z.number().optional().default(25).describe('Max results (default 25)'),
     },
     async ({ query, top }) => {
-      const username = getDefaultUser();
       const limit = Math.min(top || 25, 100);
       const endpoint = `/me/drive/root/search(q='${encodeURIComponent(query)}')?$top=${limit}`;
 
-      const data = await graphFetch(endpoint, username);
+      const data = await graphFetch(endpoint, agentId);
       const items = (data.value || []).map(formatItem);
 
       const summary = items.map(i => {
@@ -154,10 +143,8 @@ export function createOneDriveMcpServer() {
       path: z.string().describe('File path in OneDrive (e.g. "/Documents/notes.txt")'),
     },
     async ({ path }) => {
-      const username = getDefaultUser();
-
       // Get file metadata first
-      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, username);
+      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId);
       const mimeType = meta.file?.mimeType || '';
 
       // Check if file is text-readable
@@ -195,9 +182,7 @@ export function createOneDriveMcpServer() {
       path: z.string().describe('File or folder path in OneDrive'),
     },
     async ({ path }) => {
-      const username = getDefaultUser();
-
-      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, username);
+      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId);
       const info = formatItem(meta);
 
       return {
@@ -215,8 +200,6 @@ export function createOneDriveMcpServer() {
       name: z.string().describe('Name of the new folder'),
     },
     async ({ parentPath, name }) => {
-      const username = getDefaultUser();
-
       let endpoint;
       if (!parentPath || parentPath === '/' || parentPath === '') {
         endpoint = '/me/drive/root/children';
@@ -224,7 +207,7 @@ export function createOneDriveMcpServer() {
         endpoint = `/me/drive/root:/${encodePath(parentPath)}:/children`;
       }
 
-      const result = await graphFetch(endpoint, username, {
+      const result = await graphFetch(endpoint, agentId, {
         method: 'POST',
         body: JSON.stringify({
           name,
@@ -248,8 +231,7 @@ export function createOneDriveMcpServer() {
       content: z.string().describe('Text content to write into the file'),
     },
     async ({ path, content }) => {
-      const username = getDefaultUser();
-      const token = await getAccessToken(username);
+      const token = await getAccessTokenForAgent(agentId);
 
       const url = `${GRAPH_BASE}/me/drive/root:/${encodePath(path)}:/content`;
       const res = await fetch(url, {
@@ -281,8 +263,7 @@ export function createOneDriveMcpServer() {
       path: z.string().describe('Path of the file or folder to delete'),
     },
     async ({ path }) => {
-      const username = getDefaultUser();
-      const token = await getAccessToken(username);
+      const token = await getAccessTokenForAgent(agentId);
 
       const url = `${GRAPH_BASE}/me/drive/root:/${encodePath(path)}`;
       const res = await fetch(url, {
@@ -310,11 +291,9 @@ export function createOneDriveMcpServer() {
       type: z.enum(['view', 'edit']).default('view').describe('Link type: "view" (read-only) or "edit" (read-write)'),
     },
     async ({ path, type }) => {
-      const username = getDefaultUser();
-
       const result = await graphFetch(
         `/me/drive/root:/${encodePath(path)}:/createLink`,
-        username,
+        agentId,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -336,8 +315,7 @@ export function createOneDriveMcpServer() {
     'Get information about the connected OneDrive (storage usage, owner, etc.).',
     {},
     async () => {
-      const username = getDefaultUser();
-      const drive = await graphFetch('/me/drive', username);
+      const drive = await graphFetch('/me/drive', agentId);
 
       const used = drive.quota?.used || 0;
       const total = drive.quota?.total || 0;
@@ -363,6 +341,7 @@ export function createOneDriveMcpServer() {
 /**
  * Create an Express handler for the OneDrive MCP endpoint.
  * This bridges HTTP requests to the MCP server.
+ * Reads X-Agent-Id header to provide agent-specific token resolution.
  */
 export function createOneDriveMcpHandler() {
   return async (req, res) => {
@@ -371,8 +350,11 @@ export function createOneDriveMcpHandler() {
       return;
     }
     try {
+      // Read agent context from custom header (set by MCPManager for per-agent calls)
+      const agentId = req.headers['x-agent-id'] || null;
+
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createOneDriveMcpServer();
+      const server = createOneDriveMcpServer(agentId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {

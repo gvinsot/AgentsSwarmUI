@@ -440,6 +440,12 @@ export class MCPManager {
       return this._callToolWithAgentAuth(server, toolName, args, agentId, agentAuth.apiKey);
     }
 
+    // For internal OneDrive: always use per-agent connection to pass agentId context
+    // so the MCP handler can resolve agent-specific OAuth tokens
+    if (agentId && server.url === '__internal__onedrive') {
+      return this._callToolWithAgentContext(server, toolName, args, agentId);
+    }
+
     // No per-agent auth — use global connection
     if (server.status !== 'connected') {
       console.log(`🔌 [MCP] "${server.name}" is ${server.status}, attempting reconnect for ${toolName}...`);
@@ -491,6 +497,64 @@ export class MCPManager {
         if (Object.keys(internalConfig.headers).length > 0) {
           connectOpts.headers = { ...connectOpts.headers, ...internalConfig.headers };
         }
+        await newClient.connect(internalConfig.url, connectOpts);
+        this.agentClients.set(cacheKey, newClient);
+        const result = await newClient.callTool(toolName, args);
+        const textParts = result.content.filter(c => c.type === 'text').map(c => c.text);
+        return {
+          success: !result.isError,
+          result: textParts.join('\n') || JSON.stringify(result.content),
+          raw: result.content
+        };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Call a tool on an internal server with agent context (X-Agent-Id header).
+   * Used for servers like OneDrive that need to know which agent is calling
+   * to resolve agent-specific tokens, without requiring an API key.
+   */
+  async _callToolWithAgentContext(server, toolName, args, agentId) {
+    const cacheKey = `${agentId}:${server.id}`;
+    let client = this.agentClients.get(cacheKey);
+
+    // Connect if no cached client or previous connection is dead
+    if (!client || !client.isConnected) {
+      console.log(`🔌 [MCP] Creating per-agent context connection for agent=${agentId.slice(0, 8)} server="${server.name}"`);
+      client = new MCPClient('PulsarTeam');
+      const internalConfig = resolveInternalMcpConfig(server.url);
+      const connectOpts = {
+        headers: {
+          ...internalConfig.headers,
+          'X-Agent-Id': agentId,
+        },
+      };
+      await client.connect(internalConfig.url, connectOpts);
+      this.agentClients.set(cacheKey, client);
+    }
+
+    try {
+      const result = await client.callTool(toolName, args);
+      const textParts = result.content.filter(c => c.type === 'text').map(c => c.text);
+      return {
+        success: !result.isError,
+        result: textParts.join('\n') || JSON.stringify(result.content),
+        raw: result.content
+      };
+    } catch (err) {
+      // Session expired — reconnect and retry once
+      if (err.message?.includes('404') || err.message?.includes('session') || err.message?.includes('Invalid token') || err.message?.includes('token') || err.message?.includes('401')) {
+        console.log(`🔌 [MCP] Agent context session expired for "${server.name}", reconnecting...`);
+        const newClient = new MCPClient('PulsarTeam');
+        const internalConfig = resolveInternalMcpConfig(server.url);
+        const connectOpts = {
+          headers: {
+            ...internalConfig.headers,
+            'X-Agent-Id': agentId,
+          },
+        };
         await newClient.connect(internalConfig.url, connectOpts);
         this.agentClients.set(cacheKey, newClient);
         const result = await newClient.callTool(toolName, args);

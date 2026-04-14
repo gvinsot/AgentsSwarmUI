@@ -355,24 +355,25 @@ export const api = {
       body: apiKey ? JSON.stringify({ apiKey }) : undefined,
     }).then(handleResponse),
 
-  // OneDrive OAuth
-  getOnedriveStatus: () =>
-    fetch(`${API_BASE}/onedrive/status`, { headers: getHeaders() }).then(handleResponse),
+  // OneDrive OAuth (supports optional agentId for per-agent auth)
+  getOnedriveStatus: (agentId) =>
+    fetch(`${API_BASE}/onedrive/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
 
-  getOnedriveAuthUrl: () =>
-    fetch(`${API_BASE}/onedrive/auth-url`, { headers: getHeaders() }).then(handleResponse),
+  getOnedriveAuthUrl: (agentId) =>
+    fetch(`${API_BASE}/onedrive/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
 
-  onedriveCallback: (code) =>
+  onedriveCallback: (code, state) =>
     fetch(`${API_BASE}/onedrive/callback`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ code })
+      body: JSON.stringify({ code, state })
     }).then(handleResponse),
 
-  disconnectOnedrive: () =>
+  disconnectOnedrive: (agentId) =>
     fetch(`${API_BASE}/onedrive/disconnect`, {
       method: 'POST',
-      headers: getHeaders()
+      headers: getHeaders(),
+      body: JSON.stringify(agentId ? { agentId } : {})
     }).then(handleResponse),
 
   // Realtime (Voice)

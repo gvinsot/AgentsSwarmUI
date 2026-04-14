@@ -4,9 +4,13 @@ import { api } from '../api';
 
 /**
  * OneDrive OAuth connection widget.
- * Handles the full OAuth flow: get auth URL → open popup → capture code → exchange tokens.
+ * Handles the full OAuth flow: get auth URL → open popup → capture code+state → exchange tokens.
+ *
+ * Props:
+ *   agentId       — (optional) when provided, authenticates OneDrive for this specific agent
+ *   onStatusChange — (optional) callback when connection status changes
  */
-export default function OneDriveConnect({ onStatusChange }) {
+export default function OneDriveConnect({ agentId, onStatusChange }) {
   const [status, setStatus] = useState({ configured: false, connected: false });
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -20,7 +24,7 @@ export default function OneDriveConnect({ onStatusChange }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api.getOnedriveStatus();
+      const data = await api.getOnedriveStatus(agentId || undefined);
       setStatus(data);
       onStatusChangeRef.current?.(data);
     } catch (err) {
@@ -28,7 +32,7 @@ export default function OneDriveConnect({ onStatusChange }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     fetchStatus();
@@ -41,7 +45,7 @@ export default function OneDriveConnect({ onStatusChange }) {
         setConnecting(true);
         setError(null);
         try {
-          await api.onedriveCallback(event.data.code);
+          await api.onedriveCallback(event.data.code, event.data.state);
           await fetchStatus();
         } catch (err) {
           setError(err.message);
@@ -59,7 +63,7 @@ export default function OneDriveConnect({ onStatusChange }) {
     setError(null);
     setConnecting(true);
     try {
-      const { authUrl } = await api.getOnedriveAuthUrl();
+      const { authUrl } = await api.getOnedriveAuthUrl(agentId || undefined);
 
       // Open OAuth popup
       const width = 600;
@@ -97,7 +101,7 @@ export default function OneDriveConnect({ onStatusChange }) {
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await api.disconnectOnedrive();
+      await api.disconnectOnedrive(agentId || undefined);
       await fetchStatus();
     } catch (err) {
       setError(err.message);
@@ -186,7 +190,10 @@ export default function OneDriveConnect({ onStatusChange }) {
 
       {!status.connected && (
         <p className="mt-2 text-[11px] text-dark-500">
-          Click "Connect with Microsoft" to authorize OneDrive access. A popup will open for Microsoft login.
+          {agentId
+            ? 'Click "Connect with Microsoft" to authorize this agent to access OneDrive files.'
+            : 'Click "Connect with Microsoft" to authorize OneDrive access. A popup will open for Microsoft login.'
+          }
         </p>
       )}
     </div>

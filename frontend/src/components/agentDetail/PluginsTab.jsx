@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api';
 import PluginEditor from '../PluginEditor';
+import OneDriveConnect from '../OneDriveConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -118,6 +119,13 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
 
   const mcpAuth = agent.mcpAuth || {};
   const hasDraftChanges = Object.keys(authDraft).length > 0;
+
+  // Detect if OneDrive MCP is among the assigned plugins' MCPs
+  const ONEDRIVE_MCP_ID = 'mcp-onedrive';
+  const hasOneDriveMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === ONEDRIVE_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(ONEDRIVE_MCP_ID)
+  );
 
   const handleSaveAuth = async () => {
     setSavingAuth(true);
@@ -293,6 +301,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
           <div className="text-center py-4 border border-dashed border-dark-700 rounded-lg">
             <Wrench className="w-5 h-5 mx-auto mb-1 text-dark-500 opacity-40" />
             <p className="text-dark-500 text-xs">No plugins assigned</p>
+          </div>
+        )}
+        {hasOneDriveMcp && (
+          <div className="mt-3">
+            <OneDriveConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>
