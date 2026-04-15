@@ -32,23 +32,31 @@ ENV CODE_SEARCH_VECTOR_BACKEND=memory
 RUN mkdir -p /root/.ssh && \
     ssh-keyscan github.com >> /root/.ssh/known_hosts
 
-# Install dependencies
+# Install all dependencies (including devDependencies for TypeScript build)
 COPY api/package*.json ./
-RUN npm i --production
+RUN npm ci
 
-# Copy source code
+# Copy TypeScript config and source code
+COPY api/tsconfig.json ./
 COPY api/src ./src
+
+# Build TypeScript to JavaScript
+RUN npx tsc
 
 # ── Test stage ──────────────────────────────────────────────
 FROM base AS test
-CMD ["sh", "-c", "node --experimental-test-module-mocks --test src/services/__tests__/*.test.js"]
+CMD ["sh", "-c", "npx tsx --test src/services/__tests__/*.test.ts"]
 
 # ── Production stage ────────────────────────────────────────
 FROM base AS production
+
+# Remove devDependencies for smaller image
+RUN npm prune --production
+
 COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 3001
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["node", "src/index.js"]
+CMD ["node", "dist/index.js"]
