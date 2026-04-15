@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 
 test('server index sets restrictive CSP with required connect/style sources', () => {
-  const source = fs.readFileSync(new URL('../../index.js', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('../../index.ts', import.meta.url), 'utf8');
 
   assert.ok(source.includes('Content-Security-Policy'));
   assert.ok(
