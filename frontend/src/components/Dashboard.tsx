@@ -28,7 +28,7 @@ export default function Dashboard({
   const [viewMode, setViewMode] = useState('grid'); // grid | list
   const [activeView, setActiveViewRaw] = useState(() => {
     const hash = window.location.hash.replace('#', '').toLowerCase();
-    return ['agents', 'tasks', 'projects', 'budget', 'about'].includes(hash) ? hash : 'agents';
+    return ['agents', 'tasks', 'projects', 'budget', 'about'].includes(hash) ? hash : 'tasks';
   });
   const setActiveView = useCallback((view) => {
     setActiveViewRaw(view);
