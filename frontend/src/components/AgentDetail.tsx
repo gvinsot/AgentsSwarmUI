@@ -49,6 +49,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false); // Ref-based guard to prevent double-sends
   const [history, setHistory] = useState(agent?.conversationHistory || []);
+  const [pendingImages, setPendingImages] = useState([]);
   const chatEndRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [currentProject, setCurrentProject] = useState(agent?.project || '');
@@ -101,26 +102,36 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
   }, [agent?.status]);
 
   const handleSend = async () => {
-    if (!message.trim() || sendingRef.current) return;
+    const hasImages = pendingImages.length > 0;
+    if ((!message.trim() && !hasImages) || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
-    const msg = message.trim();
+    const msg = message.trim() || (hasImages ? '(image)' : '');
+    const imagesToSend = hasImages ? pendingImages.map(img => ({ data: img.data, mediaType: img.mediaType })) : null;
+    const imagePreviewsForHistory = hasImages ? pendingImages.map(img => ({ data: img.data, mediaType: img.mediaType })) : undefined;
     setMessage('');
+    setPendingImages([]);
 
     // Use socket for streaming
     if (socket) {
       // Generate a unique message ID to allow server-side deduplication
       const messageId = `${agent.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const payload = { agentId: agent.id, message: msg, messageId };
+      if (imagesToSend) payload.images = imagesToSend;
       // Use volatile.emit to prevent socket.io from buffering/replaying this event on reconnect
-      (socket.volatile || socket).emit('agent:chat', { agentId: agent.id, message: msg, messageId });
+      (socket.volatile || socket).emit('agent:chat', payload);
       // Optimistically add user message to history
-      setHistory(prev => [...prev, { role: 'user', content: msg, timestamp: new Date().toISOString() }]);
+      const histEntry = { role: 'user', content: msg, timestamp: new Date().toISOString() };
+      if (imagePreviewsForHistory) histEntry.images = imagePreviewsForHistory;
+      setHistory(prev => [...prev, histEntry]);
     } else {
       try {
         const result = await api.chatAgent(agent.id, msg);
+        const histEntry = { role: 'user', content: msg, timestamp: new Date().toISOString() };
+        if (imagePreviewsForHistory) histEntry.images = imagePreviewsForHistory;
         setHistory(prev => [
           ...prev,
-          { role: 'user', content: msg, timestamp: new Date().toISOString() },
+          histEntry,
           { role: 'assistant', content: result.response, timestamp: new Date().toISOString() }
         ]);
       } catch (err) {
@@ -289,6 +300,10 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               agentName={agent.name}
               autoScroll={autoScroll}
               onToggleAutoScroll={() => setAutoScroll(s => !s)}
+              supportsImages={agent.supportsImages || false}
+              pendingImages={pendingImages}
+              onAddImages={(imgs) => setPendingImages(prev => [...prev, ...imgs].slice(0, 5))}
+              onRemoveImage={(idx) => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
             />
           )
         )}

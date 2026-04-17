@@ -1,16 +1,42 @@
+import { useRef } from 'react';
 import {
-  MessageSquare, Send, RotateCcw, StopCircle, ArrowDownToLine,
+  MessageSquare, Send, RotateCcw, StopCircle, ArrowDownToLine, ImagePlus, X,
 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import { RichAssistantContent } from './ChatMessage';
 
-export default function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName, autoScroll, onToggleAutoScroll }) {
+export default function ChatTab({ history, thinking, streamBuffer, message, setMessage, sending, isBusy, onSend, onStop, onClear, onTruncate, chatEndRef, agentName, autoScroll, onToggleAutoScroll, supportsImages, pendingImages, onAddImages, onRemoveImage }) {
+  const fileInputRef = useRef(null);
+
   // When streamBuffer is active, the last assistant message in history may be
   // a duplicate (agent:updated can arrive before the buffer is cleared).
   // Hide it to prevent a brief "doubled text" flash.
   const displayHistory = (streamBuffer && history.length > 0 && history[history.length - 1].role === 'assistant')
     ? history.slice(0, -1)
     : history;
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/)) continue;
+      if (file.size > 10 * 1024 * 1024) continue; // 10MB max
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target.result;
+        // Extract base64 data and media type from data URL
+        const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+        if (match) {
+          onAddImages?.([{ mediaType: match[1], data: match[2], preview: dataUrl }]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -79,6 +105,26 @@ export default function ChatTab({ history, thinking, streamBuffer, message, setM
 
       {/* Input */}
       <div className="border-t border-dark-700 p-3">
+        {/* Image previews */}
+        {pendingImages && pendingImages.length > 0 && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            {pendingImages.map((img, i) => (
+              <div key={i} className="relative group">
+                <img
+                  src={img.preview}
+                  alt={`Upload ${i + 1}`}
+                  className="w-16 h-16 object-cover rounded-lg border border-dark-600"
+                />
+                <button
+                  onClick={() => onRemoveImage?.(i)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-dark-700 border border-dark-500 rounded-full flex items-center justify-center text-dark-300 hover:text-red-400 hover:border-red-500/50 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <button
             onClick={onClear}
@@ -94,6 +140,26 @@ export default function ChatTab({ history, thinking, streamBuffer, message, setM
           >
             <ArrowDownToLine className="w-4 h-4" />
           </button>
+          {supportsImages && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                className="p-2 text-dark-500 hover:text-emerald-400 hover:bg-dark-700 rounded-lg transition-colors flex-shrink-0 disabled:opacity-40"
+                title="Upload image"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </button>
+            </>
+          )}
           <div className="flex-1 relative">
             <textarea
               value={message}
@@ -104,8 +170,28 @@ export default function ChatTab({ history, thinking, streamBuffer, message, setM
                   onSend();
                 }
               }}
+              onPaste={(e) => {
+                if (!supportsImages) return;
+                const items = Array.from(e.clipboardData?.items || []);
+                const imageItems = items.filter(item => item.type.match(/^image\/(png|jpeg|gif|webp)$/));
+                if (imageItems.length === 0) return;
+                e.preventDefault();
+                for (const item of imageItems) {
+                  const file = item.getAsFile();
+                  if (!file || file.size > 10 * 1024 * 1024) continue;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const dataUrl = ev.target.result;
+                    const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+                    if (match) {
+                      onAddImages?.([{ mediaType: match[1], data: match[2], preview: dataUrl }]);
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
               className="w-full px-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 resize-none"
-              placeholder="Type a message... (Shift+Enter for new line)"
+              placeholder={supportsImages ? "Type a message or paste an image... (Shift+Enter for new line)" : "Type a message... (Shift+Enter for new line)"}
               rows={1}
               disabled={sending}
             />
@@ -121,7 +207,7 @@ export default function ChatTab({ history, thinking, streamBuffer, message, setM
           ) : (
             <button
               onClick={onSend}
-              disabled={sending || !message.trim()}
+              disabled={sending || (!message.trim() && (!pendingImages || pendingImages.length === 0))}
               className="p-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
             >
               <Send className="w-4 h-4" />

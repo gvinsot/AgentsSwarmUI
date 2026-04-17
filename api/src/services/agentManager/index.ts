@@ -244,6 +244,7 @@ export class AgentManager {
           isReasoning: config.isReasoning || false,
           temperature: config.temperature ?? null,
           managesContext: config.managesContext || false,
+          supportsImages: config.supportsImages || false,
           maxTokens: config.maxOutputTokens || agent.maxTokens || 4096,
           contextLength: config.contextSize || agent.contextLength || 0,
           costPerInputToken: config.costPerInputToken ?? agent.costPerInputToken ?? null,
@@ -262,6 +263,7 @@ export class AgentManager {
       temperature: agent.temperature ?? null,
       maxTokens: agent.maxTokens || 4096,
       managesContext: false,
+      supportsImages: false,
       contextLength: agent.contextLength || 0,
       costPerInputToken: agent.costPerInputToken ?? null,
       costPerOutputToken: agent.costPerOutputToken ?? null,
@@ -362,6 +364,7 @@ export class AgentManager {
       if (config) {
         sanitized.provider = config.provider;
         sanitized.model = config.model;
+        sanitized.supportsImages = config.supportsImages || false;
       }
     }
     return sanitized;

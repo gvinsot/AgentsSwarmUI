@@ -13,7 +13,7 @@ const MAX_DELEGATION_DEPTH = 5;
 export const chatMethods = {
 
   // ─── Chat ───────────────────────────────────────────────────────────
-  async sendMessage(this: any, id: string, userMessage: string, streamCallback: any, delegationDepth: number = 0, messageMeta: any = null): Promise<any> {
+  async sendMessage(this: any, id: string, userMessage: string, streamCallback: any, delegationDepth: number = 0, messageMeta: any = null, images: any[] | null = null): Promise<any> {
     const isTopLevel = delegationDepth === 0 && !messageMeta;
     if (isTopLevel) {
       if (this._chatLocks.has(id)) {
@@ -97,7 +97,7 @@ export const chatMethods = {
     const systemContent = await this._buildSystemPrompt(agent, id, delegationDepth);
     messages.push({ role: 'system', content: systemContent });
 
-    const { managesContext, isTaskExecution, activeTaskId } = await this._assembleMessages(agent, messages, systemContent, userMessage, delegationDepth, messageMeta, streamCallback);
+    const { managesContext, isTaskExecution, activeTaskId } = await this._assembleMessages(agent, messages, systemContent, userMessage, delegationDepth, messageMeta, streamCallback, images);
 
     const historyEntry: any = {
       role: 'user',
@@ -109,6 +109,14 @@ export const chatMethods = {
       if (messageMeta.toolResults) historyEntry.toolResults = messageMeta.toolResults;
       if (messageMeta.delegationResults) historyEntry.delegationResults = messageMeta.delegationResults;
       if (messageMeta.fromAgent) historyEntry.fromAgent = messageMeta.fromAgent;
+    }
+    // Store lightweight image metadata in history (thumbnails for display).
+    // Full base64 data is only used for the current LLM call, not persisted.
+    if (images && images.length > 0) {
+      historyEntry.images = images.map((img: any) => ({
+        mediaType: img.mediaType,
+        data: img.data, // kept for display in chat UI — images are typically small (< 1MB)
+      }));
     }
     agent.conversationHistory.push(historyEntry);
 
@@ -405,7 +413,7 @@ export const chatMethods = {
     return systemContent;
   },
 
-  async _assembleMessages(this: any, agent: any, messages: any[], systemContent: string, userMessage: string, delegationDepth: number, messageMeta: any, streamCallback: any): Promise<{ managesContext: boolean; isTaskExecution: boolean; activeTaskId: string | null }> {
+  async _assembleMessages(this: any, agent: any, messages: any[], systemContent: string, userMessage: string, delegationDepth: number, messageMeta: any, streamCallback: any, images: any[] | null = null): Promise<{ managesContext: boolean; isTaskExecution: boolean; activeTaskId: string | null }> {
     const earlyLlmConfig = this.resolveLlmConfig(agent);
     const managesContext = earlyLlmConfig.managesContext || false;
     if (managesContext) {
@@ -552,7 +560,9 @@ export const chatMethods = {
       console.log(`📋 [Chat Context] "${agent.name}": chat mode — sending ${messages.length - 1} messages${scopedToTask ? ' (scoped to last task start)' : ' (full history)'} of ${agent.conversationHistory.length} total`);
     }
 
-    messages.push({ role: 'user', content: userMessage });
+    const userMsg: any = { role: 'user', content: userMessage };
+    if (images && images.length > 0) userMsg.images = images;
+    messages.push(userMsg);
 
     // Safety token check: only during task execution, non-managed context.
     // Chat mode scopes to last task start — no token-based compaction.
@@ -573,7 +583,9 @@ export const chatMethods = {
         const newReal = agent.conversationHistory.filter((m: any) => m.type !== 'compaction-summary');
         if (newSummary) messages.push(newSummary);
         messages.push(...newReal);
-        messages.push({ role: 'user', content: userMessage });
+        const rebuildMsg: any = { role: 'user', content: userMessage };
+        if (images && images.length > 0) rebuildMsg.images = images;
+        messages.push(rebuildMsg);
       }
     }
 

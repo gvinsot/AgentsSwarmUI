@@ -7,6 +7,44 @@ function tempParam(options: { temperature?: number | null }): { temperature?: nu
   return options.temperature != null ? { temperature: options.temperature } : {};
 }
 
+// ─── Image / multimodal helpers ─────────────────────────────────────────────
+// Messages may carry an optional `images` array (base64 data-URLs).
+// These helpers convert plain messages into the provider-specific multimodal
+// content format when images are present.
+
+interface ChatImage {
+  data: string;      // base64 encoded image data (no data-URL prefix)
+  mediaType: string; // e.g. "image/png", "image/jpeg"
+}
+
+/** Build Claude content array: [{type:'text',...}, {type:'image',...}] */
+function buildClaudeContent(text: string, images?: ChatImage[]): any {
+  if (!images || images.length === 0) return text;
+  const parts: any[] = [];
+  for (const img of images) {
+    parts.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mediaType, data: img.data }
+    });
+  }
+  if (text) parts.push({ type: 'text', text });
+  return parts;
+}
+
+/** Build OpenAI content array: [{type:'text',...}, {type:'image_url',...}] */
+function buildOpenAIContent(text: string, images?: ChatImage[]): any {
+  if (!images || images.length === 0) return text;
+  const parts: any[] = [];
+  for (const img of images) {
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${img.mediaType};base64,${img.data}` }
+    });
+  }
+  if (text) parts.push({ type: 'text', text });
+  return parts;
+}
+
 // ─── Ollama Provider ────────────────────────────────────────────────────────
 // Retry helper for Ollama fetch calls — handles transient 'fetch failed'
 // or HTTP 503 when Ollama is busy with another request.
@@ -310,7 +348,7 @@ export class ClaudeProvider {
     const systemMsg = messages.find(m => m.role === 'system');
     const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content
+      content: buildClaudeContent(m.content, m.images)
     }));
 
     // Ensure messages alternate correctly
@@ -341,7 +379,7 @@ export class ClaudeProvider {
     const systemMsg = messages.find(m => m.role === 'system');
     const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content
+      content: buildClaudeContent(m.content, m.images)
     }));
 
     const sanitized = this._sanitizeMessages(chatMessages);
@@ -462,7 +500,7 @@ export class OpenAIProvider {
     const reasoning = this._isReasoning(options);
     return messages.map(m => ({
       role: reasoning && m.role === 'system' ? 'developer' : m.role,
-      content: m.content
+      content: buildOpenAIContent(m.content, m.images)
     }));
   }
 
@@ -512,7 +550,7 @@ export class OpenAIProvider {
     const systemMsg = messages.find((m: any) => m.role === 'system');
     const input = messages
       .filter((m: any) => m.role !== 'system')
-      .map((m: any) => ({ role: m.role, content: m.content }));
+      .map((m: any) => ({ role: m.role, content: buildOpenAIContent(m.content, m.images) }));
 
     const params: any = {
       model: this.model,
@@ -641,7 +679,7 @@ export class OpenAIProvider {
     const systemMsg = messages.find((m: any) => m.role === 'system');
     const input = messages
       .filter((m: any) => m.role !== 'system')
-      .map((m: any) => ({ role: m.role, content: m.content }));
+      .map((m: any) => ({ role: m.role, content: buildOpenAIContent(m.content, m.images) }));
 
     const params: any = {
       model: this.model,

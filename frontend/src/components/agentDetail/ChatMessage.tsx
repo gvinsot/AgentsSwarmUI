@@ -208,6 +208,20 @@ export default function ChatMessage({ message, index, isLast, onTruncate }) {
       <div className={`flex-1 rounded-xl p-3 ${
         isUser ? 'bg-dark-700/50 border border-dark-600/50' : 'bg-dark-800/50 border border-dark-700/50'
       }`}>
+        {/* Show attached images for user messages */}
+        {isUser && message.images && message.images.length > 0 && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            {message.images.map((img, i) => (
+              <img
+                key={i}
+                src={img.preview || `data:${img.mediaType};base64,${img.data}`}
+                alt={`Attached ${i + 1}`}
+                className="max-w-48 max-h-48 rounded-lg border border-dark-600 object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => window.open(img.preview || `data:${img.mediaType};base64,${img.data}`, '_blank')}
+              />
+            ))}
+          </div>
+        )}
         <div className="markdown-content text-sm text-dark-200">
           {isUser
             ? <ReactMarkdown>{message.content}</ReactMarkdown>

@@ -111,6 +111,11 @@ export default function LlmConfigModal({ config, onSave, onClose, saving }: LlmC
                 className="rounded border-dark-600 bg-dark-900 text-teal-500 focus:ring-teal-500" />
               Manages own context
             </label>
+            <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
+              <input type="checkbox" checked={form.supportsImages || false} onChange={e => setForm(f => ({ ...f, supportsImages: e.target.checked }))}
+                className="rounded border-dark-600 bg-dark-900 text-emerald-500 focus:ring-emerald-500" />
+              Supports images
+            </label>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

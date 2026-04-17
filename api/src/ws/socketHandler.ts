@@ -62,7 +62,7 @@ export function setupSocketHandlers(io, agentManager) {
 
     // ── Chat with streaming ───────────────────────────────────────────
     socket.on('agent:chat', async (data) => {
-      const { agentId, message, messageId } = data;
+      const { agentId, message, messageId, images } = data;
       if (!agentId || !message) return;
 
       // Ownership check
@@ -94,6 +94,17 @@ export function setupSocketHandlers(io, agentManager) {
       try {
         socket.emit('agent:stream:start', { agentId, project });
 
+        // Validate and sanitize images (max 5 images, max 10MB each)
+        let sanitizedImages = null;
+        if (Array.isArray(images) && images.length > 0) {
+          sanitizedImages = images.slice(0, 5).filter(img =>
+            img && typeof img.data === 'string' && typeof img.mediaType === 'string' &&
+            img.data.length < 10 * 1024 * 1024 && // ~10MB base64
+            /^image\/(png|jpeg|gif|webp)$/.test(img.mediaType)
+          ).map(img => ({ data: img.data, mediaType: img.mediaType }));
+          if (sanitizedImages.length === 0) sanitizedImages = null;
+        }
+
         await agentManager.sendMessage(agentId, message, (chunk) => {
           socket.emit('agent:stream:chunk', { agentId, project, chunk });
           // Also broadcast the thinking state to users who can see this agent
@@ -102,7 +113,7 @@ export function setupSocketHandlers(io, agentManager) {
             project,
             thinking: agentManager.agents.get(agentId)?.currentThinking || ''
           });
-        });
+        }, 0, null, sanitizedImages);
 
         socket.emit('agent:stream:end', { agentId, project });
         // Note: agentManager.sendMessage() already emits agent:updated internally
