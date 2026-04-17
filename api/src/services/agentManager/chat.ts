@@ -502,7 +502,16 @@ export const chatMethods = {
         );
         if (startIdx >= 0) {
           messages.push(...agent.conversationHistory.slice(startIdx));
+        } else {
+          // Fallback: no history newer than taskStartTime (fresh task after a context
+          // switch or restart). Without this the model sees only the system prompt + the
+          // new user message and often fails to emit proper tool calls.
+          const summary = agent.conversationHistory.find((m: any) => m.type === 'compaction-summary');
+          const realMessages = agent.conversationHistory.filter((m: any) => m.type !== 'compaction-summary');
+          if (summary) messages.push(summary);
+          messages.push(...realMessages.slice(-maxRecent));
         }
+        console.log(`📋 [Task Context] "${agent.name}": task execution (managed) — sending ${messages.length - 1} messages (of ${agent.conversationHistory.length} total)`);
       } else if (isTopLevelUserMessage) {
         // Direct user message with no active task: scope to last task's startedAt
         // to avoid sending the entire conversation history.
