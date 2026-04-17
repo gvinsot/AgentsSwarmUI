@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   X, Users, Plus, Trash2, Edit3, Shield, ShieldCheck, ShieldAlert,
   UserCheck, Eye, Save, AlertCircle, Crown, Settings, ToggleLeft, ToggleRight,
-  Cpu, EyeOff, Bell, RotateCcw
+  Cpu, Bell, RotateCcw
 } from 'lucide-react';
 import { api } from '../api';
+import LlmConfigModal from './LlmConfigModal';
 
 const ROLE_CONFIG = {
   admin: { label: 'Admin', icon: ShieldAlert, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
@@ -43,7 +44,6 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmForm, setLlmForm] = useState(null); // null = closed, {} = new, {id} = editing
   const [llmSaving, setLlmSaving] = useState(false);
-  const [showLlmApiKey, setShowLlmApiKey] = useState({});
 
   const loadUsers = useCallback(async () => {
     try {
@@ -111,21 +111,16 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
 
   useEffect(() => { if (activeTab === 'llm') loadLlmConfigs(); }, [activeTab, loadLlmConfigs]);
 
-  const PROVIDER_OPTIONS = ['anthropic', 'claude-paid', 'openai', 'google', 'deepseek', 'mistral', 'openrouter', 'vllm', 'ollama'];
-  const PROVIDER_LABELS = { 'claude-paid': 'Anthropic Paid Plan' };
-
-  const handleSaveLlmConfig = async (e) => {
-    e.preventDefault();
-    if (!llmForm) return;
+  const handleSaveLlmConfig = async (formData) => {
     try {
       setLlmSaving(true);
-      if (llmForm.id) {
-        await api.updateLlmConfig(llmForm.id, llmForm);
+      if (formData.id) {
+        await api.updateLlmConfig(formData.id, formData);
       } else {
-        await api.createLlmConfig(llmForm);
+        await api.createLlmConfig(formData);
       }
       setLlmForm(null);
-      showToast?.(llmForm.id ? 'LLM config updated' : 'LLM config created', 'success');
+      showToast?.(formData.id ? 'LLM config updated' : 'LLM config created', 'success');
       loadLlmConfigs();
     } catch (err) {
       showToast?.(`Failed to save LLM config: ${err.message}`, 'error');
@@ -817,135 +812,14 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
             </button>
           </div>
 
-          {/* Create/Edit Form */}
+          {/* LLM Create/Edit Modal */}
           {llmForm && (
-            <form onSubmit={handleSaveLlmConfig} className={`p-4 bg-dark-800 rounded-xl border space-y-4 ${llmForm.id ? 'border-indigo-500/30' : 'border-dark-700'}`}>
-              <h4 className="text-sm font-semibold text-dark-200">{llmForm.id ? 'Edit LLM Config' : 'New LLM Config'}</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Name</label>
-                  <input type="text" value={llmForm.name || ''} onChange={e => setLlmForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. Claude Opus 4" required />
-                </div>
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Provider</label>
-                  <select value={llmForm.provider || ''} onChange={e => {
-                      const prov = e.target.value;
-                      const updates = { provider: prov, model: '' };
-                      if (prov === 'claude-paid') { updates.endpoint = 'http://coder-service:8000'; updates.apiKey = ''; }
-                      setLlmForm(f => ({ ...f, ...updates }));
-                    }}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500" required>
-                    <option value="">Select provider...</option>
-                    {PROVIDER_OPTIONS.map(p => <option key={p} value={p}>{PROVIDER_LABELS[p] || p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Model ID</label>
-                  <input type="text" value={llmForm.model || ''} onChange={e => setLlmForm(f => ({ ...f, model: e.target.value }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. claude-opus-4-20250514" required />
-                </div>
-                {llmForm.provider !== 'claude-paid' && (
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Endpoint <span className="text-dark-500">(vLLM/Ollama only)</span></label>
-                  <input type="text" value={llmForm.endpoint || ''} onChange={e => setLlmForm(f => ({ ...f, endpoint: e.target.value }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="http://localhost:8000/v1" />
-                </div>
-                )}
-                {llmForm.provider === 'claude-paid' && (
-                <div className="sm:col-span-2">
-                  <div className="px-3 py-2 bg-dark-900/50 border border-dark-700 rounded-lg text-xs text-dark-400">
-                    🔒 Authentication is handled via OAuth per agent (coder-service). No API key needed.
-                    Endpoint is auto-configured to <code className="text-indigo-400">coder-service:8000</code>.
-                  </div>
-                </div>
-                )}
-                {llmForm.provider !== 'claude-paid' && (
-                <div className="relative">
-                  <label className="block text-xs text-dark-400 mb-1">API Key</label>
-                  <input type={showLlmApiKey[llmForm.id || '_new'] ? 'text' : 'password'}
-                    autoComplete="off"
-                    value={llmForm.apiKey || ''} onChange={e => setLlmForm(f => ({ ...f, apiKey: e.target.value }))}
-                    className="w-full px-3 py-2 pr-10 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="API key for this LLM" />
-                  <button type="button" onClick={() => setShowLlmApiKey(p => ({ ...p, [llmForm.id || '_new']: !p[llmForm.id || '_new'] }))}
-                    className="absolute right-2 top-7 text-dark-400 hover:text-dark-200">
-                    {showLlmApiKey[llmForm.id || '_new'] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                )}
-                <div className="flex items-center gap-4 pt-5">
-                  <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
-                    <input type="checkbox" checked={llmForm.isReasoning || false} onChange={e => setLlmForm(f => ({ ...f, isReasoning: e.target.checked }))}
-                      className="rounded border-dark-600 bg-dark-900 text-indigo-500 focus:ring-indigo-500" />
-                    Reasoning model
-                  </label>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
-                  <input type="checkbox" checked={llmForm.managesContext || false} onChange={e => setLlmForm(f => ({ ...f, managesContext: e.target.checked }))}
-                    className="rounded border-dark-600 bg-dark-900 text-teal-500 focus:ring-teal-500" />
-                  Manages own context
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Context Size <span className="text-dark-500">(tokens)</span></label>
-                  <input type="number" min="1" value={llmForm.contextSize ?? ''} onChange={e => setLlmForm(f => ({ ...f, contextSize: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. 200000" />
-                </div>
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Max Output Tokens</label>
-                  <input type="number" min="1" value={llmForm.maxOutputTokens ?? ''} onChange={e => setLlmForm(f => ({ ...f, maxOutputTokens: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. 16384" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <input
-                      type="checkbox" checked={llmForm.temperature != null}
-                      onChange={e => setLlmForm(f => ({ ...f, temperature: e.target.checked ? 0.7 : null }))}
-                      className="rounded border-dark-600 bg-dark-900 text-indigo-500 focus:ring-indigo-500"
-                    />
-                    <label className="text-xs text-dark-400">
-                      Temperature{llmForm.temperature != null ? `: ${llmForm.temperature}` : ' (disabled — model default)'}
-                    </label>
-                  </div>
-                  {llmForm.temperature != null && (
-                    <input type="range" min="0" max="1" step="0.1" value={llmForm.temperature}
-                      onChange={e => setLlmForm(f => ({ ...f, temperature: parseFloat(e.target.value) }))}
-                      className="w-full accent-indigo-500" />
-                  )}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Cost / 1M input tokens ($)</label>
-                  <input type="number" step="0.01" min="0" value={llmForm.costPerInputToken ?? ''} onChange={e => setLlmForm(f => ({ ...f, costPerInputToken: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. 15.00" />
-                </div>
-                <div>
-                  <label className="block text-xs text-dark-400 mb-1">Cost / 1M output tokens ($)</label>
-                  <input type="number" step="0.01" min="0" value={llmForm.costPerOutputToken ?? ''} onChange={e => setLlmForm(f => ({ ...f, costPerOutputToken: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
-                    placeholder="e.g. 75.00" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setLlmForm(null)} className="px-3 py-1.5 text-sm text-dark-400 hover:text-dark-200">Cancel</button>
-                <button type="submit" disabled={llmSaving}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                  <Save className="w-3.5 h-3.5" />
-                  {llmSaving ? 'Saving...' : llmForm.id ? 'Update' : 'Create'}
-                </button>
-              </div>
-            </form>
+            <LlmConfigModal
+              config={llmForm}
+              onSave={handleSaveLlmConfig}
+              onClose={() => setLlmForm(null)}
+              saving={llmSaving}
+            />
           )}
 
           {/* LLM Config List */}
