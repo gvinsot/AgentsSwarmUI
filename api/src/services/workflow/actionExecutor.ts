@@ -218,7 +218,14 @@ function executeAssignAgentIndividual(action, task, { agentManager, io }) {
   const targetAgentId = action.agentId || null;
   const actualTask = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
   if (actualTask) {
-    const prev = actualTask.assignee;
+    const prev = actualTask.assignee || null;
+    // No-op guard: avoid clobbering an assignee set by a concurrent run_agent
+    // action and spamming task:updated events when the target matches current.
+    if (prev === targetAgentId) {
+      const targetName = targetAgentId ? (agentManager.agents.get(targetAgentId)?.name || targetAgentId) : 'none';
+      console.log(`[ActionExecutor] assign_agent_individual: "${targetName}" — no change, skipping`);
+      return { executed: false, skipped: true, reason: 'no-change' };
+    }
     actualTask.assignee = targetAgentId;
     if (!actualTask.history) actualTask.history = [];
     actualTask.history.push({
@@ -640,6 +647,12 @@ async function _runExecuteMode(agent, task, instructions, columns, { agentManage
     } else if (freshTask && !agentManager._isActiveTaskStatus(freshTask.status)) {
       // Task was already moved (e.g. via @update_task)
       console.log(`[ActionExecutor] execute: task already moved to "${freshTask.status}"${hasInstructions ? ' (with instructions)' : ''}`);
+    } else if (!fullResponse || fullResponse.trim().length === 0) {
+      // Empty response (agent was stopped mid-stream or session returned no chunks).
+      // Don't enter the 10-min reminder loop — release the workflow lock now and
+      // let the task loop or a new user action retry when conditions change.
+      console.warn(`⚠️ [ActionExecutor] execute: "${agent.name}" returned empty response for "${task.text?.slice(0, 60)}" — skipping reminder loop`);
+      return { executed: false, skipped: true, reason: 'empty-response' };
     } else {
       // Agent did not complete in first response — wait for @task_execution_complete via reminder loop
       console.log(`[ActionExecutor] execute: waiting for task_execution_complete${hasInstructions ? ' (with instructions)' : ''}`);

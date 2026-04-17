@@ -1,5 +1,6 @@
 // ─── Agent Status: getAgentStatus, swarm status, setStatus, stopAgent ───────
 import { saveAgent, clearActionRunningForAgent, saveTaskToDb } from '../database.js';
+import { setTaskSignal } from './tasks.js';
 
 /** @this {import('./index.js').AgentManager} */
 export const statusMethods = {
@@ -266,6 +267,9 @@ export const statusMethods = {
           t.actionRunning = false;
           delete t.actionRunningAgentId;
           delete t.actionRunningMode;
+          // Signal any pending _waitForExecutionComplete loop so it unblocks
+          // the workflow lock instead of waiting out the 10-min reminder cycle.
+          setTaskSignal(t.id, 'stopped', true);
           this._emit('task:updated', { agentId: (creatorAgent as any).id, task: t });
         }
       }

@@ -615,6 +615,15 @@ export const tasksMethods = {
       return null;
     };
 
+    // Early exit if the executor was stopped (e.g. user pressed Stop) before we
+    // got here — otherwise we'd hold the workflow lock through the 10-min
+    // reminder loop while the agent is already idle.
+    if (getTaskSignal(taskId, 'stopped')) {
+      clearTaskSignal(taskId, 'stopped');
+      console.log(`🛑 [Execution] Task ${taskId} "${taskText.slice(0, 60)}" was stopped before wait started — exiting`);
+      return 'stopped';
+    }
+
     // Check immediate completion
     if (freshTask?.status === 'error') {
       console.log(`[Execution] Task ${taskId} "${taskText.slice(0, 60)}" ended with error — blocking transition`);
