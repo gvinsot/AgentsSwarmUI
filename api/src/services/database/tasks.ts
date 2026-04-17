@@ -494,6 +494,38 @@ export async function getRecurringDoneTasks() {
 }
 
 /**
+ * Get tasks filtered by status and/or board.
+ * Both parameters are optional — pass null to skip a filter.
+ */
+export async function getTasksByStatusAndBoard(status = null, boardId = null) {
+  const pool = getPool();
+  if (!pool) return [];
+  try {
+    const conditions = ['deleted_at IS NULL'];
+    const params = [];
+    let idx = 1;
+    if (status) {
+      conditions.push(`status = $${idx}`);
+      params.push(status);
+      idx++;
+    }
+    if (boardId) {
+      conditions.push(`board_id = $${idx}`);
+      params.push(boardId);
+      idx++;
+    }
+    const result = await pool.query(
+      `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY position, created_at`,
+      params
+    );
+    return result.rows.map(rowToTask);
+  } catch (err) {
+    console.error('Failed to get tasks by status/board:', err.message);
+    return [];
+  }
+}
+
+/**
  * Find a task by Jira key (stored in source JSONB).
  */
 export async function getTaskByJiraKey(jiraKey) {

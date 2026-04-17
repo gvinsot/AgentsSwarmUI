@@ -43,6 +43,28 @@ You can interact with project files using these commands. Use the exact format s
   Example: @update_task(abc-123, done)
   Example: @update_task(abc-123, pending, Build failed: missing dependency libfoo)
 
+@move_task_to_board(taskId, boardId) - Move a task to a different board
+  Use this to transfer a task from its current board to another board.
+  The task's status will be preserved if the target board has a matching column, otherwise it will be set to the first column.
+  Example: @move_task_to_board(abc-123, board-uuid-456)
+
+@delete_task(taskId) - Delete a task
+  Soft-deletes a task. The task can be restored later if needed.
+  Example: @delete_task(abc-123)
+
+@list_boards() - List all available boards
+  Returns the list of boards with their IDs, names, and workflow columns.
+  Use this to discover board IDs for moving tasks between boards.
+  Example: @list_boards()
+
+@list_tasks(status, boardId) - List tasks filtered by status and/or board
+  Both parameters are optional. Returns tasks matching the given filters.
+  - status: Filter by column/status (e.g., backlog, done, in_progress)
+  - boardId: Filter by board ID
+  Example: @list_tasks(backlog)
+  Example: @list_tasks(, board-uuid-456)
+  Example: @list_tasks(done, board-uuid-456)
+
 @check_status() - Check your own detailed status including project assignment, task counts, and metrics
   Use this to see which project you are working on and your current state.
   Example: @check_status()
@@ -126,6 +148,18 @@ export async function executeTool(toolName, args, projectPath, provider, agentId
   }
   if (toolName === 'update_task') {
     return { success: true, result: `Task update: ${args[0]} → ${args[1]}`, isTaskUpdate: true };
+  }
+  if (toolName === 'move_task_to_board') {
+    return { success: true, result: `Task ${args[0]} moved to board ${args[1]}`, isMoveTaskToBoard: true };
+  }
+  if (toolName === 'delete_task') {
+    return { success: true, result: `Task deleted: ${args[0]}`, isDeleteTask: true };
+  }
+  if (toolName === 'list_boards') {
+    return { success: true, result: 'Boards listed', isListBoards: true };
+  }
+  if (toolName === 'list_tasks') {
+    return { success: true, result: 'Tasks listed', isListTasks: true };
   }
   if (toolName === 'list_my_tasks') {
     return { success: true, result: 'Tasks listed', isTaskList: true };
@@ -395,7 +429,7 @@ async function toolAppendFile(provider, agentId, filePath, content) {
 
 // ─── Tool Call Parsing ──────────────────────────────────────────────────────
 
-const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'update_task', 'list_my_tasks', 'check_status', 'mcp_call', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete', 'search_skill', 'create_skill', 'update_skill', 'delete_skill'];
+const KNOWN_TOOLS = ['read_file', 'write_file', 'list_dir', 'search_files', 'run_command', 'append_file', 'report_error', 'update_task', 'move_task_to_board', 'delete_task', 'list_boards', 'list_tasks', 'list_my_tasks', 'check_status', 'mcp_call', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'task_execution_complete', 'search_skill', 'create_skill', 'update_skill', 'delete_skill'];
 
 // Convert a JSON-format tool call (from <tool_call> blocks) to our internal format
 function jsonToToolCall(name, args) {
@@ -417,6 +451,14 @@ function jsonToToolCall(name, args) {
       return { tool: 'report_error', args: [args.description || args.message || args.error || ''] };
     case 'update_task':
       return { tool: 'update_task', args: [args.taskId || args.task_id || args.id || '', args.status || '', args.details || args.detail || args.message || ''] };
+    case 'move_task_to_board':
+      return { tool: 'move_task_to_board', args: [args.taskId || args.task_id || args.id || '', args.boardId || args.board_id || ''] };
+    case 'delete_task':
+      return { tool: 'delete_task', args: [args.taskId || args.task_id || args.id || ''] };
+    case 'list_boards':
+      return { tool: 'list_boards', args: [] };
+    case 'list_tasks':
+      return { tool: 'list_tasks', args: [args.status || '', args.boardId || args.board_id || ''] };
     case 'list_my_tasks':
       return { tool: 'list_my_tasks', args: [] };
     case 'check_status':
@@ -545,9 +587,9 @@ export function parseToolCalls(response) {
     .replace(/<\|?\/?tool_use\|?>/gi, '')
     .replace(/\[TOOL_CALLS?\]/gi, '');
 
-  const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'search_skill', 'delete_skill'];
+  const SINGLE_ARG_TOOLS = ['list_dir', 'run_command', 'report_error', 'list_my_tasks', 'list_projects', 'check_status', 'get_action_status', 'build_stack', 'test_stack', 'deploy_stack', 'list_stacks', 'list_containers', 'list_computers', 'search_logs', 'get_log_metadata', 'search_skill', 'delete_skill', 'delete_task', 'list_boards'];
   const READ_FILE_TOOLS = ['read_file'];  // 1-arg or 3-arg (path, startLine, endLine)
-  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files', 'create_skill', 'update_skill'];
+  const MULTI_ARG_TOOLS = ['write_file', 'append_file', 'search_files', 'create_skill', 'update_skill', 'move_task_to_board', 'list_tasks'];
   const THREE_ARG_TOOLS = ['mcp_call', 'update_task', 'task_execution_complete'];
   const ALL_TOOL_NAMES = [...SINGLE_ARG_TOOLS, ...READ_FILE_TOOLS, ...MULTI_ARG_TOOLS, ...THREE_ARG_TOOLS];
   const toolStartPattern = new RegExp(`@(${ALL_TOOL_NAMES.join('|')})\\s*\\(`, 'gi');

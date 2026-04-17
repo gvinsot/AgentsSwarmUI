@@ -1,7 +1,7 @@
 // ─── Tools: _processToolCalls ────────────────────────────────────────────────
 import { parseToolCalls, executeTool } from '../agentTools.js';
 import { getProjectGitUrl } from '../githubProjects.js';
-import { saveAgent, searchAgentSkills, getAgentSkillById, saveAgentSkill, deleteAgentSkillFromDb } from '../database.js';
+import { saveAgent, searchAgentSkills, getAgentSkillById, saveAgentSkill, deleteAgentSkillFromDb, getAllBoards, getBoardById, getTasksByStatusAndBoard, saveTaskToDb } from '../database.js';
 import { getWorkflowForBoard } from '../configManager.js';
 import { setTaskSignal } from './tasks.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -442,6 +442,137 @@ export const toolsMethods = {
         continue;
       }
 
+      // ── @move_task_to_board() ──
+      if (call.tool === 'move_task_to_board') {
+        const [taskId, targetBoardId] = call.args;
+        if (!taskId || !targetBoardId) {
+          results.push({ tool: 'move_task_to_board', args: call.args, success: false, error: 'Both taskId and boardId are required. Use: @move_task_to_board(taskId, boardId)' });
+          continue;
+        }
+        // Find the task across all agents
+        let task: any = null;
+        let taskAgentId = agentId;
+        for (const [creatorId, tasks] of this._tasks) {
+          const found = (tasks as any[]).find((t: any) => t.id === taskId || t.id.startsWith(taskId));
+          if (found) { task = found; taskAgentId = creatorId as string; break; }
+        }
+        if (!task) {
+          results.push({ tool: 'move_task_to_board', args: call.args, success: false, error: `Task not found: ${taskId}` });
+          continue;
+        }
+        // Verify target board exists
+        const targetBoard = await getBoardById(targetBoardId);
+        if (!targetBoard) {
+          results.push({ tool: 'move_task_to_board', args: call.args, success: false, error: `Board not found: ${targetBoardId}` });
+          continue;
+        }
+        const oldBoardId = task.boardId;
+        task.boardId = targetBoardId;
+        // Check if current status exists in target board's workflow, otherwise reset to first column
+        if (targetBoard.workflow?.columns) {
+          const hasStatus = targetBoard.workflow.columns.some((c: any) => c.id === task.status);
+          if (!hasStatus && targetBoard.workflow.columns.length > 0) {
+            const firstCol = targetBoard.workflow.columns[0].id;
+            console.log(`📋 [MoveBoard] Task status "${task.status}" not found in target board — resetting to "${firstCol}"`);
+            task.status = firstCol;
+          }
+        }
+        if (!task.history) task.history = [];
+        task.history.push({ status: task.status, at: new Date().toISOString(), by: agent.name, type: 'board_move', oldBoardId, newBoardId: targetBoardId });
+        await saveTaskToDb({ ...task, agentId: taskAgentId });
+        const ownerAgent = this.agents.get(taskAgentId);
+        if (ownerAgent) {
+          saveAgent(ownerAgent);
+          this._emit('agent:updated', this._sanitize(ownerAgent));
+        }
+        this._emit('task:updated', { agentId: taskAgentId, task: { ...task, agentId: taskAgentId } });
+        console.log(`📋 [MoveBoard] Agent "${agent.name}" moved task "${task.text.slice(0, 50)}" to board "${targetBoard.name}" (${targetBoardId})`);
+        results.push({ tool: 'move_task_to_board', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" moved to board "${targetBoard.name}" (status: ${task.status})` });
+        continue;
+      }
+
+      // ── @delete_task() ──
+      if (call.tool === 'delete_task') {
+        const taskId = (call.args[0] || '').trim();
+        if (!taskId) {
+          results.push({ tool: 'delete_task', args: call.args, success: false, error: 'Task ID is required. Use: @delete_task(taskId)' });
+          continue;
+        }
+        // Find the task across all agents
+        let task: any = null;
+        let taskAgentId = agentId;
+        for (const [creatorId, tasks] of this._tasks) {
+          const found = (tasks as any[]).find((t: any) => t.id === taskId || t.id.startsWith(taskId));
+          if (found) { task = found; taskAgentId = creatorId as string; break; }
+        }
+        if (!task) {
+          results.push({ tool: 'delete_task', args: call.args, success: false, error: `Task not found: ${taskId}` });
+          continue;
+        }
+        const deleted = this.deleteTask(taskAgentId, task.id);
+        if (deleted) {
+          console.log(`🗑️ [DeleteTask] Agent "${agent.name}" deleted task "${task.text.slice(0, 50)}" (${task.id})`);
+          results.push({ tool: 'delete_task', args: call.args, success: true, result: `Task "${task.text.slice(0, 60)}" (${task.id}) deleted successfully.` });
+        } else {
+          results.push({ tool: 'delete_task', args: call.args, success: false, error: `Failed to delete task: ${taskId}` });
+        }
+        continue;
+      }
+
+      // ── @list_boards() ──
+      if (call.tool === 'list_boards') {
+        try {
+          const boards = await getAllBoards();
+          if (boards.length === 0) {
+            results.push({ tool: 'list_boards', args: [], success: true, result: 'No boards found.' });
+          } else {
+            const lines = boards.map((b: any) => {
+              const cols = b.workflow?.columns?.map((c: any) => c.id).join(', ') || 'none';
+              const defaultTag = b.is_default ? ' [DEFAULT]' : '';
+              return `- **${b.name}**${defaultTag} (${b.id})\n  Columns: ${cols}`;
+            });
+            results.push({ tool: 'list_boards', args: [], success: true, result: `Found ${boards.length} board(s):\n\n${lines.join('\n\n')}` });
+          }
+          console.log(`📋 [ListBoards] Agent "${agent.name}" listed ${boards.length} board(s)`);
+        } catch (err: any) {
+          results.push({ tool: 'list_boards', args: [], success: false, error: err.message });
+        }
+        continue;
+      }
+
+      // ── @list_tasks(status, boardId) ──
+      if (call.tool === 'list_tasks') {
+        const statusFilter = (call.args[0] || '').trim() || null;
+        const boardFilter = (call.args[1] || '').trim() || null;
+        try {
+          const tasks = await getTasksByStatusAndBoard(statusFilter, boardFilter);
+          if (tasks.length === 0) {
+            const filterDesc = [statusFilter ? `status="${statusFilter}"` : null, boardFilter ? `board="${boardFilter}"` : null].filter(Boolean).join(', ');
+            results.push({ tool: 'list_tasks', args: call.args, success: true, result: `No tasks found${filterDesc ? ` matching ${filterDesc}` : ''}.` });
+          } else {
+            // Group by board for clarity
+            const boardName: Record<string, string> = {};
+            for (const t of tasks as any[]) {
+              if (t.boardId && !boardName[t.boardId]) {
+                const board = await getBoardById(t.boardId);
+                boardName[t.boardId] = board?.name || t.boardId;
+              }
+            }
+            const lines = (tasks as any[]).map((t: any) => {
+              const board = t.boardId ? ` [Board: ${boardName[t.boardId] || t.boardId}]` : '';
+              const assigneeInfo = t.assignee ? ` (assignee: ${t.assignee.slice(0, 8)})` : '';
+              return `- [${t.status}] ${t.id.slice(0, 8)} — ${t.text.slice(0, 100)}${board}${assigneeInfo}`;
+            });
+            const filterDesc = [statusFilter ? `status="${statusFilter}"` : null, boardFilter ? `board="${boardFilter}"` : null].filter(Boolean).join(', ');
+            results.push({ tool: 'list_tasks', args: call.args, success: true, result: `Found ${tasks.length} task(s)${filterDesc ? ` matching ${filterDesc}` : ''}:\n\n${lines.join('\n')}` });
+          }
+          console.log(`📋 [ListTasks] Agent "${agent.name}" listed tasks (status=${statusFilter || 'all'}, board=${boardFilter || 'all'}) — ${tasks.length} result(s)`);
+        } catch (err: any) {
+          results.push({ tool: 'list_tasks', args: call.args, success: false, error: err.message });
+        }
+        continue;
+      }
+
       // ── @list_projects() ──
       if (call.tool === 'list_projects') {
         const projects = await this._listAvailableProjects();
@@ -476,9 +607,20 @@ export const toolsMethods = {
         if (tasks.length === 0) {
           results.push({ tool: 'list_my_tasks', args: [], success: true, result: `${header}\nNo tasks assigned.` });
         } else {
+          // Resolve board names for display
+          const boardNames: Record<string, string> = {};
+          for (const t of tasks) {
+            if ((t as any).boardId && !boardNames[(t as any).boardId]) {
+              try {
+                const board = await getBoardById((t as any).boardId);
+                boardNames[(t as any).boardId] = board?.name || (t as any).boardId;
+              } catch { boardNames[(t as any).boardId] = (t as any).boardId; }
+            }
+          }
           const lines = tasks.map((t: any) => {
             const icon = t.status === 'done' ? '[x]' : t.status === 'error' ? '[!]' : this._isActiveTaskStatus(t.status) ? '[~]' : '[ ]';
-            return `${icon} ${t.id} — ${t.text}`;
+            const boardInfo = t.boardId ? ` [Board: ${boardNames[t.boardId] || t.boardId}]` : '';
+            return `${icon} ${t.id} — ${t.text}${boardInfo}`;
           });
           results.push({ tool: 'list_my_tasks', args: [], success: true, result: `${header}\n${lines.join('\n')}` });
         }
