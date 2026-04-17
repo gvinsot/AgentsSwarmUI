@@ -45,7 +45,7 @@ RUN npx tsc
 
 # ── Test stage ──────────────────────────────────────────────
 FROM base AS test
-CMD ["sh", "-c", "npx tsx --test src/services/__tests__/*.test.ts"]
+CMD ["npm", "test"]
 
 # ── Production stage ────────────────────────────────────────
 FROM base AS production
