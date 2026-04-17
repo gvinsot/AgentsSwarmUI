@@ -526,6 +526,9 @@ export const api = {
   getBoards: () =>
     fetch(`${API_BASE}/boards`, { headers: getHeaders() }).then(handleResponse),
 
+  getAllBoardsAdmin: () =>
+    fetch(`${API_BASE}/boards/all`, { headers: getHeaders() }).then(handleResponse),
+
   getBoard: (id) =>
     fetch(`${API_BASE}/boards/${id}`, { headers: getHeaders() }).then(handleResponse),
 

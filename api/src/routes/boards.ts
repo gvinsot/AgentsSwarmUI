@@ -2,7 +2,7 @@ import express from 'express';
 import {
   getBoardsByUser, getBoardById, createBoard, updateBoard, deleteBoard,
   getBoardShares, getBoardShare, createBoardShare, updateBoardShare, deleteBoardShare,
-  logBoardAudit, getBoardAuditLogs, getAllUsers,
+  logBoardAudit, getBoardAuditLogs, getAllUsers, getAllBoards,
 } from '../services/database.js';
 
 const DEFAULT_BOARD_WORKFLOW = {
@@ -90,6 +90,19 @@ export function boardRoutes(agentManager) {
       const users = await getAllUsers();
       // Don't expose passwords — getAllUsers already only selects id, username, display_name, role
       res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /all — admin-only: list ALL boards across all users (for Processes view)
+  router.get('/all', async (req, res) => {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      const boards = await getAllBoards();
+      res.json(boards);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

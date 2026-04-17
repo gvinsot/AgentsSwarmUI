@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
   Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu, DollarSign, Eye, ChevronDown,
-  Sun, Moon
+  Sun, Moon, GitBranch
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import AgentCard from './AgentCard';
@@ -15,6 +15,7 @@ import ApiKeyModal from './ApiKeyModal';
 import TasksBoard from './TasksBoard';
 import ProjectsView from './ProjectsView';
 import BudgetDashboard from './BudgetDashboard';
+import ProcessesView from './ProcessesView';
 import AdminPanel from './AdminPanel';
 import { Crown, UserCheck } from 'lucide-react';
 
@@ -28,7 +29,7 @@ export default function Dashboard({
   const [viewMode, setViewMode] = useState('grid'); // grid | list
   const [activeView, setActiveViewRaw] = useState(() => {
     const hash = window.location.hash.replace('#', '').toLowerCase();
-    return ['agents', 'tasks', 'projects', 'budget', 'about'].includes(hash) ? hash : 'tasks';
+    return ['agents', 'tasks', 'projects', 'budget', 'processes', 'about'].includes(hash) ? hash : 'tasks';
   });
   const setActiveView = useCallback((view) => {
     setActiveViewRaw(view);
@@ -150,6 +151,7 @@ export default function Dashboard({
                     { key: 'tasks', label: 'Tasks', icon: KanbanSquare },
                     { key: 'projects', label: 'Projects', icon: Tag },
                     { key: 'budget', label: 'Budget', icon: DollarSign },
+                    ...(isAdmin ? [{ key: 'processes', label: 'Processes', icon: GitBranch }] : []),
                   ].map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
@@ -212,6 +214,18 @@ export default function Dashboard({
                 <DollarSign className="w-4 h-4" />
                 <span className="hidden md:inline">Budget</span>
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveView('processes')}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                    activeView === 'processes' ? 'bg-dark-700 text-indigo-400' : 'text-dark-400 hover:text-dark-200'
+                  }`}
+                  title="Processes"
+                >
+                  <GitBranch className="w-4 h-4" />
+                  <span className="hidden md:inline">Processes</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -314,6 +328,11 @@ export default function Dashboard({
           {activeView === 'budget' && (
             <div className="flex-1 min-h-0 flex flex-col overflow-auto">
               <BudgetDashboard agents={sortedAgents} />
+            </div>
+          )}
+          {activeView === 'processes' && isAdmin && (
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <ProcessesView />
             </div>
           )}
           {/* Agent list */}
