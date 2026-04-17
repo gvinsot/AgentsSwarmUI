@@ -206,13 +206,66 @@ export default function TaskDetailModal({ task, agents, allProjects, onClose, on
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-dark-400 uppercase tracking-wide">Task</span>
               {!editing && (
-                <button
-                  onClick={() => { setEditText(task.text); setEditTitle(task.title || ''); setEditing(true); }}
-                  className="flex items-center gap-1 text-xs text-dark-500 hover:text-indigo-400 transition-colors"
-                >
-                  <Edit3 className="w-3 h-3" />
-                  Edit
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="relative" ref={refineRef}>
+                    <button
+                      onClick={() => setRefineOpen(o => !o)}
+                      disabled={refining}
+                      className={`flex items-center gap-1 text-xs transition-colors
+                        ${refining
+                          ? 'text-amber-300'
+                          : 'text-dark-500 hover:text-amber-400'
+                        }`}
+                    >
+                      {refining
+                        ? <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12a9 9 0 11-6.219-8.56" strokeLinecap="round" />
+                          </svg>Improving…</>
+                        : <><Zap className="w-3 h-3" />Improve description with AI</>
+                      }
+                    </button>
+                    {refineOpen && !refining && (
+                      <div className="absolute right-0 top-6 z-50 bg-dark-800 border border-dark-600
+                        rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[180px]">
+                        <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
+                          Choose idle agent
+                        </div>
+                        {agents.filter(a => a.enabled !== false && a.status === 'idle').length === 0 && (
+                          <div className="px-3 py-2 text-xs text-dark-500 italic">No idle agents available</div>
+                        )}
+                        {agents.filter(a => a.enabled !== false && a.status === 'idle').map(a => (
+                          <button
+                            key={a.id}
+                            onClick={async () => {
+                              setRefineOpen(false);
+                              setRefining(true);
+                              try {
+                                const result = await api.refineTask(task.agentId, task.id, a.id);
+                                if (result?.text) onRefresh?.();
+                              } catch (err) {
+                                console.error('Refine failed:', err);
+                              } finally {
+                                setRefining(false);
+                              }
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-xs text-dark-200
+                              hover:bg-dark-700 hover:text-dark-100 transition-colors flex items-center gap-2"
+                          >
+                            {a.icon} {a.name}
+                            <span className="text-dark-500 ml-auto text-[10px]">{a.role}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { setEditText(task.text); setEditTitle(task.title || ''); setEditing(true); }}
+                    className="flex items-center gap-1 text-xs text-dark-500 hover:text-indigo-400 transition-colors"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    Edit
+                  </button>
+                </div>
               )}
             </div>
             {editing ? (
@@ -717,59 +770,6 @@ export default function TaskDetailModal({ task, agents, allProjects, onClose, on
             Delete
           </button>
           <div className="flex items-center gap-2">
-            {/* Refine with AI */}
-            <div className="relative" ref={refineRef}>
-              <button
-                onClick={() => setRefineOpen(o => !o)}
-                disabled={refining}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs
-                  border rounded-lg transition-colors disabled:opacity-50
-                  ${refining
-                    ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
-                    : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/20 hover:border-amber-500/40'
-                  }`}
-              >
-                {refining
-                  ? <><svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 12a9 9 0 11-6.219-8.56" strokeLinecap="round" />
-                    </svg>Refining...</>
-                  : <><Zap className="w-3.5 h-3.5" />Refine with AI</>
-                }
-              </button>
-              {refineOpen && !refining && (
-                <div className="absolute right-0 bottom-9 z-50 bg-dark-800 border border-dark-600
-                  rounded-xl shadow-2xl shadow-black/40 py-1 min-w-[180px]">
-                  <div className="px-3 py-1.5 text-xs text-dark-400 font-semibold border-b border-dark-700 mb-1">
-                    Choose idle agent
-                  </div>
-                  {agents.filter(a => a.enabled !== false && a.status === 'idle').length === 0 && (
-                    <div className="px-3 py-2 text-xs text-dark-500 italic">No idle agents available</div>
-                  )}
-                  {agents.filter(a => a.enabled !== false && a.status === 'idle').map(a => (
-                    <button
-                      key={a.id}
-                      onClick={async () => {
-                        setRefineOpen(false);
-                        setRefining(true);
-                        try {
-                          const result = await api.refineTask(task.agentId, task.id, a.id);
-                          if (result?.text) onRefresh?.();
-                        } catch (err) {
-                          console.error('Refine failed:', err);
-                        } finally {
-                          setRefining(false);
-                        }
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-dark-200
-                        hover:bg-dark-700 hover:text-dark-100 transition-colors flex items-center gap-2"
-                    >
-                      {a.icon} {a.name}
-                      <span className="text-dark-500 ml-auto text-[10px]">{a.role}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
             <button
               onClick={onClose}
               className="px-4 py-1.5 text-xs text-dark-300 hover:text-dark-100
