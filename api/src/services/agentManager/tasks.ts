@@ -298,7 +298,10 @@ export const tasksMethods = {
 
     // Priority 4 (DB fallback): find active task or recently completed task from DB
     const activeTask = await getActiveTaskForExecutor(agentId);
-    if (activeTask) return { task: activeTask, ownerAgentId: (activeTask as any).agentId };
+    if (activeTask) {
+      console.log(`🔗 [Commit] Found task via DB executor lookup: "${(activeTask as any).text?.slice(0, 50)}"`);
+      return { task: activeTask, ownerAgentId: (activeTask as any).agentId };
+    }
     const allTasks = await getTasksByAgent(agentId);
     const doneTasks = allTasks.filter((t: any) => t.status === 'done' && t.completedAt);
     if (doneTasks.length > 0) {
@@ -306,6 +309,9 @@ export const tasksMethods = {
       console.log(`🔗 [Commit] No active task — falling back to recently done task "${doneTasks[0].text?.slice(0, 50)}"`);
       return { task: doneTasks[0], ownerAgentId: doneTasks[0].agentId };
     }
+    // Log diagnostic info when no task found at all
+    const agentObj = this.agents.get(agentId);
+    console.warn(`⚠️ [Commit] _findTaskForCommitLink: no task found for agent "${agentObj?.name || agentId.slice(0, 8)}". Checked: actionRunningAgentId, assignee, own tasks, DB executor, DB done tasks.`);
     return null;
   },
 

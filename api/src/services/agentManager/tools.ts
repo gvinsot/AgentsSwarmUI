@@ -72,8 +72,13 @@ async function _detectCommitHashes(call: any, result: any, executionManager: any
   // Skip if the output indicates an error or nothing happened
   if (_isGitNoop(output)) return [];
   if (_isGitError(output)) return [];
-  // Skip if the command produced a non-zero exit code (meta.exitCode set by toolRunCommand)
-  if (result.meta?.exitCode && result.meta.exitCode !== 0) return [];
+  // Non-zero exit code: only skip if output has NO commit indicators.
+  // Chained commands (e.g. "git commit && git push") can have exitCode != 0
+  // when push fails but commit succeeded — we still want to capture the commit hash.
+  if (result.meta?.exitCode && result.meta.exitCode !== 0) {
+    if (!_isGitSuccess(output)) return [];
+    console.log(`🔗 [Commit] Non-zero exit (${result.meta.exitCode}) but output has commit indicators — continuing detection`);
+  }
 
   const commits: Array<{ hash: string; msg: string }> = [];
   const seenHashes = new Set<string>(); // prefix-aware dedup within this detection pass
@@ -298,14 +303,17 @@ export const toolsMethods = {
           setTaskSignal(inProgressTask.id, 'completed', true);
           setTaskSignal(inProgressTask.id, 'comment', comment);
 
+          // Find ownerAgentId for this task
+          let ownerAgentId: string | null = null;
+          for (const [ownerId, tasks] of this._tasks) {
+            if ((tasks as any[]).includes(inProgressTask)) { ownerAgentId = ownerId as string; break; }
+          }
+          ownerAgentId = ownerAgentId || agentId;
+
           // Link commits if provided (format: "hash:message, hash:message")
           const commitsArg = call.args[2] || '';
+          let linkedCommitCount = 0;
           if (commitsArg) {
-            let ownerAgentId = null;
-            for (const [ownerId, tasks] of this._tasks) {
-              if ((tasks as any[]).includes(inProgressTask)) { ownerAgentId = ownerId; break; }
-            }
-            ownerAgentId = ownerAgentId || agentId;
             const commitEntries = commitsArg.split(/,\s*(?=[a-f0-9])/).map((s: string) => s.trim()).filter(Boolean);
             for (const entry of commitEntries) {
               const colonIdx = entry.indexOf(':');
@@ -313,18 +321,72 @@ export const toolsMethods = {
               const msg = colonIdx > 0 ? entry.slice(colonIdx + 1).trim() : '';
               if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
                 this.addTaskCommit(ownerAgentId, inProgressTask.id, hash, msg);
+                linkedCommitCount++;
                 console.log(`🔗 [TaskComplete] Linked commit ${hash.slice(0, 7)} to task ${inProgressTask.id}`);
               }
             }
           }
 
-          for (const [ownerId, tasks] of this._tasks) {
-            if ((tasks as any[]).includes(inProgressTask)) {
-              const ownerAgent = this.agents.get(ownerId);
-              if (ownerAgent) saveAgent(ownerAgent);
-              break;
+          // Auto-detect commits from git environment when none were explicitly provided
+          // and the task has no existing commits. This catches cases where:
+          // - The agent forgot to pass commit hashes
+          // - The execution was retried and commits were made in a previous round
+          // - The auto-detection during @run_command(git push) failed
+          const existingCommits = inProgressTask.commits || [];
+          if (linkedCommitCount === 0 && existingCommits.length === 0 && this.executionManager?.hasEnvironment(agentId)) {
+            try {
+              // Get the task start time to scope the git log query
+              const taskStartedAt = inProgressTask.startedAt;
+              const sinceArg = taskStartedAt ? ` --since="${new Date(new Date(taskStartedAt).getTime() - 5 * 60000).toISOString()}"` : '';
+              const logCmd = `git log --format="%H %s"${sinceArg} -20`;
+              const logResult = await this.executionManager.exec(agentId, logCmd, { timeout: 10000 });
+              const logOutput = ((logResult.stdout || '') + (logResult.stderr || '')).trim();
+              if (logOutput) {
+                const agentNameLower = (agent.name || '').toLowerCase();
+                for (const line of logOutput.split('\n')) {
+                  const m = line.match(/^([a-f0-9]{40})\s+(.*)/);
+                  if (m) {
+                    const commitMsg = m[2];
+                    // Only link commits that contain the agent's name (convention: "message (by AgentName)")
+                    if (agentNameLower && commitMsg.toLowerCase().includes(agentNameLower)) {
+                      const linked = this.addTaskCommit(ownerAgentId, inProgressTask.id, m[1], commitMsg);
+                      if (linked) {
+                        linkedCommitCount++;
+                        console.log(`🔗 [TaskComplete] Auto-detected commit ${m[1].slice(0, 7)} for task ${inProgressTask.id}: "${commitMsg.slice(0, 60)}"`);
+                      }
+                    }
+                  }
+                }
+                if (linkedCommitCount === 0) {
+                  // Fallback: if no commits matched by agent name, try HEAD commit
+                  // if it was made within the task timeframe
+                  const firstLine = logOutput.split('\n')[0];
+                  const headMatch = firstLine?.match(/^([a-f0-9]{40})\s+(.*)/);
+                  if (headMatch && taskStartedAt) {
+                    try {
+                      const dateResult = await this.executionManager.exec(agentId, `git log --format="%aI" -1`, { timeout: 5000 });
+                      const commitDate = ((dateResult.stdout || '') + (dateResult.stderr || '')).trim();
+                      if (commitDate && new Date(commitDate) >= new Date(taskStartedAt)) {
+                        const linked = this.addTaskCommit(ownerAgentId, inProgressTask.id, headMatch[1], headMatch[2]);
+                        if (linked) {
+                          linkedCommitCount++;
+                          console.log(`🔗 [TaskComplete] Auto-linked HEAD commit ${headMatch[1].slice(0, 7)} to task ${inProgressTask.id} (within task timeframe)`);
+                        }
+                      }
+                    } catch { /* ignore date check failure */ }
+                  }
+                }
+              }
+              if (linkedCommitCount === 0) {
+                console.log(`ℹ️ [TaskComplete] No auto-detectable commits for task ${inProgressTask.id} (agent="${agent.name}")`);
+              }
+            } catch (e: any) {
+              console.warn(`⚠️ [TaskComplete] Auto-detect commits failed: ${e.message}`);
             }
           }
+
+          const ownerAgent = this.agents.get(ownerAgentId);
+          if (ownerAgent) saveAgent(ownerAgent);
           console.log(`✅ [TaskComplete] Agent "${agent.name}" signaled completion for task ${inProgressTask.id} (status="${inProgressTask.status}", assignee="${inProgressTask.assignee || 'none'}"): "${comment.slice(0, 120)}"`);
           if (streamCallback) {
             streamCallback(`\n✅ Task execution complete: ${comment.slice(0, 200)}\n`);
