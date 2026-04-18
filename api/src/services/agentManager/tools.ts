@@ -656,15 +656,15 @@ export const toolsMethods = {
         // Cross-turn dedup: skip if called recently (within 60s) with unchanged task list
         const now = Date.now();
         const lastCall = agent._lastListMyTasks || 0;
-        const taskHash = JSON.stringify(this._getAgentTasks(agentId).map((t: any) => `${t.id}:${t.status}`));
+        const tasks = this._getRelevantTasks(agentId);
+        const taskHash = JSON.stringify(tasks.map((t: any) => `${t.id}:${t.status}`));
         if (now - lastCall < 60000 && agent._lastListMyTasksHash === taskHash) {
           console.log(`[Dedup] Skipping @list_my_tasks from "${agent.name}" — unchanged since ${Math.round((now - lastCall) / 1000)}s ago`);
-          results.push({ tool: 'list_my_tasks', args: [], success: true, result: '[Tasks unchanged since last check — focus on your current task]' });
+          results.push({ tool: 'list_my_tasks', args: [], success: true, result: '[Tasks unchanged since last check �� focus on your current task]' });
           continue;
         }
         agent._lastListMyTasks = now;
         agent._lastListMyTasksHash = taskHash;
-        const tasks = this._getAgentTasks(agentId);
         const header = `Agent: ${agent.name} | Project: ${agent.project || 'none'} | Status: ${agent.status}`;
         if (tasks.length === 0) {
           results.push({ tool: 'list_my_tasks', args: [], success: true, result: `${header}\nNo tasks assigned.` });
@@ -705,7 +705,7 @@ export const toolsMethods = {
         }
         agent._lastCheckStatus = csNow;
         const { AgentManager } = await import('./index.js');
-        const todoList = this._getAgentTasks(agentId);
+        const todoList = this._getRelevantTasks(agentId);
         const waitingTasks = todoList.filter((t: any) => !this._isActiveTaskStatus(t.status) && t.status !== 'done' && t.status !== 'error').length;
         const activeCount = todoList.filter((t: any) => this._isActiveTaskStatus(t.status)).length;
         const doneTasks = todoList.filter((t: any) => t.status === 'done').length;

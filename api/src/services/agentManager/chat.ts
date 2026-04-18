@@ -358,8 +358,9 @@ export const chatMethods = {
       }
     }
 
-    const activeTasks = this._getAgentTasks(id).filter((t: any) => this._isActiveTaskStatus(t.status) || t.status === 'error');
-    const doneTasks = this._getAgentTasks(id).filter((t: any) => t.status === 'done');
+    const relevantTasks = this._getRelevantTasks(id);
+    const activeTasks = relevantTasks.filter((t: any) => this._isActiveTaskStatus(t.status) || t.status === 'error');
+    const doneTasks = relevantTasks.filter((t: any) => t.status === 'done');
     if (activeTasks.length > 0 || doneTasks.length > 0) {
       systemContent += '\n\n--- Current Task List ---\n';
       for (const task of activeTasks) {

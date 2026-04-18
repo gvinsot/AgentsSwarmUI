@@ -450,6 +450,37 @@ export class AgentManager {
     return this._tasks.get(agentId) || [];
   }
 
+  /**
+   * Get tasks relevant to an agent: tasks the agent should "see" in list_my_tasks.
+   * Includes:
+   *  - Tasks owned by the agent that are NOT assigned to a different agent
+   *  - Tasks from any agent's store that are assigned to this agent
+   * This prevents the "multiple agents see the same task" bug where the owner
+   * agent sees tasks being executed by other agents.
+   */
+  _getRelevantTasks(agentId: string) {
+    const seen = new Set<string>();
+    const result: any[] = [];
+    // 1) Own tasks where assignee is self or unset
+    for (const t of this._getAgentTasks(agentId)) {
+      if (!t.assignee || t.assignee === agentId) {
+        result.push(t);
+        seen.add(t.id);
+      }
+    }
+    // 2) Tasks from other agents' stores assigned to this agent
+    for (const [ownerId, tasks] of this._tasks) {
+      if (ownerId === agentId) continue;
+      for (const t of tasks as any[]) {
+        if (t.assignee === agentId && !seen.has(t.id)) {
+          result.push(t);
+          seen.add(t.id);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Find a single task by predicate across all agents. Returns { task, agentId } or null */
   _findTaskAcross(predicate: (task: any) => boolean) {
     for (const [agentId, tasks] of this._tasks) {
