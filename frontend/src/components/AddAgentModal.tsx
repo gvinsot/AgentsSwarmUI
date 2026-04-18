@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Cpu, Search, FolderCode, Crown, Mic } from 'lucide-react';
+import { X, Cpu, Search, FolderCode, Crown, Mic, LayoutGrid } from 'lucide-react';
 import { api } from '../api';
 
 export default function AddAgentModal({ templates, projects, agents = [], onClose, onCreated }) {
@@ -7,6 +7,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [llmConfigs, setLlmConfigs] = useState([]);
+  const [boards, setBoards] = useState([]);
   const [form, setForm] = useState({
     name: '',
     role: '',
@@ -16,6 +17,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     icon: '🤖',
     color: '#6366f1',
     project: '',
+    boardId: '',
     isLeader: false,
     isVoice: false,
     voice: 'alloy',
@@ -24,6 +26,10 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
 
   useEffect(() => {
     api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
+    api.getBoards().then((b) => {
+      setBoards(b);
+      if (b.length === 1) updateField('boardId', b[0].id);
+    }).catch(() => {});
   }, []);
 
   const filteredTemplates = templates.filter(t =>
@@ -55,6 +61,7 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
     try {
       const payload = { ...form };
       payload.llmConfigId = payload.llmConfigId || null;
+      payload.boardId = payload.boardId || null;
       const agent = await api.createAgent({
         ...payload,
         template: selectedTemplate?.id || null,
@@ -239,6 +246,27 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                     ))}
                   </select>
                   <p className="text-[11px] text-dark-500 mt-1">Select the project this agent will work on</p>
+                </div>
+
+                <div className="col-span-2 border-t border-dark-700 pt-4">
+                  <h4 className="text-xs font-medium text-dark-300 mb-3 flex items-center gap-2">
+                    <LayoutGrid className="w-3.5 h-3.5" /> Board Assignment
+                  </h4>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs text-dark-400 mb-1.5">Board *</label>
+                  <select
+                    value={form.boardId}
+                    onChange={(e) => updateField('boardId', e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">-- Select a board --</option>
+                    {boards.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-dark-500 mt-1">The board where this agent's tasks will appear</p>
                 </div>
 
                 <div className="col-span-2">
