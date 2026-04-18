@@ -142,15 +142,16 @@ const { AgentManager } = await import('../agentManager.js');
 
 const mockIo = { emit() {}, to() { return { emit() {} }; } };
 
-async function setup(agentDefs = []) {
+async function setup(agentDefs: any[] = []) {
   const mgr = new AgentManager(mockIo, null, null, null);
   for (const def of agentDefs) {
-    const created = await mgr.create(def);
+    const created = await mgr.create({ boardId: 'board-test', ...def });
     const raw = mgr.agents.get(created.id);
     raw.status = 'idle';
     raw.boardId = 'board-test';
     raw.conversationHistory = [];
     mgr._tasks.set(created.id, []);
+    console.log(`[test-setup] agent "${raw.name}" role="${raw.role}" boardId="${raw.boardId}" enabled=${raw.enabled}`);
   }
 
   // Mock sendMessage — simulates LLM returning immediately
