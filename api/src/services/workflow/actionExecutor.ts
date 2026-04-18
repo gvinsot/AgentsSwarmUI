@@ -181,7 +181,8 @@ function executeAssignAgent(action, task, { agentManager, io, ownerId }) {
     action.role,
     ownerId,
     (agentId: any) => agentManager._getAgentTasks(agentId),
-    task.id
+    task.id,
+    task.boardId || null
   ) as any;
 
   if (!agent) {
@@ -309,12 +310,13 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
     return { executed: false, skipped: true, reason: 'lock-held' };
   }
 
-  // Find agent for this role
+  // Find agent for this role (scoped to the task's board)
   const agent = findAgentByRole(
     agentManager.agents,
     role,
     ownerId,
-    (agentId: any) => agentManager._getAgentTasks(agentId)
+    (agentId: any) => agentManager._getAgentTasks(agentId),
+    task.boardId || null
   ) as any;
 
   if (!agent) {

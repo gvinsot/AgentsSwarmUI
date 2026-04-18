@@ -81,21 +81,23 @@ export function isAgentBusy(agentId: string) {
  * @param {string} role            - required role
  * @param {string|null} ownerId    - only consider agents owned by this user (or unowned)
  * @param {Function} getAgentTasks - (agentId) => Task[]
+ * @param {string|null} boardId    - only consider agents attached to this board
  * @returns {Object|null}          - the selected agent, or null
  */
-export function findAgentByRole(agents: Map<any, any>, role: string, ownerId: string | null = null, getAgentTasks: (agentId: any) => any[] = () => []) {
+export function findAgentByRole(agents: Map<any, any>, role: string, ownerId: string | null = null, getAgentTasks: (agentId: any) => any[] = () => [], boardId: string | null = null) {
   const allAgents = Array.from(agents.values()) as any[];
 
-  // Step 1: match role + owner filter
+  // Step 1: match role + owner filter + board filter
   const matching = allAgents.filter(
     (a: any) =>
       a.enabled !== false &&
       (a.role || '').toLowerCase() === role.toLowerCase() &&
-      (!ownerId || !a.ownerId || a.ownerId === ownerId)
+      (!ownerId || !a.ownerId || a.ownerId === ownerId) &&
+      (!boardId || a.boardId === boardId)
   );
 
   if (matching.length === 0) {
-    console.log(`[AgentSelector] No agents with role="${role}" ownerId="${ownerId}"`);
+    console.log(`[AgentSelector] No agents with role="${role}" ownerId="${ownerId}" boardId="${boardId}"`);
     return null;
   }
 
@@ -145,13 +147,14 @@ export function findAgentByRole(agents: Map<any, any>, role: string, ownerId: st
  * Find the best agent for a role-based assignment (for assign_agent actions).
  * Same logic as findAgentByRole but does NOT filter on idle status (for pure assignment).
  */
-export function findAgentForAssignment(agents: Map<any, any>, role: string, ownerId: string | null = null, getAgentTasks: (agentId: any) => any[] = () => [], excludeTaskId: string | null = null) {
+export function findAgentForAssignment(agents: Map<any, any>, role: string, ownerId: string | null = null, getAgentTasks: (agentId: any) => any[] = () => [], excludeTaskId: string | null = null, boardId: string | null = null) {
   const allAgents = Array.from(agents.values()) as any[];
   const candidates = allAgents.filter(
     (a: any) =>
       a.enabled !== false &&
       (a.role || '').toLowerCase() === (role || '').toLowerCase() &&
-      (!ownerId || !a.ownerId || a.ownerId === ownerId)
+      (!ownerId || !a.ownerId || a.ownerId === ownerId) &&
+      (!boardId || a.boardId === boardId)
   );
 
   if (candidates.length === 0) return null;

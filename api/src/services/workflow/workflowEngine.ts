@@ -440,7 +440,8 @@ function _autoAssignByColumn(task, workflow, agentManager, ownerId, io) {
     currentColumn.autoAssignRole,
     ownerId,
     (agentId: any) => agentManager._getAgentTasks(agentId),
-    task.id
+    task.id,
+    task.boardId || null
   ) as any;
 
   if (autoAgent) {
