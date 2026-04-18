@@ -25,6 +25,8 @@ mock.module('../database.js', {
     saveAgent: noop,
     deleteAgentFromDb: noop,
     setAgentOwner: noop,
+    setAgentBoard: noop,
+    getAgentsByBoard: async () => [],
     getAllLlmConfigs: async () => [],
     recordTokenUsage: noop,
     saveTaskToDb: noop,
