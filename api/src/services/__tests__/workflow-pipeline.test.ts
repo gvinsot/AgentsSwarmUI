@@ -83,21 +83,21 @@ const TEST_WORKFLOW = {
     {
       from: 'step1', trigger: 'on_enter', conditions: [],
       actions: [
-        { mode: 'set_type', role: 'titles-manager', type: 'run_agent' },
+        { mode: 'set_type', role: 'assistant', type: 'run_agent' },
         { type: 'change_status', target: 'step2' },
       ],
     },
     {
       from: 'step2', trigger: 'on_enter', conditions: [],
       actions: [
-        { mode: 'title', role: 'titles-manager', type: 'run_agent' },
+        { mode: 'title', role: 'assistant', type: 'run_agent' },
         { type: 'change_status', target: 'step3' },
       ],
     },
     {
       from: 'step3', trigger: 'on_enter', conditions: [],
       actions: [
-        { mode: 'refine', role: 'titles-manager', type: 'run_agent', instructions: '' },
+        { mode: 'refine', role: 'assistant', type: 'run_agent', instructions: '' },
         { type: 'change_status', target: 'step4' },
       ],
     },
@@ -215,7 +215,7 @@ async function waitForStatus(mgr, agentId, taskId, expectedStatus, timeoutMs = 1
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test('single task flows through entire pipeline: todo → done', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
   const { task, agentId } = createTask(mgr, 'Build a login page');
 
   mgr.setTaskStatus(agentId, task.id, 'todo', { by: 'user' });
@@ -231,7 +231,7 @@ test('single task flows through entire pipeline: todo → done', async () => {
 });
 
 test('3 parallel tasks all reach done', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
 
   const tasks = Array.from({ length: 3 }, (_, i) =>
     createTask(mgr, `Parallel task ${i + 1}`)
@@ -248,7 +248,7 @@ test('3 parallel tasks all reach done', async () => {
 });
 
 test('5 parallel tasks with 1 agent all reach done', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
 
   const tasks = Array.from({ length: 5 }, (_, i) =>
     createTask(mgr, `Stress task ${i + 1}`)
@@ -266,8 +266,8 @@ test('5 parallel tasks with 1 agent all reach done', async () => {
 
 test('5 parallel tasks with 2 agents all reach done', async () => {
   const mgr = await setup([
-    { name: 'TitlesBot-A', role: 'titles-manager' },
-    { name: 'TitlesBot-B', role: 'titles-manager' },
+    { name: 'TitlesBot-A', role: 'assistant' },
+    { name: 'TitlesBot-B', role: 'assistant' },
   ]);
 
   const tasks = Array.from({ length: 5 }, (_, i) =>
@@ -285,7 +285,7 @@ test('5 parallel tasks with 2 agents all reach done', async () => {
 });
 
 test('task history records every transition in order', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
   const { task, agentId } = createTask(mgr, 'History test');
 
   mgr.setTaskStatus(agentId, task.id, 'todo', { by: 'user' });
@@ -305,7 +305,7 @@ test('task history records every transition in order', async () => {
 });
 
 test('step4 → done transitions instantly (no run_agent)', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
   const { task, agentId } = createTask(mgr, 'Instant test');
 
   mgr.setTaskStatus(agentId, task.id, 'step4', { by: 'user' });
@@ -314,7 +314,7 @@ test('step4 → done transitions instantly (no run_agent)', async () => {
 });
 
 test('status does not regress after reaching done', async () => {
-  const mgr = await setup([{ name: 'TitlesBot', role: 'titles-manager' }]);
+  const mgr = await setup([{ name: 'TitlesBot', role: 'assistant' }]);
   const { task, agentId } = createTask(mgr, 'No regression');
 
   mgr.setTaskStatus(agentId, task.id, 'todo', { by: 'user' });
@@ -327,9 +327,9 @@ test('status does not regress after reaching done', async () => {
 
 test('10 tasks fired rapidly with 3 agents all complete', async () => {
   const mgr = await setup([
-    { name: 'Bot-A', role: 'titles-manager' },
-    { name: 'Bot-B', role: 'titles-manager' },
-    { name: 'Bot-C', role: 'titles-manager' },
+    { name: 'Bot-A', role: 'assistant' },
+    { name: 'Bot-B', role: 'assistant' },
+    { name: 'Bot-C', role: 'assistant' },
   ]);
 
   const tasks = Array.from({ length: 10 }, (_, i) =>
