@@ -1,3 +1,5 @@
+import { getBoardsByUser } from '../services/database.js';
+
 // ── Per-socket rate limiter for mutating WebSocket events ────────────
 // Prevents a single client from flooding chat/broadcast/delegation events.
 function createSocketRateLimiter(maxEvents = 30, windowMs = 60_000) {
@@ -24,7 +26,7 @@ function _trackMessageId(messageId) {
 }
 
 export function setupSocketHandlers(io, agentManager) {
-  io.on('connection', (socket) => {
+  io.on('connection', async (socket) => {
     console.log(`⚡ Client connected: ${socket.user?.username}`);
 
     // Per-socket rate limiter — 30 mutating events per minute
@@ -33,31 +35,45 @@ export function setupSocketHandlers(io, agentManager) {
     // Track agents with in-flight chat requests on this socket to prevent duplicates
     const chatInFlight = new Set();
 
-    // ── Per-user rooms for isolation ──────────────────────────────────
+    // ── Per-user & per-board rooms for isolation ─────────────────────
     const userId = socket.user?.userId;
     const userRole = socket.user?.role;
     if (userId) socket.join(`user:${userId}`);
     if (userRole === 'admin') socket.join('role:admin');
 
-    /** Emit an event scoped to users who own the given agent */
+    // Join board rooms — user sees agents from all boards they have access to
+    let userBoardIds = new Set<string>();
+    if (userId) {
+      try {
+        const boards = await getBoardsByUser(userId);
+        for (const board of boards) {
+          socket.join(`board:${board.id}`);
+          userBoardIds.add(board.id);
+        }
+      } catch { /* no boards available */ }
+    }
+
+    /** Emit an event scoped to users who can see the given agent (via board) */
     function emitForAgent(agentId, event, data) {
       const agent = agentManager.agents.get(agentId);
-      const ownerId = agent?.ownerId;
-      if (ownerId) {
-        io.to(`user:${ownerId}`).emit(event, data);
+      const boardId = agent?.boardId;
+      if (boardId) {
+        io.to(`board:${boardId}`).emit(event, data);
       } else {
         io.emit(event, data);
       }
     }
 
-    // Send initial state — filtered by user (admin sees all, others see own + unowned)
-    socket.emit('agents:list', agentManager.getAllForUser(userId, userRole));
+    // Send initial state — filtered by board access
+    socket.emit('agents:list', agentManager.getAllForUser(userId, userRole, userBoardIds));
 
-    /** Check if the current socket user can access the given agent */
+    /** Check if the current socket user can access the given agent (via board) */
     function canAccessAgent(agentId) {
       const agent = agentManager.agents.get(agentId);
       if (!agent) return false;
-      return !agent.ownerId || agent.ownerId === userId;
+      // Agents without a board are accessible to everyone
+      if (!agent.boardId) return true;
+      return userBoardIds.has(agent.boardId);
     }
 
     // ── Chat with streaming ───────────────────────────────────────────
@@ -65,9 +81,9 @@ export function setupSocketHandlers(io, agentManager) {
       const { agentId, message, messageId, images } = data;
       if (!agentId || !message) return;
 
-      // Ownership check
+      // Board access check
       if (!canAccessAgent(agentId)) {
-        socket.emit('error', { message: 'Access denied: this agent belongs to another user.' });
+        socket.emit('error', { message: 'Access denied: you do not have access to this agent\'s board.' });
         return;
       }
       if (!checkSocketRate()) {
@@ -136,8 +152,8 @@ export function setupSocketHandlers(io, agentManager) {
       socket.emit('broadcast:start', { message });
 
       try {
-        // Only broadcast to agents visible to this user
-        const visibleAgents = agentManager._agentsForUser(userId, userRole);
+        // Only broadcast to agents visible to this user (via board access)
+        const visibleAgents = agentManager._agentsForUser(userId, userRole, userBoardIds);
         const visibleIds = new Set(visibleAgents.map(a => a.id));
         const results = await agentManager.broadcastMessage(
           message,
@@ -201,17 +217,17 @@ export function setupSocketHandlers(io, agentManager) {
 
     // ── Ping agent status ─────────────────────────────────────────────
     socket.on('agents:refresh', () => {
-      socket.emit('agents:list', agentManager.getAllForUser(userId, userRole));
+      socket.emit('agents:list', agentManager.getAllForUser(userId, userRole, userBoardIds));
     });
 
     // ── Get swarm status with project assignments ─────────────────────
     socket.on('agents:swarm-status', () => {
-      socket.emit('agents:swarm-status', agentManager.getSwarmStatus(userId, userRole));
+      socket.emit('agents:swarm-status', agentManager.getSwarmStatus(userId, userRole, userBoardIds));
     });
 
     // ── Get lightweight status for ALL enabled agents (includes project) ─
     socket.on('agents:statuses', () => {
-      socket.emit('agents:statuses', agentManager.getAllStatuses(userId, userRole));
+      socket.emit('agents:statuses', agentManager.getAllStatuses(userId, userRole, userBoardIds));
     });
 
     // ── Get single agent detailed status ──────────────────────────────
@@ -229,12 +245,12 @@ export function setupSocketHandlers(io, agentManager) {
     socket.on('agents:by-project', (data) => {
       const { project } = data || {};
       if (!project) return;
-      socket.emit('agents:by-project', agentManager.getAgentsByProject(project, userId, userRole));
+      socket.emit('agents:by-project', agentManager.getAgentsByProject(project, userId, userRole, userBoardIds));
     });
 
     // ── Get project summary ──────────────────────────────────────────
     socket.on('agents:project-summary', () => {
-      socket.emit('agents:project-summary', agentManager.getProjectSummary(userId, userRole));
+      socket.emit('agents:project-summary', agentManager.getProjectSummary(userId, userRole, userBoardIds));
     });
 
     // ── Stop agent ────────────────────────────────────────────────────
@@ -317,7 +333,7 @@ export function setupSocketHandlers(io, agentManager) {
 
       try {
         // Find target agent by name
-        const targetAgent = agentManager.getAllForUser(userId, userRole).find(
+        const targetAgent = agentManager.getAllForUser(userId, userRole, userBoardIds).find(
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
@@ -386,7 +402,7 @@ export function setupSocketHandlers(io, agentManager) {
       }
 
       try {
-        const targetAgent = agentManager.getAllForUser(userId, userRole).find(
+        const targetAgent = agentManager.getAllForUser(userId, userRole, userBoardIds).find(
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
@@ -443,7 +459,7 @@ export function setupSocketHandlers(io, agentManager) {
       }
 
       // Helper to find an agent by name (excluding self) — scoped to user's visible agents
-      const userAgents = agentManager.getAllForUser(userId, userRole);
+      const userAgents = agentManager.getAllForUser(userId, userRole, userBoardIds);
       const findAgent = (name) => userAgents.find(
         a => a.name.toLowerCase() === (name || '').toLowerCase() && a.id !== agentId && a.enabled !== false
       );

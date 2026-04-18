@@ -7,15 +7,30 @@ export const gettersMethods = {
     return Array.from(this.agents.values()).map((a: any) => this._sanitize(a));
   },
 
-  getAllForUser(this: any, userId: string, role: string): any[] {
-    return Array.from(this.agents.values())
-      .filter((a: any) => a.ownerId === userId || !a.ownerId)
+  /**
+   * Return agents visible to a user based on board access.
+   * A user sees: agents on boards they own or have been shared + agents with no board.
+   * @param userBoardIds - Set of board IDs the user has access to
+   */
+  getAllForUser(this: any, userId: string, role: string, userBoardIds?: Set<string>): any[] {
+    return this._agentsForUser(userId, role, userBoardIds)
       .map((a: any) => this._sanitize(a));
   },
 
-  _agentsForUser(this: any, userId: string, role: string): any[] {
+  /**
+   * Internal: return raw (unsanitized) agents visible to a user.
+   * @param userBoardIds - Set of board IDs the user has access to
+   */
+  _agentsForUser(this: any, userId: string, role: string, userBoardIds?: Set<string>): any[] {
     return Array.from(this.agents.values())
-      .filter((a: any) => a.ownerId === userId || !a.ownerId);
+      .filter((a: any) => {
+        // Agents without a board are visible to everyone
+        if (!a.boardId) return true;
+        // If we have board IDs, check membership
+        if (userBoardIds) return userBoardIds.has(a.boardId);
+        // Fallback: no board info means show all (admin-like)
+        return true;
+      });
   },
 
   getById(this: any, id: string): any {

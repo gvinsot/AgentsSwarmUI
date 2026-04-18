@@ -15,22 +15,18 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
     enabled: agent.enabled !== false,
     costPerInputToken: agent.costPerInputToken ?? '',
     costPerOutputToken: agent.costPerOutputToken ?? '',
-    ownerId: agent.ownerId || '',
+    boardId: agent.boardId || '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [llmConfigs, setLlmConfigs] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [boards, setBoards] = useState([]);
 
   useEffect(() => {
     api.getLlmConfigs().then(setLlmConfigs).catch(() => {});
-    if (userRole === 'admin') {
-      api.getUsers().then(setUsers).catch(() => {});
-    } else if (currentUser?.userId) {
-      setUsers([{ id: currentUser.userId, username: currentUser.displayName || currentUser.username }]);
-    }
-  }, [userRole, currentUser]);
+    api.getBoards().then(setBoards).catch(() => {});
+  }, []);
 
   // Reset form when switching agents
   useEffect(() => {
@@ -46,7 +42,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
       enabled: agent.enabled !== false,
       costPerInputToken: agent.costPerInputToken ?? '',
       costPerOutputToken: agent.costPerOutputToken ?? '',
-      ownerId: agent.ownerId || '',
+      boardId: agent.boardId || '',
     });
     setSaved(false);
   }, [agent.id]);
@@ -65,7 +61,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
       payload.costPerInputToken = payload.costPerInputToken !== '' ? parseFloat(payload.costPerInputToken) || null : null;
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       payload.llmConfigId = payload.llmConfigId || null;
-      payload.ownerId = payload.ownerId || null;
+      payload.boardId = payload.boardId || null;
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -209,20 +205,20 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
         </div>
       </div>
 
-      {/* Owner */}
+      {/* Board */}
       <div className="px-3 py-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50">
-        <label className="block text-xs text-dark-400 mb-1.5">Owner</label>
+        <label className="block text-xs text-dark-400 mb-1.5">Board</label>
         <select
-          value={form.ownerId}
-          onChange={(e) => updateField('ownerId', e.target.value)}
+          value={form.boardId}
+          onChange={(e) => updateField('boardId', e.target.value)}
           className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
         >
-          <option value="">No owner (visible to all)</option>
-          {users.map(u => (
-            <option key={u.id} value={u.id}>{u.username}</option>
+          <option value="">No board (visible to all)</option>
+          {boards.map(b => (
+            <option key={b.id} value={b.id}>{b.name}{b.is_default ? ' (default)' : ''}</option>
           ))}
         </select>
-        <p className="text-[11px] text-dark-500 mt-1">{userRole === 'admin' ? 'An agent without owner is visible to all users' : 'Set yourself as owner to make this agent private'}</p>
+        <p className="text-[11px] text-dark-500 mt-1">Agents are visible to all users who have access to the selected board. An agent without a board is visible to everyone.</p>
       </div>
 
       {/* Metrics */}
@@ -271,7 +267,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : saved ? (
             <>
-              <span className="text-emerald-300">✓</span> Saved!
+              <span className="text-emerald-300">&#10003;</span> Saved!
             </>
           ) : (
             <>

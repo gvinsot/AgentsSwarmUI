@@ -1,6 +1,6 @@
 // ─── Agent CRUD: create, update, delete, resetInstructionsByRole ─────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveAgent, deleteAgentFromDb, setAgentOwner } from '../database.js';
+import { saveAgent, deleteAgentFromDb, setAgentOwner, setAgentBoard } from '../database.js';
 import { AGENT_TEMPLATES } from '../../data/templates.js';
 
 /** @this {import('./index.js').AgentManager} */
@@ -50,6 +50,7 @@ export const crudMethods = {
       costPerOutputToken: config.costPerOutputToken ?? null,
       llmConfigId: config.llmConfigId || null,
       ownerId: config.ownerId || null,
+      boardId: config.boardId || null,
       color: config.color || this._randomColor(),
       icon: config.icon || '🤖',
       createdAt: new Date().toISOString(),
@@ -61,6 +62,9 @@ export const crudMethods = {
     await saveAgent(agent);
     if (config.ownerId) {
       await setAgentOwner(id, config.ownerId);
+    }
+    if (config.boardId) {
+      await setAgentBoard(id, config.boardId);
     }
     this._emit('agent:created', this._sanitize(agent));
     return this._sanitize(agent);
@@ -74,7 +78,7 @@ export const crudMethods = {
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'ragDocuments', 'skills', 'mcpServers', 'mcpAuth', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
-      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId'
+      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId', 'boardId'
     ];
 
     for (const key of allowed) {
@@ -83,6 +87,11 @@ export const crudMethods = {
         if (key === 'ownerId' && updates[key] !== agent[key]) {
           agent[key] = updates[key];
           setAgentOwner(agent.id, updates[key]);
+          continue;
+        }
+        if (key === 'boardId' && updates[key] !== agent[key]) {
+          agent[key] = updates[key];
+          setAgentBoard(agent.id, updates[key]);
           continue;
         }
         if (key === 'mcpAuth') {

@@ -66,25 +66,25 @@ export const statusMethods = {
     };
   },
 
-  getAllStatuses(this: any, userId: string | null = null, role: string | null = null): any[] {
-    const agents = (userId && role) ? this._agentsForUser(userId, role) : Array.from(this.agents.values());
+  getAllStatuses(this: any, userId: string | null = null, role: string | null = null, userBoardIds?: Set<string>): any[] {
+    const agents = (userId && role) ? this._agentsForUser(userId, role, userBoardIds) : Array.from(this.agents.values());
     return (agents as any[])
       .filter((a: any) => a.enabled !== false)
       .map((a: any) => this.getAgentStatus(a.id))
       .filter(Boolean);
   },
 
-  getAgentsByProject(this: any, projectName: string, userId: string | null = null, role: string | null = null): any[] {
+  getAgentsByProject(this: any, projectName: string, userId: string | null = null, role: string | null = null, userBoardIds?: Set<string>): any[] {
     if (!projectName) return [];
-    const agents = (userId && role) ? this._agentsForUser(userId, role) : Array.from(this.agents.values());
+    const agents = (userId && role) ? this._agentsForUser(userId, role, userBoardIds) : Array.from(this.agents.values());
     return (agents as any[])
       .filter((a: any) => a.enabled !== false && (a.project || '').toLowerCase() === projectName.toLowerCase())
       .map((a: any) => this.getAgentStatus(a.id))
       .filter(Boolean);
   },
 
-  getProjectSummary(this: any, userId: string | null = null, role: string | null = null): any {
-    const agents = (userId && role) ? this._agentsForUser(userId, role) : Array.from(this.agents.values());
+  getProjectSummary(this: any, userId: string | null = null, role: string | null = null, userBoardIds?: Set<string>): any {
+    const agents = (userId && role) ? this._agentsForUser(userId, role, userBoardIds) : Array.from(this.agents.values());
     const enabled = (agents as any[]).filter((a: any) => a.enabled !== false);
     const projectMap: Record<string, any> = {};
     const unassigned: any[] = [];
@@ -128,8 +128,8 @@ export const statusMethods = {
     };
   },
 
-  getSwarmStatus(this: any, userId: string | null = null, role: string | null = null): any {
-    const allAgents = (userId && role) ? this._agentsForUser(userId, role) : Array.from(this.agents.values());
+  getSwarmStatus(this: any, userId: string | null = null, role: string | null = null, userBoardIds?: Set<string>): any {
+    const allAgents = (userId && role) ? this._agentsForUser(userId, role, userBoardIds) : Array.from(this.agents.values());
     const enabled = (allAgents as any[]).filter((a: any) => a.enabled !== false);
     const disabled = (allAgents as any[]).filter((a: any) => a.enabled === false);
 

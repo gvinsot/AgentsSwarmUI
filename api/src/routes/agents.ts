@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { globalTaskStore } from '../services/globalTaskStore.js';
 import { getWorkflowForBoard } from '../services/configManager.js';
-import { getAllBoards } from '../services/database.js';
+import { getAllBoards, getBoardsByUser } from '../services/database.js';
 import { stripToolCalls } from '../services/workflow/index.js';
 import { setTaskSignal } from '../services/agentManager/tasks.js';
 
@@ -40,11 +40,13 @@ const createAgentSchema = z.object({
   costPerOutputToken: z.number().min(0).nullable().optional(),
   copyApiKeyFromAgent: z.string().uuid().optional(),
   llmConfigId: z.string().max(200).nullable().optional(),
+  boardId: z.string().uuid().nullable().optional(),
 });
 
 // Schema for updating an agent (all fields optional)
 const updateAgentSchema = createAgentSchema.partial().extend({
   ownerId: z.string().uuid().nullable().optional(),
+  boardId: z.string().uuid().nullable().optional(),
 });
 
 // Mask sensitive fields before sending agent data to the client
@@ -60,29 +62,45 @@ function sanitizeAgent(agent) {
 export function agentRoutes(agentManager) {
   const router = express.Router();
 
-  // ── Ownership guard: users can only access their own agents or unowned ones (admins bypass) ──
-  function requireAgentAccess(req, res, next) {
+  // ── Resolve user's accessible board IDs (own boards + shared boards + default) ──
+  async function getUserBoardIds(userId: string): Promise<Set<string>> {
+    try {
+      const boards = await getBoardsByUser(userId);
+      return new Set(boards.map(b => b.id));
+    } catch {
+      return new Set();
+    }
+  }
+
+  // ── Board-based access guard: users can access agents on their boards or unscoped agents ──
+  async function requireAgentAccess(req, res, next) {
     const agent = agentManager.agents.get(req.params.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (req.user.role === 'admin') return next();
-    if (agent.ownerId && agent.ownerId !== req.user.userId) {
+    // Agents without a board are accessible to everyone
+    if (!agent.boardId) return next();
+    // Check if user has access to the agent's board
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    if (!userBoardIds.has(agent.boardId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
     next();
   }
 
-  // List agents (filtered by user — each user sees own + unowned)
-  router.get('/', (req, res) => {
-    const agents = agentManager.getAllForUser(req.user.userId, req.user.role);
+  // List agents (filtered by board access — each user sees agents on their boards + unscoped)
+  router.get('/', async (req, res) => {
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    const agents = agentManager.getAllForUser(req.user.userId, req.user.role, userBoardIds);
     res.json(agents.map(sanitizeAgent));
   });
 
   // Get lightweight status for ALL enabled agents (includes project + currentTask)
   // Much lighter than GET / which returns full agent data with conversation history
   // Optional query param: ?project=ProjectName to filter by project
-  router.get('/statuses', (req, res) => {
+  router.get('/statuses', async (req, res) => {
     const { project } = req.query;
-    let statuses = agentManager.getAllStatuses(req.user.userId, req.user.role);
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    let statuses = agentManager.getAllStatuses(req.user.userId, req.user.role, userBoardIds);
     if (project) {
       const lowerProject = (project as string).toLowerCase();
       statuses = statuses.filter(s =>
@@ -93,19 +111,22 @@ export function agentRoutes(agentManager) {
   });
 
   // Get agents working on a specific project
-  router.get('/by-project/:project', (req, res) => {
-    const agents = agentManager.getAgentsByProject(req.params.project, req.user.userId, req.user.role);
+  router.get('/by-project/:project', async (req, res) => {
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    const agents = agentManager.getAgentsByProject(req.params.project, req.user.userId, req.user.role, userBoardIds);
     res.json(agents);
   });
 
   // Get project summary: all projects with their agent counts and assignments
-  router.get('/project-summary', (req, res) => {
-    res.json(agentManager.getProjectSummary(req.user.userId, req.user.role));
+  router.get('/project-summary', async (req, res) => {
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    res.json(agentManager.getProjectSummary(req.user.userId, req.user.role, userBoardIds));
   });
 
   // Get comprehensive swarm status with project assignments
-  router.get('/swarm-status', (req, res) => {
-    res.json(agentManager.getSwarmStatus(req.user.userId, req.user.role));
+  router.get('/swarm-status', async (req, res) => {
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    res.json(agentManager.getSwarmStatus(req.user.userId, req.user.role, userBoardIds));
   });
 
   // ── Admin: reset instructions for all agents of a role to default template ──
@@ -140,6 +161,8 @@ export function agentRoutes(agentManager) {
     }
     try {
       const parsed: any = createAgentSchema.parse(req.body);
+      // Agents are scoped to a board (not a user). The boardId comes from the request body.
+      // We still set ownerId for backward compat / token tracking.
       parsed.ownerId = req.user.userId;
       const agent = await agentManager.create(parsed);
       res.status(201).json(agent);
@@ -253,7 +276,8 @@ export function agentRoutes(agentManager) {
       const { message } = req.body;
       if (!message) return res.status(400).json({ error: 'Message required' });
 
-      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role).map(a => a.id));
+      const userBoardIds = await getUserBoardIds(req.user.userId);
+      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role, userBoardIds).map(a => a.id));
       const results = await agentManager.broadcastMessage(message, null, visibleIds);
       res.json({ results });
     } catch (err) {
@@ -266,7 +290,8 @@ export function agentRoutes(agentManager) {
     try {
       const { project } = req.body;
       if (project === undefined) return res.status(400).json({ error: 'Project required' });
-      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role).map(a => a.id));
+      const userBoardIds = await getUserBoardIds(req.user.userId);
+      const visibleIds = new Set(agentManager.getAllForUser(req.user.userId, req.user.role, userBoardIds).map(a => a.id));
       const updated = await agentManager.updateAllProjects(project, visibleIds);
       res.json({ success: true, count: updated.length });
     } catch (err) {

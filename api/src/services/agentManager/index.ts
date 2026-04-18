@@ -1,5 +1,5 @@
 // ─── AgentManager: class shell + constructor + mixin assembly ─────────────────
-import { getAllAgents, saveAgent, setAgentOwner, getAllLlmConfigs, recordTokenUsage, getTasksByAgent } from '../database.js';
+import { getAllAgents, saveAgent, setAgentOwner, setAgentBoard, getAllLlmConfigs, recordTokenUsage, getTasksByAgent } from '../database.js';
 
 import { lifecycleMethods } from './lifecycle.js';
 import { chatMethods } from './chat.js';
@@ -20,18 +20,18 @@ export interface AgentManager {
 
   // ── getters.ts ──
   getAll(): any[];
-  getAllForUser(userId: string, role?: string): any[];
-  _agentsForUser(userId: string, role?: string): any[];
+  getAllForUser(userId: string, role?: string, userBoardIds?: Set<string>): any[];
+  _agentsForUser(userId: string, role?: string, userBoardIds?: Set<string>): any[];
   getById(id: string): any | null;
   getLastMessages(agentId: string, limit?: number): any | null;
   getLastMessagesByName(agentName: string, limit?: number): any | null;
 
   // ── status.ts ──
   getAgentStatus(id: string): any | null;
-  getAllStatuses(userId?: string | null, role?: string | null): any[];
-  getAgentsByProject(projectName: string, userId?: string | null, role?: string | null): any[];
-  getProjectSummary(userId?: string | null, role?: string | null): any;
-  getSwarmStatus(userId?: string | null, role?: string | null): any;
+  getAllStatuses(userId?: string | null, role?: string | null, userBoardIds?: Set<string>): any[];
+  getAgentsByProject(projectName: string, userId?: string | null, role?: string | null, userBoardIds?: Set<string>): any[];
+  getProjectSummary(userId?: string | null, role?: string | null, userBoardIds?: Set<string>): any;
+  getSwarmStatus(userId?: string | null, role?: string | null, userBoardIds?: Set<string>): any;
   setStatus(id: string, status: string, detail?: string | null): void;
   stopAgent(id: string): boolean;
 
@@ -395,16 +395,16 @@ export class AgentManager {
       return;
     }
 
-    if ((event === 'agent:created' || event === 'agent:deleted') && data?.ownerId) {
-      this.io.to(`user:${data.ownerId}`).emit(event, data);
+    if ((event === 'agent:created' || event === 'agent:deleted') && data?.boardId) {
+      this.io.to(`board:${data.boardId}`).emit(event, data);
       return;
     }
 
     const agentId = data?.id || data?.agentId;
     if (agentId) {
       const agent = this.agents.get(agentId);
-      if (agent?.ownerId) {
-        this.io.to(`user:${agent.ownerId}`).emit(event, data);
+      if (agent?.boardId) {
+        this.io.to(`board:${agent.boardId}`).emit(event, data);
         return;
       }
     }
@@ -412,14 +412,19 @@ export class AgentManager {
     this.io.emit(event, data);
   }
 
-  _emitToOwner(event: string, data: any) {
+  _emitToBoard(event: string, data: any) {
     if (!this.io) return;
-    const ownerId = data?.ownerId;
-    if (ownerId) {
-      this.io.to(`user:${ownerId}`).emit(event, data);
+    const boardId = data?.boardId;
+    if (boardId) {
+      this.io.to(`board:${boardId}`).emit(event, data);
     } else {
       this.io.emit(event, data);
     }
+  }
+
+  /** @deprecated Use _emitToBoard instead — kept for backward compat */
+  _emitToOwner(event: string, data: any) {
+    this._emitToBoard(event, data);
   }
 
   _flushAgentUpdate(agentId: string) {
@@ -434,7 +439,7 @@ export class AgentManager {
       // Always emit the CURRENT agent state to avoid stale snapshots
       const agent = this.agents.get(agentId);
       if (agent) {
-        this._emitToOwner('agent:updated', this._sanitize(agent));
+        this._emitToBoard('agent:updated', this._sanitize(agent));
       }
     }
   }

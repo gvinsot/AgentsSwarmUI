@@ -143,10 +143,16 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('ALTER TABLE users ALTER COLUMN password DROP NOT NULL').catch(() => {});
       console.log('✅ Users table ready');
 
-      // Add owner_id column to agents table (nullable for backwards compat)
+      // Add owner_id column to agents table (legacy — kept for migration)
       await pool.query(`
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE SET NULL
       `).catch(() => {});
+
+      // Add board_id column to agents table — agents are now scoped to boards
+      await pool.query(`
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS board_id UUID REFERENCES boards(id) ON DELETE SET NULL
+      `).catch(() => {});
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_agents_board ON agents(board_id)').catch(() => {});
 
       // ── LLM Configs table ─────────────────────────────────────────────────
       await pool.query(`
