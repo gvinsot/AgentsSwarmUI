@@ -148,6 +148,7 @@ async function setup(agentDefs = []) {
     const created = await mgr.create(def);
     const raw = mgr.agents.get(created.id);
     raw.status = 'idle';
+    raw.boardId = 'board-test';
     raw.conversationHistory = [];
     mgr._tasks.set(created.id, []);
   }
