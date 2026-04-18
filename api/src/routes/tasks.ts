@@ -23,7 +23,7 @@ async function requireTaskAccess(mgr, task, user) {
       if (board.is_default) return true;
       if (board.user_id === user.userId) return true;
       const share = await getBoardShare(task.boardId, user.userId);
-      if (share && share.permission === 'write') return true;
+      if (share && (share.permission === 'edit' || share.permission === 'admin')) return true;
     }
   }
   return false;
