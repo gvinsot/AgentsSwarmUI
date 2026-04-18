@@ -130,7 +130,7 @@ export default function ProcessesView() {
       setLoading(true);
       setError(null);
       const data = await api.getAllBoardsAdmin();
-      setBoards(data || []);
+      setBoards((data || []).filter((b: Board) => !b.is_default && b.name !== 'My board'));
     } catch (err: any) {
       setError(err.message || 'Failed to load boards');
     } finally {
