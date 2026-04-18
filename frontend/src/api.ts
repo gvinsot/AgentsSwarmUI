@@ -711,6 +711,14 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     }).then(handleResponse),
+
+  // Contact form (public — no auth)
+  submitContact: (data: { email: string; phone: string; name?: string; company?: string; message?: string; type: 'contact' | 'support' }) =>
+    fetch(`${API_BASE}/contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(handleResponse),
 };
 
 // Budget

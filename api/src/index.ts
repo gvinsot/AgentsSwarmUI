@@ -41,6 +41,7 @@ import budgetRoutes from './routes/budget.js';
 import { userRoutes } from './routes/users.js';
 import { llmConfigRoutes } from './routes/llmConfigs.js';
 import { boardRoutes } from './routes/boards.js';
+import { contactRoutes } from './routes/contact.js';
 import taskRoutes from './routes/tasks.js';
 import { startJiraSync, registerWebhook } from './services/jiraSync.js';
 
@@ -120,6 +121,9 @@ app.use('/api/users', authenticateToken, requireRole('admin'), userRoutes());
 
 // Jira webhook — public endpoint, secured by shared secret header
 app.use('/api/jira/webhook', jiraWebhookRoute(agentManager));
+
+// Public contact form — rate-limited, no auth required
+app.use('/api/contact', contactRoutes(agentManager));
 
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());

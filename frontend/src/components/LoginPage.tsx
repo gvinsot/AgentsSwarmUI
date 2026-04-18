@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Lock, User, AlertCircle, ChevronRight, Bot, LayoutDashboard, FolderKanban, DollarSign, Zap, Shield, Globe, ArrowRight, Play, X, ChevronDown } from 'lucide-react';
+import { Lock, User, AlertCircle, ChevronRight, Bot, LayoutDashboard, FolderKanban, DollarSign, Zap, Shield, Globe, ArrowRight, Play, X, ChevronDown, Mail, Phone, Building2, MessageSquare, Github, Headphones, Send } from 'lucide-react';
 import { api } from '../api';
 
 /* ── Reusable tiny components ── */
@@ -260,6 +260,221 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
   );
 }
 
+/* ── Contact / Support form modal ── */
+
+function ContactFormModal({ open, onClose, type }: {
+  open: boolean;
+  onClose: () => void;
+  type: 'contact' | 'support';
+}) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', company: '', message: '' });
+  const [sending, setSending] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleChange = (field: string, value: string) => setForm(f => ({ ...f, [field]: value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSending(true);
+    try {
+      await api.submitContact({ ...form, type });
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleClose = () => {
+    setForm({ name: '', email: '', phone: '', company: '', message: '' });
+    setSuccess(false);
+    setError('');
+    onClose();
+  };
+
+  const title = type === 'contact' ? 'Contact Us' : 'Request Support';
+  const subtitle = type === 'contact'
+    ? 'Tell us about your needs and we\'ll help you set up PulsarTeam in your organization.'
+    : 'Describe your issue and our team will get back to you.';
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-fadeIn" onClick={handleClose} />
+      <div className="fixed inset-0 z-[101] flex items-center justify-center p-4" onClick={handleClose}>
+        <div className="bg-dark-900 border border-dark-700/60 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="p-6 sm:p-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-dark-100">{title}</h2>
+                <p className="text-dark-400 text-sm mt-1">{subtitle}</p>
+              </div>
+              <button onClick={handleClose} className="p-2 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-800 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {success ? (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                  <Send className="w-7 h-7 text-emerald-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-dark-100 mb-2">Request Submitted!</h3>
+                <p className="text-dark-400 text-sm">We'll get back to you as soon as possible.</p>
+                <button onClick={handleClose} className="mt-6 px-6 py-2.5 text-sm font-medium rounded-xl bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 transition-colors">
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    {error}
+                  </div>
+                )}
+
+                {/* Name */}
+                <div>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={e => handleChange('name', e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
+                      placeholder="Your name"
+                    />
+                  </div>
+                </div>
+
+                {/* Email (required) */}
+                <div>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">
+                    Email <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
+                    <input
+                      type="email"
+                      required
+                      value={form.email}
+                      onChange={e => handleChange('email', e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
+                      placeholder="you@company.com"
+                    />
+                  </div>
+                </div>
+
+                {/* Phone (required) */}
+                <div>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">
+                    Phone <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
+                    <input
+                      type="tel"
+                      required
+                      value={form.phone}
+                      onChange={e => handleChange('phone', e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
+                      placeholder="+33 6 12 34 56 78"
+                    />
+                  </div>
+                </div>
+
+                {/* Company */}
+                <div>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Company</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
+                    <input
+                      type="text"
+                      value={form.company}
+                      onChange={e => handleChange('company', e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
+                      placeholder="Your company name"
+                    />
+                  </div>
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Message</label>
+                  <div className="relative">
+                    <MessageSquare className="absolute left-3 top-3 w-4 h-4 text-dark-400" />
+                    <textarea
+                      value={form.message}
+                      onChange={e => handleChange('message', e.target.value)}
+                      rows={4}
+                      className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm resize-none"
+                      placeholder={type === 'contact' ? 'Tell us about your project and needs...' : 'Describe the issue you need help with...'}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={sending || !form.email || !form.phone}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold rounded-xl hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-dark-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-indigo-500/25 text-sm"
+                >
+                  {sending ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending...
+                    </span>
+                  ) : 'Submit'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── CTA options card ── */
+
+function CtaOptionCard({ icon: Icon, title, desc, onClick, href, accent = false }: {
+  icon: any;
+  title: string;
+  desc: string;
+  onClick?: () => void;
+  href?: string;
+  accent?: boolean;
+}) {
+  const cls = accent
+    ? 'bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border-indigo-500/30 hover:border-indigo-400/50 hover:from-indigo-500/15 hover:to-purple-500/15'
+    : 'bg-dark-800/50 border-dark-700/50 hover:border-dark-600 hover:bg-dark-800/80';
+
+  const content = (
+    <div className={`group p-6 rounded-2xl border ${cls} transition-all duration-300 cursor-pointer h-full flex flex-col`}>
+      <div className={`w-11 h-11 rounded-xl ${accent ? 'bg-indigo-500/20' : 'bg-dark-700/60'} flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
+        <Icon className={`w-5 h-5 ${accent ? 'text-indigo-400' : 'text-dark-300'}`} />
+      </div>
+      <h3 className="text-base font-semibold text-dark-100 mb-2">{title}</h3>
+      <p className="text-dark-400 text-sm leading-relaxed flex-1">{desc}</p>
+      <div className={`mt-4 flex items-center gap-1.5 text-sm font-medium ${accent ? 'text-indigo-400' : 'text-dark-300'} group-hover:gap-2.5 transition-all`}>
+        {href ? 'View on GitHub' : 'Get started'}
+        <ArrowRight className="w-4 h-4" />
+      </div>
+    </div>
+  );
+
+  if (href) {
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="block">{content}</a>;
+  }
+  return <div onClick={onClick}>{content}</div>;
+}
+
 /* ── Main landing page ── */
 
 export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
@@ -270,6 +485,7 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
   const [loginOpen, setLoginOpen] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [contactModal, setContactModal] = useState<{ open: boolean; type: 'contact' | 'support' }>({ open: false, type: 'contact' });
 
   useEffect(() => {
     api.googleStatus().then(data => setGoogleEnabled(!!data.enabled)).catch(() => {});
@@ -351,21 +567,27 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
               Built for teams who need real results, not just conversations.
             </p>
 
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => setLoginOpen(true)}
-                className="group w-full sm:w-auto px-8 py-3.5 text-base font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 transition-all shadow-xl shadow-indigo-500/25 flex items-center justify-center gap-2"
-              >
-                Get Started
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </button>
-              <button
-                onClick={scrollToFeatures}
-                className="w-full sm:w-auto px-8 py-3.5 text-base font-medium rounded-xl border border-dark-600 text-dark-300 hover:border-dark-500 hover:text-dark-200 hover:bg-dark-800/50 transition-all flex items-center justify-center gap-2"
-              >
-                Learn More
-                <ChevronDown className="w-4 h-4" />
-              </button>
+            {/* Get Started — 3 options */}
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
+              <CtaOptionCard
+                icon={Mail}
+                title="Contact Us"
+                desc="We'll help you set up PulsarTeam in your organization with full onboarding support."
+                onClick={() => setContactModal({ open: true, type: 'contact' })}
+                accent
+              />
+              <CtaOptionCard
+                icon={Github}
+                title="Self-Deploy"
+                desc="Deploy PulsarTeam yourself from our open-source repository. No support included."
+                href="https://github.com/gvinsot/PulsarTeam"
+              />
+              <CtaOptionCard
+                icon={Headphones}
+                title="Request Support"
+                desc="Already running PulsarTeam? Get expert support from our team."
+                onClick={() => setContactModal({ open: true, type: 'support' })}
+              />
             </div>
 
             {/* Tech stack badges */}
@@ -496,20 +718,34 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
             <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-[80px]" />
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px]" />
 
-            <div className="relative px-8 py-16 sm:px-16 text-center">
-              <h2 className="text-3xl sm:text-4xl font-bold text-dark-50">
+            <div className="relative px-8 py-16 sm:px-16">
+              <h2 className="text-3xl sm:text-4xl font-bold text-dark-50 text-center">
                 Ready to orchestrate your AI team?
               </h2>
-              <p className="mt-4 text-dark-400 text-lg max-w-xl mx-auto">
-                Sign in to access your dashboard and start managing your agents.
+              <p className="mt-4 text-dark-400 text-lg max-w-xl mx-auto text-center">
+                Choose how you want to get started with PulsarTeam.
               </p>
-              <button
-                onClick={() => setLoginOpen(true)}
-                className="group mt-8 px-8 py-3.5 text-base font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 transition-all shadow-xl shadow-indigo-500/25 inline-flex items-center gap-2"
-              >
-                Sign In
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </button>
+              <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
+                <CtaOptionCard
+                  icon={Mail}
+                  title="Contact Us"
+                  desc="Full setup and onboarding for your team."
+                  onClick={() => setContactModal({ open: true, type: 'contact' })}
+                  accent
+                />
+                <CtaOptionCard
+                  icon={Github}
+                  title="Self-Deploy"
+                  desc="Deploy from our open-source repo."
+                  href="https://github.com/gvinsot/PulsarTeam"
+                />
+                <CtaOptionCard
+                  icon={Headphones}
+                  title="Request Support"
+                  desc="Get expert help for your instance."
+                  onClick={() => setContactModal({ open: true, type: 'support' })}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -535,6 +771,13 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
         onLogin={onLogin}
         onGoogleLogin={googleEnabled ? handleGoogleLogin : null}
         googleLoading={googleBusy || googleLoading}
+      />
+
+      {/* ─── Contact / Support form modal ─── */}
+      <ContactFormModal
+        open={contactModal.open}
+        onClose={() => setContactModal(m => ({ ...m, open: false }))}
+        type={contactModal.type}
       />
     </div>
   );

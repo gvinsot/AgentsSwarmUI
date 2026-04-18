@@ -77,6 +77,7 @@ export const SOURCE_META = {
   api:        { label: () => 'API',               cls: 'text-slate-400 bg-slate-500/10 ring-slate-500/20' },
   mcp:        { label: () => 'MCP',               cls: 'text-orange-400 bg-orange-500/10 ring-orange-500/20' },
   recurrence: { label: () => 'Recurring',          cls: 'text-teal-400 bg-teal-500/10 ring-teal-500/20' },
+  website:    { label: (s) => s?.name || 'Website', cls: 'text-emerald-400 bg-emerald-500/10 ring-emerald-500/20' },
 };
 
 // ── Task type definitions ────────────────────────────────────────────────────
