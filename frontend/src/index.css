@@ -106,6 +106,15 @@ code, pre, .font-mono {
   background: rgb(var(--dark-500));
 }
 
+/* Hidden scrollbar (scroll without visible scrollbar) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }

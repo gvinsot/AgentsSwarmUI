@@ -35,7 +35,7 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
   };
 
   return (
-    <div className="flex items-center gap-2 px-6 py-3 border-b border-dark-700/50 bg-dark-900/50 flex-wrap relative z-20">
+    <div className="flex items-center gap-2 px-6 py-3 border-b border-dark-700/50 bg-dark-900/50 overflow-x-auto scrollbar-hide relative z-20">
       {boards.map(board => (
         <div key={board.id} className="relative flex-shrink-0">
           {renaming === board.id ? (

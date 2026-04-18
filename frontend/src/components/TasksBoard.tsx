@@ -546,9 +546,9 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
       )}
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-1.5 border-b border-dark-700 bg-dark-900/30">
+      <div className="flex items-center gap-2 px-4 py-1.5 border-b border-dark-700 bg-dark-900/30 overflow-x-auto scrollbar-hide">
         {/* Search */}
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400" />
           <input
             type="text"
@@ -571,7 +571,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           value={agentFilter}
           onChange={e => setAgentFilter(e.target.value)}
           className="px-3 py-1.5 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
-            focus:outline-none focus:border-indigo-500 transition-colors"
+            focus:outline-none focus:border-indigo-500 transition-colors flex-shrink-0"
         >
           <option value="">All agents</option>
           {agents.filter(a => a.enabled !== false).map(a => (
@@ -585,7 +585,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
             value={projectFilter}
             onChange={e => setProjectFilter(e.target.value)}
             className="px-3 py-1.5 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
-              focus:outline-none focus:border-indigo-500 transition-colors"
+              focus:outline-none focus:border-indigo-500 transition-colors flex-shrink-0"
           >
             <option value="">All projects</option>
             {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
@@ -593,7 +593,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         )}
 
         {/* Sort */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <ArrowUpDown className="w-3.5 h-3.5 text-dark-400" />
           <select
             value={sortBy}
@@ -612,7 +612,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           <button
             onClick={() => { setAgentFilter(''); setProjectFilter(''); setSearch(''); }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-400 bg-amber-500/10
-              border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors"
+              border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors flex-shrink-0 whitespace-nowrap"
           >
             <X className="w-3 h-3" />
             Clear filters ({activeFilters})
@@ -620,7 +620,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         )}
 
         {/* Stats */}
-        <div className="ml-auto flex items-center gap-3 text-xs text-dark-500">
+        <div className="ml-auto flex items-center gap-3 text-xs text-dark-500 flex-shrink-0 whitespace-nowrap">
           <span>{totalByStatus.open} open</span>
           <span className="text-emerald-400/70">{totalByStatus.done} done</span>
           {totalByStatus.error > 0 && (
@@ -631,7 +631,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         {/* Deleted tasks */}
         <button
           onClick={() => setShowDeletedTasks(true)}
-          className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors"
+          className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors flex-shrink-0"
           title="View deleted tasks"
         >
           <Archive className="w-3.5 h-3.5" />
@@ -642,7 +642,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           <button
             key={p.name}
             onClick={() => setActivityTarget(p.github)}
-            className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors"
+            className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors flex-shrink-0"
             title={`GitHub activity — ${p.name}`}
           >
             <GitCommit className="w-3.5 h-3.5" />
@@ -654,7 +654,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         {canEdit && (
           <button
             onClick={() => setShowWorkflowEditor(true)}
-            className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors"
+            className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors flex-shrink-0"
             title="Board workflow settings"
           >
             <Settings className="w-3.5 h-3.5" />
