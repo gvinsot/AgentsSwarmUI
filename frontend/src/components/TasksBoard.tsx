@@ -455,7 +455,24 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     }
   }, [allTasks, columns, refreshAll, isReadOnly, reorderColumnTasks, tasksByColumn]);
 
-
+  // Batch move all tasks from one column to another
+  const handleBatchMove = useCallback(async (sourceColId, targetColId, tasks) => {
+    if (isReadOnly || !tasks.length) return;
+    const targetCol = columns.find(c => c.id === targetColId);
+    if (!targetCol) return;
+    // Optimistic update
+    const taskIds = tasks.map(t => t.id);
+    setDbTasks(prev => prev.map(t =>
+      taskIds.includes(t.id) ? { ...t, status: targetCol.dropStatus, updatedAt: new Date().toISOString() } : t
+    ));
+    try {
+      await Promise.all(tasks.map(t => updateTaskById(t.id, { column: targetCol.dropStatus })));
+      refreshAll();
+    } catch (err) {
+      console.error('[TasksBoard] Batch move failed:', err.message);
+      refreshAll();
+    }
+  }, [columns, refreshAll, isReadOnly]);
 
   const totalByStatus = useMemo(() => {
     const lastColId = columns[columns.length - 1]?.id;
@@ -702,6 +719,8 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
               onTouchDrop={handleTouchDrop}
               onNavigateToAgent={onNavigateToAgent}
               onOpenCommits={setCommitModalTask}
+              columns={columns}
+              onBatchMove={isReadOnly ? undefined : handleBatchMove}
             />
           ))}
         </div>

@@ -1,15 +1,41 @@
-import { useState, useRef, useCallback } from 'react';
-import { Trash2, Edit3, Plus } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Trash2, Edit3, Plus, ArrowRight } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import TaskCard from './TaskCard';
 
-export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits }) {
+export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits, columns, onBatchMove }) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [dropIndex, setDropIndex] = useState(-1);
+  const [showBatchMenu, setShowBatchMenu] = useState(false);
+  const [batchMoving, setBatchMoving] = useState(false);
+  const batchMenuRef = useRef(null);
   const dropZoneRef = useRef(null);
+
+  // Close batch menu on outside click
+  useEffect(() => {
+    if (!showBatchMenu) return;
+    const handleClick = (e) => {
+      if (batchMenuRef.current && !batchMenuRef.current.contains(e.target)) {
+        setShowBatchMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showBatchMenu]);
+
+  const handleBatchMove = useCallback(async (targetColId) => {
+    if (!onBatchMove || batchMoving) return;
+    setBatchMoving(true);
+    setShowBatchMenu(false);
+    try {
+      await onBatchMove(col.id, targetColId, tasks);
+    } finally {
+      setBatchMoving(false);
+    }
+  }, [onBatchMove, col.id, tasks, batchMoving]);
 
   // Compute which index the dragged item should be inserted at
   const computeDropIndex = useCallback((e) => {
@@ -59,9 +85,33 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isLight ? col.countClsLight : col.countCls}`}>
-            {tasks.length}
-          </span>
+          <div className="relative" ref={batchMenuRef}>
+            <button
+              onClick={() => { if (tasks.length > 0 && columns && onBatchMove) setShowBatchMenu(!showBatchMenu); }}
+              className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${isLight ? col.countClsLight : col.countCls} ${tasks.length > 0 && columns && onBatchMove ? 'cursor-pointer hover:ring-1 hover:ring-white/30' : ''}`}
+              title={tasks.length > 0 && columns && onBatchMove ? 'Move all tasks to another column' : ''}
+            >
+              {batchMoving ? '...' : tasks.length}
+            </button>
+            {showBatchMenu && columns && (
+              <div className={`absolute right-0 top-full mt-1 z-50 rounded-lg shadow-xl border min-w-[180px] py-1 ${isLight ? 'bg-white border-gray-200' : 'bg-dark-800 border-dark-600'}`}>
+                <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${isLight ? 'text-gray-400' : 'text-dark-500'}`}>
+                  Move all to...
+                </div>
+                {columns.filter(c => c.id !== col.id).map(targetCol => (
+                  <button
+                    key={targetCol.id}
+                    onClick={() => handleBatchMove(targetCol.id)}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${isLight ? 'hover:bg-gray-100 text-gray-700' : 'hover:bg-dark-700 text-dark-300'}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${targetCol.dot}`} />
+                    <span className="truncate">{targetCol.label}</span>
+                    <ArrowRight className="w-3 h-3 ml-auto opacity-40" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
