@@ -189,11 +189,15 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
       setDbTasks(prev => {
         const idx = prev.findIndex(t => t.id === task.id);
         if (idx === -1) {
-          // New task — add it only if it belongs to the currently active board
-          if (task.boardId && task.boardId === activeBoardIdRef.current) {
+          // New task — add it only if it belongs to the currently active board and is not deleted
+          if (task.boardId && task.boardId === activeBoardIdRef.current && !task.deletedAt) {
             return [...prev, task];
           }
           return prev;
+        }
+        // If the task was deleted, remove it from the local list
+        if (task.deletedAt) {
+          return prev.filter(t => t.id !== task.id);
         }
         // Existing task — update in place (reject stale data)
         const existing = prev[idx];
@@ -234,7 +238,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
 
   // Unique projects for filter
   const allProjects = useMemo(() => {
-    const ps = new Set(allTasks.map(t => t.project).filter(Boolean));
+    const ps = new Set(allTasks.filter(t => !t.deletedAt).map(t => t.project).filter(Boolean));
     return Array.from(ps).sort();
   }, [allTasks]);
 
