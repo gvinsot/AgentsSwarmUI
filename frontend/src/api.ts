@@ -397,6 +397,27 @@ export const api = {
       body: JSON.stringify(agentId ? { agentId } : {})
     }).then(handleResponse),
 
+  // Slack OAuth (supports optional agentId for per-agent auth)
+  getSlackStatus: (agentId?) =>
+    fetch(`${API_BASE}/slack/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  getSlackAuthUrl: (agentId?) =>
+    fetch(`${API_BASE}/slack/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  slackCallback: (code, state) =>
+    fetch(`${API_BASE}/slack/callback`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ code, state })
+    }).then(handleResponse),
+
+  disconnectSlack: (agentId?) =>
+    fetch(`${API_BASE}/slack/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(agentId ? { agentId } : {})
+    }).then(handleResponse),
+
   // Realtime (Voice)
   getRealtimeToken: (agentId) =>
     fetch(`${API_BASE}/realtime/token`, {

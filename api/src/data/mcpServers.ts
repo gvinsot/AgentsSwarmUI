@@ -68,5 +68,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-slack',
+    name: 'Slack',
+    url: '__internal__slack',
+    description: 'Slack — list channels, read/send messages, reply in threads, list users, add reactions (per-agent OAuth)',
+    icon: '💬',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

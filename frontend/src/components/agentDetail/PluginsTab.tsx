@@ -7,6 +7,7 @@ import { api } from '../../api';
 import PluginEditor from '../PluginEditor';
 import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
+import SlackConnect from '../SlackConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -133,6 +134,13 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasGmailMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === GMAIL_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(GMAIL_MCP_ID)
+  );
+
+  // Detect if Slack MCP is among the assigned plugins' MCPs
+  const SLACK_MCP_ID = 'mcp-slack';
+  const hasSlackMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === SLACK_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(SLACK_MCP_ID)
   );
 
   const handleSaveAuth = async () => {
@@ -319,6 +327,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasGmailMcp && (
           <div className="mt-3">
             <GmailConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasSlackMcp && (
+          <div className="mt-3">
+            <SlackConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>

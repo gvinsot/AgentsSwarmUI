@@ -27,6 +27,8 @@ import { onedriveRoutes } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
 import { gmailRoutes } from './routes/gmail.js';
 import { createGmailMcpHandler } from './services/gmailMcp.js';
+import { slackRoutes } from './routes/slack.js';
+import { createSlackMcpHandler } from './services/slackMcp.js';
 import { apiKeyRoutes } from './routes/apiKeys.js';
 import { settingsRoutes } from './routes/settings.js';
 import { createSwarmApiMcpHandler, createSwarmApiMcpSseHandlers } from './services/swarmApiMcp.js';
@@ -130,6 +132,7 @@ app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager)
 app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/gmail', authenticateToken, gmailRoutes());
+app.use('/api/slack', authenticateToken, slackRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
 app.use('/api/budget', authenticateToken, budgetRoutes);
@@ -146,6 +149,9 @@ app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler
 
 const gmailMcpHandler = createGmailMcpHandler();
 app.all('/api/gmail/mcp', authenticateToken, (req, res) => gmailMcpHandler(req, res));
+
+const slackMcpHandler = createSlackMcpHandler();
+app.all('/api/slack/mcp', authenticateToken, (req, res) => slackMcpHandler(req, res));
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
