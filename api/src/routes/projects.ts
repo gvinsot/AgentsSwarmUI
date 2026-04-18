@@ -1,5 +1,5 @@
 import express from 'express';
-import { listStarredRepos, invalidateProjectCache, createProjectFromBoilerplate } from '../services/githubProjects.js';
+import { listRepos, invalidateCache, createProjectFromBoilerplate } from '../services/gitProvider.js';
 
 // In-memory cache for GitHub activity data (TTL 1h)
 const ACTIVITY_CACHE_TTL = 60 * 60 * 1000;
@@ -16,10 +16,10 @@ const _fileCache = new Map();
 export function projectRoutes() {
   const router = express.Router();
 
-  // List available projects (GitHub starred repos)
+  // List available projects (from all git connections)
   router.get('/', async (req, res) => {
     try {
-      const repos = await listStarredRepos();
+      const repos = await listRepos();
       const projects = repos.map(r => ({
         name: r.name,
         fullName: r.fullName,
@@ -27,6 +27,7 @@ export function projectRoutes() {
         htmlUrl: r.htmlUrl,
         description: r.description,
         defaultBranch: r.defaultBranch,
+        provider: r.provider,
       }));
       res.json(projects);
     } catch (err) {
@@ -52,7 +53,7 @@ export function projectRoutes() {
 
   // Force refresh the project cache
   router.post('/refresh', (req, res) => {
-    invalidateProjectCache();
+    invalidateCache();
     res.json({ success: true });
   });
 

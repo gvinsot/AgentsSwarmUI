@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   X, Users, Plus, Trash2, Edit3, Shield, ShieldCheck, ShieldAlert,
   UserCheck, Eye, Save, AlertCircle, Crown, Settings, ToggleLeft, ToggleRight,
-  Cpu, Bell, RotateCcw
+  Cpu, Bell, RotateCcw, GitBranch, Check, Loader2
 } from 'lucide-react';
 import { api } from '../api';
 import LlmConfigModal from './LlmConfigModal';
@@ -44,6 +44,13 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmForm, setLlmForm] = useState(null); // null = closed, {} = new, {id} = editing
   const [llmSaving, setLlmSaving] = useState(false);
+
+  // Git Connections state
+  const [gitConnections, setGitConnections] = useState([]);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitSaving, setGitSaving] = useState(false);
+  const [gitTesting, setGitTesting] = useState(null); // connection id being tested
+  const [gitTestResult, setGitTestResult] = useState(null); // { id, ok, message }
 
   const loadUsers = useCallback(async () => {
     try {
@@ -95,7 +102,19 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { if (activeTab === 'settings') { loadSettings(); loadReminderConfig(); loadResetRoles(); } }, [activeTab, loadSettings, loadReminderConfig, loadResetRoles]);
+  const loadGitConnections = useCallback(async () => {
+    try {
+      setGitLoading(true);
+      const data = await api.getGitConnections();
+      setGitConnections(data);
+    } catch (err) {
+      showToast?.(`Failed to load git connections: ${err.message}`, 'error');
+    } finally {
+      setGitLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { if (activeTab === 'settings') { loadSettings(); loadReminderConfig(); loadResetRoles(); loadGitConnections(); } }, [activeTab, loadSettings, loadReminderConfig, loadResetRoles, loadGitConnections]);
 
   const loadLlmConfigs = useCallback(async () => {
     try {
@@ -138,6 +157,54 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
     } catch (err) {
       showToast?.(`Failed to delete: ${err.message}`, 'error');
     }
+  };
+
+  const handleSaveGitConnections = async () => {
+    try {
+      setGitSaving(true);
+      const saved = await api.updateGitConnections(gitConnections);
+      setGitConnections(saved);
+      showToast?.('Git connections saved', 'success');
+    } catch (err) {
+      showToast?.(`Failed to save git connections: ${err.message}`, 'error');
+    } finally {
+      setGitSaving(false);
+    }
+  };
+
+  const handleTestGitConnection = async (conn) => {
+    setGitTesting(conn.id);
+    setGitTestResult(null);
+    try {
+      const result = await api.testGitConnection(conn);
+      setGitTestResult({ id: conn.id, ...result });
+    } catch (err) {
+      setGitTestResult({ id: conn.id, ok: false, message: err.message });
+    } finally {
+      setGitTesting(null);
+    }
+  };
+
+  const addGitConnection = () => {
+    setGitConnections(prev => [...prev, {
+      id: crypto.randomUUID(),
+      provider: 'github',
+      name: '',
+      token: '',
+      user: '',
+      url: '',
+      filterMode: 'starred',
+      filterValue: '',
+      enabled: true,
+    }]);
+  };
+
+  const updateGitConnection = (id, field, value) => {
+    setGitConnections(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  const removeGitConnection = (id) => {
+    setGitConnections(prev => prev.filter(c => c.id !== id));
   };
 
   const handleSaveSettings = async () => {
@@ -325,6 +392,221 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
                     : 'bg-dark-900 text-dark-500 border border-dark-600'
                 }`}>
                   {settings.jiraEnabled === 'true' ? 'Jira sync is enabled — tasks will be synchronized with your Jira board' : 'Jira sync is disabled — no data will be exchanged with Jira'}
+                </div>
+              </div>
+
+              {/* Git Connections */}
+              <div className="p-5 bg-dark-800 rounded-xl border border-dark-700 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-dark-200 flex items-center gap-2">
+                      <GitBranch className="w-4 h-4 text-emerald-400" />
+                      Git Connections
+                    </h4>
+                    <p className="text-xs text-dark-400 mt-1">
+                      Configure GitHub or GitLab connections to discover available repositories.
+                    </p>
+                  </div>
+                  <button
+                    onClick={addGitConnection}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Connection
+                  </button>
+                </div>
+
+                {gitLoading ? (
+                  <div className="text-center py-4">
+                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  </div>
+                ) : gitConnections.length === 0 ? (
+                  <div className="text-center py-6 text-dark-500">
+                    <GitBranch className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">No git connections configured.</p>
+                    <p className="text-xs mt-1">Add a GitHub or GitLab connection to discover repositories.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {gitConnections.map((conn, idx) => (
+                      <div key={conn.id} className="p-4 bg-dark-900 rounded-lg border border-dark-600 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-dark-500">#{idx + 1}</span>
+                            <button
+                              onClick={() => updateGitConnection(conn.id, 'enabled', !conn.enabled)}
+                              className="flex-shrink-0"
+                            >
+                              {conn.enabled ? (
+                                <ToggleRight className="w-7 h-7 text-green-400" />
+                              ) : (
+                                <ToggleLeft className="w-7 h-7 text-dark-500" />
+                              )}
+                            </button>
+                            <span className={`text-xs ${conn.enabled ? 'text-green-400' : 'text-dark-500'}`}>
+                              {conn.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleTestGitConnection(conn)}
+                              disabled={gitTesting === conn.id || !conn.token}
+                              className="flex items-center gap-1 px-2 py-1 text-xs text-dark-400 hover:text-emerald-400 hover:bg-dark-700 rounded transition-colors disabled:opacity-40"
+                              title="Test connection"
+                            >
+                              {gitTesting === conn.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Check className="w-3 h-3" />
+                              )}
+                              Test
+                            </button>
+                            <button
+                              onClick={() => removeGitConnection(conn.id)}
+                              className="p-1 text-dark-500 hover:text-red-400 hover:bg-dark-700 rounded transition-colors"
+                              title="Remove connection"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {gitTestResult?.id === conn.id && (
+                          <div className={`text-xs px-3 py-2 rounded-lg ${
+                            gitTestResult.ok
+                              ? 'bg-green-900/20 text-green-400 border border-green-800/30'
+                              : 'bg-red-900/20 text-red-400 border border-red-800/30'
+                          }`}>
+                            {gitTestResult.message}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">Name</label>
+                            <input
+                              type="text"
+                              value={conn.name}
+                              onChange={e => updateGitConnection(conn.id, 'name', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                              placeholder="My GitHub"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">Provider</label>
+                            <select
+                              value={conn.provider}
+                              onChange={e => {
+                                updateGitConnection(conn.id, 'provider', e.target.value);
+                                // Reset URL to default for provider
+                                if (e.target.value === 'github') {
+                                  updateGitConnection(conn.id, 'url', '');
+                                  updateGitConnection(conn.id, 'filterMode', 'starred');
+                                } else {
+                                  updateGitConnection(conn.id, 'url', '');
+                                  updateGitConnection(conn.id, 'filterMode', 'owned');
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                            >
+                              <option value="github">GitHub</option>
+                              <option value="gitlab">GitLab</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">API Token</label>
+                            <input
+                              type="password"
+                              value={conn.token}
+                              onChange={e => updateGitConnection(conn.id, 'token', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                              placeholder={conn.provider === 'github' ? 'ghp_...' : 'glpat-...'}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">
+                              {conn.provider === 'github' ? 'Username' : 'Username'}
+                            </label>
+                            <input
+                              type="text"
+                              value={conn.user}
+                              onChange={e => updateGitConnection(conn.id, 'user', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                              placeholder={conn.provider === 'github' ? 'github-username' : 'gitlab-username'}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">
+                              API URL <span className="text-dark-500">(optional, for self-hosted)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={conn.url}
+                              onChange={e => updateGitConnection(conn.id, 'url', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                              placeholder={conn.provider === 'github' ? 'https://api.github.com' : 'https://gitlab.com/api/v4'}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">Filter Mode</label>
+                            <select
+                              value={conn.filterMode}
+                              onChange={e => updateGitConnection(conn.id, 'filterMode', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                            >
+                              {conn.provider === 'github' ? (
+                                <>
+                                  <option value="starred">Starred repos</option>
+                                  <option value="owned">Owned repos</option>
+                                  <option value="group">Organization repos</option>
+                                  <option value="all">All accessible repos</option>
+                                </>
+                              ) : (
+                                <>
+                                  <option value="starred">Starred projects</option>
+                                  <option value="owned">Owned projects</option>
+                                  <option value="group">Group projects</option>
+                                  <option value="all">All member projects</option>
+                                </>
+                              )}
+                            </select>
+                          </div>
+                        </div>
+
+                        {conn.filterMode === 'group' && (
+                          <div>
+                            <label className="block text-xs text-dark-400 mb-1">
+                              {conn.provider === 'github' ? 'Organization name' : 'Group path'}
+                            </label>
+                            <input
+                              type="text"
+                              value={conn.filterValue || ''}
+                              onChange={e => updateGitConnection(conn.id, 'filterValue', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+                              placeholder={conn.provider === 'github' ? 'my-org' : 'my-group/sub-group'}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {gitConnections.length > 0 && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleSaveGitConnections}
+                      disabled={gitSaving}
+                      className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {gitSaving ? 'Saving...' : 'Save Connections'}
+                    </button>
+                  </div>
+                )}
+
+                <div className="text-xs px-3 py-2 rounded-lg bg-dark-900 text-dark-500 border border-dark-600">
+                  Connections configured here replace the GITHUB_TOKEN / GITHUB_USER environment variables. Env vars are used as fallback if no connections are configured.
                 </div>
               </div>
 

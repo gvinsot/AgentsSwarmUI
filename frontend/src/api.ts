@@ -522,6 +522,24 @@ export const api = {
   getWorkflow: () =>
     fetch(`${API_BASE}/settings/general/workflow`, { headers: getHeaders() }).then(handleResponse),
 
+  // Git Connections
+  getGitConnections: () =>
+    fetch(`${API_BASE}/settings/general/git-connections`, { headers: getHeaders() }).then(handleResponse),
+
+  updateGitConnections: (connections) =>
+    fetch(`${API_BASE}/settings/general/git-connections`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ connections })
+    }).then(handleResponse),
+
+  testGitConnection: (connection) =>
+    fetch(`${API_BASE}/settings/general/git-connections/test`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(connection)
+    }).then(handleResponse),
+
   // Boards (per-user multi-board)
   getBoards: () =>
     fetch(`${API_BASE}/boards`, { headers: getHeaders() }).then(handleResponse),
