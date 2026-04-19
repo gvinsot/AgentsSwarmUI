@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Lock, User, AlertCircle, ChevronRight, Bot, LayoutDashboard, FolderKanban, DollarSign, Zap, Shield, Globe, ArrowRight, Play, X, ChevronDown, Mail, Phone, Building2, MessageSquare, Github, Headphones, Send } from 'lucide-react';
 import { api } from '../api';
+import { useLanguage } from '../contexts/LanguageContext';
 
 /* ── Reusable tiny components ── */
 
@@ -35,27 +36,28 @@ function FeatureCard({ icon: Icon, title, desc }: { icon: any; title: string; de
 
 /* ── Screenshot carousel ── */
 
-const SCREENSHOTS = [
-  { src: '/screenshots/screenshot-agents.png', label: 'Agent Management', caption: 'Monitor and manage your AI agents in real time with detailed metrics and status indicators.' },
-  { src: '/screenshots/screenshot-tasks.png', label: 'Kanban Board', caption: 'Organize work across customizable boards with drag-and-drop columns and agent assignments.' },
-  { src: '/screenshots/screenshot-projects.png', label: 'Project Analytics', caption: 'Track project progress with detailed statistics, resolution times, and ticket trends.' },
-  { src: '/screenshots/screenshot-budget.png', label: 'Cost Control', caption: 'Monitor spending by model, track daily costs against budgets, and optimize token usage.' },
-];
-
 function ScreenshotCarousel() {
+  const { t } = useLanguage();
+  const screenshots = [
+    { src: '/screenshots/screenshot-agents.png', labelKey: 'screenshots.agents.label' as const, captionKey: 'screenshots.agents.caption' as const },
+    { src: '/screenshots/screenshot-tasks.png', labelKey: 'screenshots.tasks.label' as const, captionKey: 'screenshots.tasks.caption' as const },
+    { src: '/screenshots/screenshot-projects.png', labelKey: 'screenshots.projects.label' as const, captionKey: 'screenshots.projects.caption' as const },
+    { src: '/screenshots/screenshot-budget.png', labelKey: 'screenshots.budget.label' as const, captionKey: 'screenshots.budget.caption' as const },
+  ];
+
   const [active, setActive] = useState(0);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
-    intervalRef.current = setInterval(() => setActive(p => (p + 1) % SCREENSHOTS.length), 5000);
+    intervalRef.current = setInterval(() => setActive(p => (p + 1) % screenshots.length), 5000);
     return () => clearInterval(intervalRef.current);
   }, []);
 
   const goTo = (i: number) => {
     setActive(i);
     clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => setActive(p => (p + 1) % SCREENSHOTS.length), 5000);
+    intervalRef.current = setInterval(() => setActive(p => (p + 1) % screenshots.length), 5000);
   };
 
   return (
@@ -76,11 +78,11 @@ function ScreenshotCarousel() {
             </div>
           </div>
           <div className="relative aspect-[16/9] bg-dark-900 overflow-hidden cursor-pointer" onClick={() => setLightbox(active)}>
-            {SCREENSHOTS.map((s, i) => (
+            {screenshots.map((s, i) => (
               <img
                 key={s.src}
                 src={s.src}
-                alt={s.label}
+                alt={t(s.labelKey)}
                 className={`absolute inset-0 w-full h-full object-cover object-top transition-opacity duration-700 ${i === active ? 'opacity-100' : 'opacity-0'}`}
                 loading={i === 0 ? 'eager' : 'lazy'}
               />
@@ -90,18 +92,18 @@ function ScreenshotCarousel() {
 
         {/* Caption */}
         <div className="mt-4 text-center">
-          <p className="text-dark-100 font-medium">{SCREENSHOTS[active].label}</p>
-          <p className="text-dark-400 text-sm mt-1">{SCREENSHOTS[active].caption}</p>
+          <p className="text-dark-100 font-medium">{t(screenshots[active].labelKey)}</p>
+          <p className="text-dark-400 text-sm mt-1">{t(screenshots[active].captionKey)}</p>
         </div>
 
         {/* Dots */}
         <div className="flex justify-center gap-2 mt-4">
-          {SCREENSHOTS.map((s, i) => (
+          {screenshots.map((s, i) => (
             <button
               key={i}
               onClick={() => goTo(i)}
               className={`h-1.5 rounded-full transition-all duration-300 ${i === active ? 'w-8 bg-indigo-500' : 'w-1.5 bg-dark-600 hover:bg-dark-500'}`}
-              aria-label={s.label}
+              aria-label={t(s.labelKey)}
             />
           ))}
         </div>
@@ -113,7 +115,7 @@ function ScreenshotCarousel() {
           <button className="absolute top-4 right-4 text-dark-400 hover:text-white" onClick={() => setLightbox(null)}>
             <X className="w-6 h-6" />
           </button>
-          <img src={SCREENSHOTS[lightbox].src} alt={SCREENSHOTS[lightbox].label} className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
+          <img src={screenshots[lightbox].src} alt={t(screenshots[lightbox].labelKey)} className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
         </div>
       )}
     </>
@@ -129,6 +131,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
   onGoogleLogin?: (() => void) | null;
   googleLoading?: boolean;
 }) {
+  const { t } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -161,7 +164,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
               <Logo size="sm" />
-              <span className="text-xl font-bold text-dark-100">Sign In</span>
+              <span className="text-xl font-bold text-dark-100">{t('login.title')}</span>
             </div>
             <button onClick={onClose} className="p-2 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-800 transition-colors">
               <X className="w-5 h-5" />
@@ -177,7 +180,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Username</label>
+              <label className="block text-sm font-medium text-dark-300 mb-2">{t('login.username')}</label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
                 <input
@@ -185,14 +188,14 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
                   value={username}
                   onChange={e => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                  placeholder="Enter username"
+                  placeholder={t('login.usernamePlaceholder')}
                   autoFocus={open}
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Password</label>
+              <label className="block text-sm font-medium text-dark-300 mb-2">{t('login.password')}</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
                 <input
@@ -200,7 +203,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                  placeholder="Enter password"
+                  placeholder={t('login.passwordPlaceholder')}
                 />
               </div>
             </div>
@@ -213,16 +216,16 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Connecting...
+                  {t('login.connecting')}
                 </span>
-              ) : 'Sign In'}
+              ) : t('login.submit')}
             </button>
 
             {onGoogleLogin && (
               <>
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-dark-600" /></div>
-                  <div className="relative flex justify-center text-sm"><span className="px-3 bg-dark-900 text-dark-400">or</span></div>
+                  <div className="relative flex justify-center text-sm"><span className="px-3 bg-dark-900 text-dark-400">{t('login.or')}</span></div>
                 </div>
                 <button
                   type="button"
@@ -233,7 +236,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
                   {googleLoading ? (
                     <span className="flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-dark-300 border-t-transparent rounded-full animate-spin" />
-                      Redirecting...
+                      {t('login.googleRedirecting')}
                     </span>
                   ) : (
                     <>
@@ -243,7 +246,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
                         <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                         <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                       </svg>
-                      Sign in with Google
+                      {t('login.google')}
                     </>
                   )}
                 </button>
@@ -251,7 +254,7 @@ function LoginPanel({ open, onClose, onLogin, onGoogleLogin, googleLoading }: {
             )}
 
             <p className="text-center text-dark-500 text-xs mt-auto">
-              Secure multi-agent management interface
+              {t('login.secure')}
             </p>
           </form>
         </div>
@@ -267,6 +270,7 @@ function ContactFormModal({ open, onClose, type }: {
   onClose: () => void;
   type: 'contact' | 'support';
 }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ name: '', email: '', phone: '', company: '', message: '' });
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -295,10 +299,8 @@ function ContactFormModal({ open, onClose, type }: {
     onClose();
   };
 
-  const title = type === 'contact' ? 'Contact Us' : 'Request Support';
-  const subtitle = type === 'contact'
-    ? 'Tell us about your needs and we\'ll help you set up PulsarTeam in your organization.'
-    : 'Describe your issue and our team will get back to you.';
+  const title = type === 'contact' ? t('contact.title') : t('contact.titleSupport');
+  const subtitle = type === 'contact' ? t('contact.subtitle') : t('contact.subtitleSupport');
 
   if (!open) return null;
 
@@ -324,10 +326,10 @@ function ContactFormModal({ open, onClose, type }: {
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
                   <Send className="w-7 h-7 text-emerald-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-dark-100 mb-2">Request Submitted!</h3>
-                <p className="text-dark-400 text-sm">We'll get back to you as soon as possible.</p>
+                <h3 className="text-lg font-semibold text-dark-100 mb-2">{t('contact.successTitle')}</h3>
+                <p className="text-dark-400 text-sm">{t('contact.successMessage')}</p>
                 <button onClick={handleClose} className="mt-6 px-6 py-2.5 text-sm font-medium rounded-xl bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 transition-colors">
-                  Close
+                  {t('contact.close')}
                 </button>
               </div>
             ) : (
@@ -341,7 +343,7 @@ function ContactFormModal({ open, onClose, type }: {
 
                 {/* Name */}
                 <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Name</label>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">{t('contact.name')}</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
                     <input
@@ -349,7 +351,7 @@ function ContactFormModal({ open, onClose, type }: {
                       value={form.name}
                       onChange={e => handleChange('name', e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
-                      placeholder="Your name"
+                      placeholder={t('contact.namePlaceholder')}
                     />
                   </div>
                 </div>
@@ -357,7 +359,7 @@ function ContactFormModal({ open, onClose, type }: {
                 {/* Email (required) */}
                 <div>
                   <label className="block text-sm font-medium text-dark-300 mb-1.5">
-                    Email <span className="text-red-400">*</span>
+                    {t('contact.email')} <span className="text-red-400">*</span>
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
@@ -367,7 +369,7 @@ function ContactFormModal({ open, onClose, type }: {
                       value={form.email}
                       onChange={e => handleChange('email', e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
-                      placeholder="you@company.com"
+                      placeholder={t('contact.emailPlaceholder')}
                     />
                   </div>
                 </div>
@@ -375,7 +377,7 @@ function ContactFormModal({ open, onClose, type }: {
                 {/* Phone (required) */}
                 <div>
                   <label className="block text-sm font-medium text-dark-300 mb-1.5">
-                    Phone <span className="text-red-400">*</span>
+                    {t('contact.phone')} <span className="text-red-400">*</span>
                   </label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
@@ -385,14 +387,14 @@ function ContactFormModal({ open, onClose, type }: {
                       value={form.phone}
                       onChange={e => handleChange('phone', e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
-                      placeholder="+33 6 12 34 56 78"
+                      placeholder={t('contact.phonePlaceholder')}
                     />
                   </div>
                 </div>
 
                 {/* Company */}
                 <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Company</label>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">{t('contact.company')}</label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
                     <input
@@ -400,14 +402,14 @@ function ContactFormModal({ open, onClose, type }: {
                       value={form.company}
                       onChange={e => handleChange('company', e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm"
-                      placeholder="Your company name"
+                      placeholder={t('contact.companyPlaceholder')}
                     />
                   </div>
                 </div>
 
                 {/* Message */}
                 <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1.5">Message</label>
+                  <label className="block text-sm font-medium text-dark-300 mb-1.5">{t('contact.message')}</label>
                   <div className="relative">
                     <MessageSquare className="absolute left-3 top-3 w-4 h-4 text-dark-400" />
                     <textarea
@@ -415,7 +417,7 @@ function ContactFormModal({ open, onClose, type }: {
                       onChange={e => handleChange('message', e.target.value)}
                       rows={4}
                       className="w-full pl-10 pr-4 py-2.5 bg-dark-800 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-sm resize-none"
-                      placeholder={type === 'contact' ? 'Tell us about your project and needs...' : 'Describe the issue you need help with...'}
+                      placeholder={type === 'contact' ? t('contact.messagePlaceholder') : t('contact.messagePlaceholderSupport')}
                     />
                   </div>
                 </div>
@@ -428,9 +430,9 @@ function ContactFormModal({ open, onClose, type }: {
                   {sending ? (
                     <span className="flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Sending...
+                      {t('contact.sending')}
                     </span>
-                  ) : 'Submit'}
+                  ) : t('contact.submit')}
                 </button>
               </form>
             )}
@@ -443,13 +445,14 @@ function ContactFormModal({ open, onClose, type }: {
 
 /* ── CTA options card ── */
 
-function CtaOptionCard({ icon: Icon, title, desc, onClick, href, accent = false }: {
+function CtaOptionCard({ icon: Icon, title, desc, onClick, href, accent = false, ctaLabel }: {
   icon: any;
   title: string;
   desc: string;
   onClick?: () => void;
   href?: string;
   accent?: boolean;
+  ctaLabel: string;
 }) {
   const cls = accent
     ? 'bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border-indigo-500/30 hover:border-indigo-400/50 hover:from-indigo-500/15 hover:to-purple-500/15'
@@ -463,7 +466,7 @@ function CtaOptionCard({ icon: Icon, title, desc, onClick, href, accent = false 
       <h3 className="text-base font-semibold text-dark-100 mb-2">{title}</h3>
       <p className="text-dark-400 text-sm leading-relaxed flex-1">{desc}</p>
       <div className={`mt-4 flex items-center gap-1.5 text-sm font-medium ${accent ? 'text-indigo-400' : 'text-dark-300'} group-hover:gap-2.5 transition-all`}>
-        {href ? 'View on GitHub' : 'Get started'}
+        {ctaLabel}
         <ArrowRight className="w-4 h-4" />
       </div>
     </div>
@@ -475,6 +478,22 @@ function CtaOptionCard({ icon: Icon, title, desc, onClick, href, accent = false 
   return <div onClick={onClick}>{content}</div>;
 }
 
+/* ── Language toggle ── */
+
+function LanguageToggle() {
+  const { lang, toggleLang } = useLanguage();
+  return (
+    <button
+      onClick={toggleLang}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-dark-400 hover:text-dark-200 hover:bg-dark-800/60 transition-colors"
+      title={lang === 'en' ? 'Passer en français' : 'Switch to English'}
+    >
+      <Globe className="w-4 h-4" />
+      <span className="uppercase">{lang}</span>
+    </button>
+  );
+}
+
 /* ── Main landing page ── */
 
 export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
@@ -482,6 +501,7 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
   onGoogleLogin?: any;
   googleLoading?: boolean;
 }) {
+  const { t } = useLanguage();
   const [loginOpen, setLoginOpen] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -502,10 +522,6 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
     }
   };
 
-  const scrollToFeatures = () => {
-    document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   return (
     <div className="min-h-screen bg-dark-950 text-dark-200">
       {/* ─── Navbar ─── */}
@@ -519,16 +535,17 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
           </div>
           <div className="flex items-center gap-3">
             <a href="#features" className="hidden sm:inline-flex text-sm text-dark-400 hover:text-dark-200 transition-colors px-3 py-2">
-              Features
+              {t('nav.features')}
             </a>
             <a href="#screenshots" className="hidden sm:inline-flex text-sm text-dark-400 hover:text-dark-200 transition-colors px-3 py-2">
-              Product
+              {t('nav.product')}
             </a>
+            <LanguageToggle />
             <button
               onClick={() => setLoginOpen(true)}
               className="px-5 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/20"
             >
-              Sign In
+              {t('nav.signIn')}
             </button>
           </div>
         </div>
@@ -552,41 +569,43 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm font-medium mb-8">
               <Zap className="w-3.5 h-3.5" />
-              Multi-Agent Orchestration Platform
+              {t('hero.badge')}
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-dark-50 leading-tight tracking-tight">
-              Your AI Team,{' '}
+              {t('hero.title.part1')}{' '}
               <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                Orchestrated
+                {t('hero.title.highlight')}
               </span>
             </h1>
 
             <p className="mt-6 text-lg sm:text-xl text-dark-400 leading-relaxed max-w-2xl mx-auto">
-              Deploy, coordinate, and monitor autonomous AI agents working together on your projects.
-              Built for teams who need real results, not just conversations.
+              {t('hero.subtitle')}
             </p>
 
             {/* Get Started — 3 options */}
             <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
               <CtaOptionCard
                 icon={Mail}
-                title="Contact Us"
-                desc="We'll help you set up PulsarTeam in your organization with full onboarding support."
+                title={t('cta.contact.title')}
+                desc={t('cta.contact.desc')}
                 onClick={() => setContactModal({ open: true, type: 'contact' })}
+                ctaLabel={t('cta.getStarted')}
                 accent
               />
               <CtaOptionCard
                 icon={Github}
-                title="Self-Deploy"
-                desc="Deploy PulsarTeam yourself from our open-source repository. No support included."
+                title={t('cta.selfDeploy.title')}
+                desc={t('cta.selfDeploy.desc')}
                 href="https://github.com/gvinsot/PulsarTeam"
+                ctaLabel={t('cta.viewOnGithub')}
               />
               <CtaOptionCard
                 icon={Headphones}
-                title="Request Support"
-                desc="Already running PulsarTeam? Get expert support from our team."
+                title={t('cta.support.title')}
+                desc={t('cta.support.desc')}
                 onClick={() => setContactModal({ open: true, type: 'support' })}
+                ctaLabel={t('cta.getStarted')}
               />
             </div>
 
@@ -607,59 +626,23 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark-50">
-              Everything you need to run an AI team
+              {t('features.title')}
             </h2>
             <p className="mt-4 text-dark-400 text-lg max-w-2xl mx-auto">
-              From agent management to cost monitoring, PulsarTeam gives you full control over your autonomous workforce.
+              {t('features.subtitle')}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            <FeatureCard
-              icon={Bot}
-              title="Agent Management"
-              desc="Create and configure AI agents with custom prompts, models, and capabilities. Monitor status, messages, and token usage in real time."
-            />
-            <FeatureCard
-              icon={FolderKanban}
-              title="Kanban Task Boards"
-              desc="Organize work with drag-and-drop boards. Agents pick up tasks, execute them autonomously, and report results as they progress."
-            />
-            <FeatureCard
-              icon={LayoutDashboard}
-              title="Project Workspaces"
-              desc="Scope agents to projects with objectives, rules, and context. Track progress with statistics, charts, and resolution metrics."
-            />
-            <FeatureCard
-              icon={DollarSign}
-              title="Budget Control"
-              desc="Set spending limits per model. Track daily costs, token breakdown, and usage trends with real-time dashboards."
-            />
-            <FeatureCard
-              icon={Zap}
-              title="Swarm Orchestration"
-              desc="Agents delegate tasks to each other, hand off context, and collaborate. The Swarm Leader coordinates complex multi-step workflows."
-            />
-            <FeatureCard
-              icon={Globe}
-              title="Multi-Provider"
-              desc="Connect any LLM provider: Anthropic Claude, OpenAI GPT, Mistral, Ollama, vLLM, Google. Switch models per agent without code changes."
-            />
-            <FeatureCard
-              icon={Shield}
-              title="Sandboxed Execution"
-              desc="Agents run code in isolated Docker containers with full dev environments. Git, Node, Python, Go, and more out of the box."
-            />
-            <FeatureCard
-              icon={Play}
-              title="Plugins & MCP"
-              desc="Extend agents with plugins and Model Context Protocol servers. Connect to Slack, OneDrive, databases, or any custom tool."
-            />
-            <FeatureCard
-              icon={ChevronRight}
-              title="Open Source"
-              desc="Self-host on your infrastructure. Full control over data, models, and configuration. Licensed under AGPL-3.0."
-            />
+            <FeatureCard icon={Bot} title={t('features.agentMgmt.title')} desc={t('features.agentMgmt.desc')} />
+            <FeatureCard icon={FolderKanban} title={t('features.kanban.title')} desc={t('features.kanban.desc')} />
+            <FeatureCard icon={LayoutDashboard} title={t('features.projects.title')} desc={t('features.projects.desc')} />
+            <FeatureCard icon={DollarSign} title={t('features.budget.title')} desc={t('features.budget.desc')} />
+            <FeatureCard icon={Zap} title={t('features.swarm.title')} desc={t('features.swarm.desc')} />
+            <FeatureCard icon={Globe} title={t('features.multiProvider.title')} desc={t('features.multiProvider.desc')} />
+            <FeatureCard icon={Shield} title={t('features.sandbox.title')} desc={t('features.sandbox.desc')} />
+            <FeatureCard icon={Play} title={t('features.plugins.title')} desc={t('features.plugins.desc')} />
+            <FeatureCard icon={ChevronRight} title={t('features.openSource.title')} desc={t('features.openSource.desc')} />
           </div>
         </div>
       </section>
@@ -669,10 +652,10 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark-50">
-              See it in action
+              {t('screenshots.title')}
             </h2>
             <p className="mt-4 text-dark-400 text-lg max-w-xl mx-auto">
-              A modern, responsive interface designed for managing complex AI workflows.
+              {t('screenshots.subtitle')}
             </p>
           </div>
 
@@ -687,22 +670,22 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark-50">
-              How it works
+              {t('howItWorks.title')}
             </h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[
-              { step: '01', title: 'Configure Agents', desc: 'Choose models, set system prompts, assign plugins and tools. Each agent gets its own sandboxed workspace.' },
-              { step: '02', title: 'Create Tasks', desc: 'Add tasks to your Kanban board. Assign them to agents or let the Swarm Leader delegate automatically.' },
-              { step: '03', title: 'Monitor & Ship', desc: 'Watch agents work in real time. Review code, track costs, and merge results. Ship faster than ever.' },
-            ].map(item => (
+            {([
+              { step: '01', titleKey: 'howItWorks.step1.title' as const, descKey: 'howItWorks.step1.desc' as const },
+              { step: '02', titleKey: 'howItWorks.step2.title' as const, descKey: 'howItWorks.step2.desc' as const },
+              { step: '03', titleKey: 'howItWorks.step3.title' as const, descKey: 'howItWorks.step3.desc' as const },
+            ]).map(item => (
               <div key={item.step} className="text-center">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 mb-5">
                   <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">{item.step}</span>
                 </div>
-                <h3 className="text-lg font-semibold text-dark-100 mb-3">{item.title}</h3>
-                <p className="text-dark-400 text-sm leading-relaxed">{item.desc}</p>
+                <h3 className="text-lg font-semibold text-dark-100 mb-3">{t(item.titleKey)}</h3>
+                <p className="text-dark-400 text-sm leading-relaxed">{t(item.descKey)}</p>
               </div>
             ))}
           </div>
@@ -720,30 +703,33 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
 
             <div className="relative px-8 py-16 sm:px-16">
               <h2 className="text-3xl sm:text-4xl font-bold text-dark-50 text-center">
-                Ready to orchestrate your AI team?
+                {t('bottomCta.title')}
               </h2>
               <p className="mt-4 text-dark-400 text-lg max-w-xl mx-auto text-center">
-                Choose how you want to get started with PulsarTeam.
+                {t('bottomCta.subtitle')}
               </p>
               <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
                 <CtaOptionCard
                   icon={Mail}
-                  title="Contact Us"
-                  desc="Full setup and onboarding for your team."
+                  title={t('cta.contact.title')}
+                  desc={t('cta.contact.descShort')}
                   onClick={() => setContactModal({ open: true, type: 'contact' })}
+                  ctaLabel={t('cta.getStarted')}
                   accent
                 />
                 <CtaOptionCard
                   icon={Github}
-                  title="Self-Deploy"
-                  desc="Deploy from our open-source repo."
+                  title={t('cta.selfDeploy.title')}
+                  desc={t('cta.selfDeploy.descShort')}
                   href="https://github.com/gvinsot/PulsarTeam"
+                  ctaLabel={t('cta.viewOnGithub')}
                 />
                 <CtaOptionCard
                   icon={Headphones}
-                  title="Request Support"
-                  desc="Get expert help for your instance."
+                  title={t('cta.support.title')}
+                  desc={t('cta.support.descShort')}
                   onClick={() => setContactModal({ open: true, type: 'support' })}
+                  ctaLabel={t('cta.getStarted')}
                 />
               </div>
             </div>
@@ -759,7 +745,7 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
             <span className="text-sm font-semibold text-dark-300">PulsarTeam</span>
           </div>
           <p className="text-dark-500 text-xs">
-            Open-source multi-agent orchestration platform. Licensed under AGPL-3.0.
+            {t('footer.tagline')}
           </p>
         </div>
       </footer>
