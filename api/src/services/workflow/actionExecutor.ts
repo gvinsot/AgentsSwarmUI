@@ -78,9 +78,8 @@ ${instructions}
 
 RULES:
 - Follow the instructions above precisely. Do not take extra actions beyond what is asked.
-- MANDATORY: your response MUST contain a call to @update_task(${task.id}, <new_status>) — this is the ONLY way to signal you are done. <new_status> must be one of the valid column IDs listed above (lowercase, exact match). It is acceptable to keep the same status if the instructions only ask you to append details.
+- You can update the task status: @update_task(${task.id}, <new_status>) where <new_status> is one of the valid column IDs listed above (lowercase, exact match).
 - You can append details: @update_task(${task.id}, <new_status>, <details>).
-- Do NOT reply with prose only. Do NOT call @task_execution_complete — use @update_task instead.
 - Be concise and efficient: execute the instructions, then update the task. Do not explore the codebase unnecessarily.`;
 }
 
