@@ -74,13 +74,7 @@ Task title: ${task.text}
 Current status: ${task.status}${columnList}
 ${task.error ? `Previous error: ${task.error}\n` : ''}${commits}
 Instructions:
-${instructions}
-
-RULES:
-- Follow the instructions above precisely. Do not take extra actions beyond what is asked.
-- You can update the task status: @update_task(${task.id}, <new_status>) where <new_status> is one of the valid column IDs listed above (lowercase, exact match).
-- You can append details: @update_task(${task.id}, <new_status>, <details>).
-- Be concise and efficient: execute the instructions, then update the task. Do not explore the codebase unnecessarily.`;
+${instructions}`;
 }
 
 function buildExecutePrompt(task) {
