@@ -116,11 +116,13 @@ export function isToday(iso) {
 }
 
 export const SORT_OPTIONS = [
-  { value: 'manual',        label: 'Manual (drag & drop)' },
-  { value: 'date_desc',     label: 'Date (recent)' },
-  { value: 'date_asc',      label: 'Date (oldest)' },
-  { value: 'priority_asc',  label: 'Priority (high first)' },
-  { value: 'priority_desc', label: 'Priority (low first)' },
+  { value: 'manual',          label: 'Manual (drag & drop)' },
+  { value: 'created_desc',    label: 'Created (recent)' },
+  { value: 'created_asc',     label: 'Created (oldest)' },
+  { value: 'updated_desc',    label: 'Modified (recent)' },
+  { value: 'updated_asc',     label: 'Modified (oldest)' },
+  { value: 'priority_asc',    label: 'Priority (high first)' },
+  { value: 'priority_desc',   label: 'Priority (low first)' },
 ];
 
 export function sortTasks(tasks, sortBy) {
@@ -129,9 +131,15 @@ export function sortTasks(tasks, sortBy) {
     case 'manual':
       return sorted.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     case 'date_asc':
+    case 'created_asc':
       return sorted.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     case 'date_desc':
+    case 'created_desc':
       return sorted.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    case 'updated_asc':
+      return sorted.sort((a, b) => new Date(a.updatedAt || a.createdAt || 0) - new Date(b.updatedAt || b.createdAt || 0));
+    case 'updated_desc':
+      return sorted.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
     case 'priority_asc': {
       const order = (t) => PRIORITY_MAP[t.priority]?.sortOrder ?? 99;
       return sorted.sort((a, b) => order(a) - order(b));
