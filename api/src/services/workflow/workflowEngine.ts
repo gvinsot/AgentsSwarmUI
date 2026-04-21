@@ -29,8 +29,10 @@ import {
 } from './taskStateMachine.js';
 import { findAgentForAssignment } from './agentSelector.js';
 
-// ── Cooldown for on_enter retries ───────────────────────────────────────────
-const ON_ENTER_RETRY_COOLDOWN_MS = 15_000;
+// ── Progressive cooldown for on_enter retries ──────────────────────────────
+// Starts at 1s and doubles each retry up to a 15s cap: 1s, 2s, 4s, 8s, 15s…
+const ON_ENTER_RETRY_INITIAL_MS = 1_000;
+const ON_ENTER_RETRY_MAX_MS     = 15_000;
 
 // ── Per-task processing lock ────────────────────────────────────────────────
 // Prevents concurrent processColumnEntry calls for the same task, which can
@@ -245,14 +247,15 @@ export async function recheckPendingTransitions(agentManager) {
         agentManager._conditionProcessing.set(lockKey, Date.now());
 
         if (transition.trigger === Trigger.ON_ENTER) {
-          // On-enter retry: infinite retries with 15s cooldown
+          // On-enter retry: infinite retries with progressive cooldown (1s → 15s)
           if (!agentManager._onEnterRetryTimestamps) agentManager._onEnterRetryTimestamps = new Map();
           if (!agentManager._onEnterRetryCounts) agentManager._onEnterRetryCounts = new Map();
           const retryKey = `${agentId}:${task.id}:lastRetry`;
           const retryCount = agentManager._onEnterRetryCounts.get(retryKey) || 0;
 
+          const cooldown = Math.min(ON_ENTER_RETRY_MAX_MS, ON_ENTER_RETRY_INITIAL_MS * Math.pow(2, retryCount));
           const lastRetry = agentManager._onEnterRetryTimestamps.get(retryKey) || 0;
-          if (Date.now() - lastRetry < ON_ENTER_RETRY_COOLDOWN_MS) {
+          if (Date.now() - lastRetry < cooldown) {
             agentManager._conditionProcessing.delete(lockKey);
             break;
           }
