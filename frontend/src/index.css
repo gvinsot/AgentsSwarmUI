@@ -234,13 +234,6 @@ code, pre, .font-mono {
 .light .glass {
   background: rgb(255 255 255 / 0.85);
   border: 1px solid rgb(var(--dark-600) / 0.6);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.06);
-}
-
-/* Light mode: general card elevation */
-.light [class*="bg-dark-900"],
-.light [class*="bg-dark-800"] {
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.06);
 }
 
 /* Light mode: subtle border visibility for panels */
