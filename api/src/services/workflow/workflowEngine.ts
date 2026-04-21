@@ -30,9 +30,11 @@ import {
 import { findAgentForAssignment } from './agentSelector.js';
 
 // ── Progressive cooldown for on_enter retries ──────────────────────────────
-// Starts at 1s and doubles each retry up to a 15s cap: 1s, 2s, 4s, 8s, 15s…
-const ON_ENTER_RETRY_INITIAL_MS = 1_000;
-const ON_ENTER_RETRY_MAX_MS     = 15_000;
+// Starts at 200ms and doubles each retry up to a 2s cap: 200ms, 400ms, 800ms, 1.6s, 2s…
+// In production, the 5s task-loop poll interval dominates anyway, so the cooldown
+// only matters when called at higher frequency (e.g. tests poll every 100ms).
+const ON_ENTER_RETRY_INITIAL_MS = 200;
+const ON_ENTER_RETRY_MAX_MS     = 2_000;
 
 // ── Per-task processing lock ────────────────────────────────────────────────
 // Prevents concurrent processColumnEntry calls for the same task, which can
@@ -247,7 +249,15 @@ export async function recheckPendingTransitions(agentManager) {
         agentManager._conditionProcessing.set(lockKey, Date.now());
 
         if (transition.trigger === Trigger.ON_ENTER) {
-          // On-enter retry: infinite retries with progressive cooldown (1s → 15s)
+          // Skip if the task is already being processed by another processColumnEntry
+          // call (e.g. from _checkAutoRefine). Firing a retry here would just get
+          // deferred and waste a retry counter increment.
+          if (_processingTasks.has(task.id)) {
+            agentManager._conditionProcessing.delete(lockKey);
+            break;
+          }
+
+          // On-enter retry: infinite retries with progressive cooldown (200ms → 2s)
           if (!agentManager._onEnterRetryTimestamps) agentManager._onEnterRetryTimestamps = new Map();
           if (!agentManager._onEnterRetryCounts) agentManager._onEnterRetryCounts = new Map();
           const retryKey = `${agentId}:${task.id}:lastRetry`;
