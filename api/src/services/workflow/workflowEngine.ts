@@ -30,7 +30,7 @@ import {
 import { findAgentForAssignment } from './agentSelector.js';
 
 // ── Cooldown for on_enter retries ───────────────────────────────────────────
-const ON_ENTER_RETRY_COOLDOWN_MS = 30_000;
+const ON_ENTER_RETRY_COOLDOWN_MS = 15_000;
 
 // ── Per-task processing lock ────────────────────────────────────────────────
 // Prevents concurrent processColumnEntry calls for the same task, which can
@@ -245,7 +245,7 @@ export async function recheckPendingTransitions(agentManager) {
         agentManager._conditionProcessing.set(lockKey, Date.now());
 
         if (transition.trigger === Trigger.ON_ENTER) {
-          // On-enter retry: infinite retries with 30s cooldown
+          // On-enter retry: infinite retries with 15s cooldown
           if (!agentManager._onEnterRetryTimestamps) agentManager._onEnterRetryTimestamps = new Map();
           if (!agentManager._onEnterRetryCounts) agentManager._onEnterRetryCounts = new Map();
           const retryKey = `${agentId}:${task.id}:lastRetry`;
