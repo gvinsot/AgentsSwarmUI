@@ -227,8 +227,9 @@ export default function App() {
       });
     });
 
-    sock.on('agent:error:report', ({ agentName, description }) => {
-      showToastRef.current(`🚨 ${agentName} reports an error: ${description.slice(0, 200)}`, 'error', 12000);
+    sock.on('agent:error:report', ({ agentName, description, isSystemError }) => {
+      const prefix = isSystemError ? '⚙️' : '🚨';
+      showToastRef.current(`${prefix} ${agentName}: ${description.slice(0, 200)}`, 'error', 12000);
     });
 
     sock.on('agent:handoff', (data) => {

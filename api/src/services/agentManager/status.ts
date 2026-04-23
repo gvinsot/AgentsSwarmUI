@@ -210,6 +210,16 @@ export const statusMethods = {
       this._recheckConditionalTransitions();
     } else if (status === 'error') {
       this.addActionLog(id, 'error', 'Agent encountered an error', detail);
+      // Emit system error report so the leader + frontend get notified
+      // the same way as agent-reported errors (via @report_error)
+      this._emit('agent:error:report', {
+        agentId: id,
+        agentName: agent.name,
+        project: agent.project || null,
+        description: `[System Error] ${detail || 'Unknown error'}`,
+        timestamp: new Date().toISOString(),
+        isSystemError: true,
+      });
       this._recheckConditionalTransitions();
     }
 

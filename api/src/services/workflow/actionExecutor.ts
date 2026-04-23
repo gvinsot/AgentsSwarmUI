@@ -394,6 +394,16 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
           .catch(() => {})
           .then(() => _emitTaskUpdated(agentManager, task.agentId, errPayload));
       }
+      // Emit system error report for project switch failure
+      agentManager._emit('agent:error:report', {
+        agentId: agent.id,
+        agentName: agent.name,
+        project: task.project || null,
+        description: `[System Error] Project switch failed for "${agent.name}": ${switchErr.message}`,
+        timestamp: new Date().toISOString(),
+        isSystemError: true,
+        taskId: task.id,
+      });
       return { executed: false, error: true, message: `Project switch failed: ${switchErr.message}` };
     }
   }
@@ -428,6 +438,16 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
     console.error(`[ActionExecutor] run_agent error for "${task.text?.slice(0, 60)}":`, err.message);
     // Save error execution log
     agentManager._saveExecutionLog(task.agentId, task.id, agent.id, execStartMsgIdx, execStartedAt, false, mode);
+    // Emit system error report so leader + frontend are notified
+    agentManager._emit('agent:error:report', {
+      agentId: agent.id,
+      agentName: agent.name,
+      project: agent.project || task.project || null,
+      description: `[System Error] Workflow action "${mode}" failed for task "${task.text?.slice(0, 100)}": ${err.message}`,
+      timestamp: new Date().toISOString(),
+      isSystemError: true,
+      taskId: task.id,
+    });
     // Set task to error status
     try {
       agentManager.setTaskStatus(task.agentId, task.id, 'error', { skipAutoRefine: true, by: 'workflow' });

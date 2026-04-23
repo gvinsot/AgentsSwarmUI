@@ -892,6 +892,18 @@ export const tasksMethods = {
       } else {
         await this.setTaskStatus(agentId, task.id, 'error', { skipAutoRefine: true, by: executor.name });
         await updateTaskFields(task.id, { error: err.message });
+        // Emit system error report for task-level failure.
+        // The agent may be auto-recovered to idle below, so setStatus('error')
+        // might not persist — emit explicitly to notify leader + frontend.
+        this._emit('agent:error:report', {
+          agentId: executorId,
+          agentName: executor.name,
+          project: executor.project || null,
+          description: `[System Error] Task "${task.text?.slice(0, 100)}" failed: ${err.message}`,
+          timestamp: new Date().toISOString(),
+          isSystemError: true,
+          taskId: task.id,
+        });
       }
       if (executor.status === 'error') {
         this.setStatus(executorId, 'idle', 'Auto-recovered after resume error');
