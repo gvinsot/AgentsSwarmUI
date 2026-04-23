@@ -462,23 +462,19 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
   } finally {
     releaseLock(lockKey);
     clearAgentBusy(agent.id);
-    // Clear actionRunning flag
+    // Clear actionRunning flag (in-memory only — the chain's next action or
+    // cleanup will persist the final state to DB, avoiding a race where this
+    // fire-and-forget save could overwrite the chain's change_status save).
     if (actualTask && actualTask.actionRunning) {
       actualTask.actionRunning = false;
       delete actualTask.actionRunningAgentId;
       delete actualTask.actionRunningMode;
-      const clearPayload = { ...actualTask, agentId: task.agentId };
-      const clearSave = saveTaskToDb({ ...actualTask, agentId: task.agentId });
-      Promise.resolve(clearSave)
-        .catch(() => {})
-        .then(() => _emitTaskUpdated(agentManager, task.agentId, clearPayload));
     }
     // Non-execute modes (decide, refine, title, set_type) should not leave the
     // agent as the permanent assignee — clear it so the task loop won't send
     // the task to the wrong agent if the next workflow action is delayed.
     if (mode !== AgentMode.EXECUTE && actualTask && actualTask.assignee === agent.id) {
       actualTask.assignee = null;
-      saveTaskToDb({ ...actualTask, agentId: task.agentId });
     }
   }
 }
