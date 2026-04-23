@@ -83,6 +83,27 @@ export class CoderExecutionProvider extends ExecutionProvider {
   async switchProject(agentId: string, newProject: string, gitUrl: string | null = null): Promise<void> {
     this._fileTreeCache.delete(agentId);
     await this.ensureProject(agentId, newProject, gitUrl);
+    // Reset the Claude Code session so the next invocation starts fresh
+    // with the new project's working directory (cwd). Without this, the
+    // resumed session would keep the old project's cwd.
+    await this.resetSession(agentId);
+  }
+
+  /**
+   * Reset the Claude Code CLI session for an agent.
+   * Forces a new session on the next invocation so it picks up the current project cwd.
+   */
+  async resetSession(agentId: string): Promise<void> {
+    try {
+      const res = await fetch(`${this.baseUrl}/reset`, {
+        method: 'POST',
+        headers: this._headers(agentId),
+      });
+      const data: any = await res.json();
+      console.log(`🔄 [Coder] Session reset for agent ${agentId.slice(0, 8)}: ${data.message || 'ok'}`);
+    } catch (err: any) {
+      console.warn(`⚠️  [Coder] Failed to reset session for ${agentId.slice(0, 8)}: ${err.message}`);
+    }
   }
 
   async destroySandbox(agentId: string): Promise<void> {
