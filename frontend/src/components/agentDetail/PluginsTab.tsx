@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import {
-  X, ChevronDown, ChevronRight, Edit3, Save,
+  X, ChevronDown, ChevronRight, Save,
   Zap, Wrench, Loader, XCircle, Key, CheckCircle,
 } from 'lucide-react';
 import { api } from '../../api';
-import PluginEditor from '../PluginEditor';
 import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
@@ -13,24 +12,12 @@ import GitHubConnect from '../GitHubConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingPluginId, setEditingPluginId] = useState(null);
-  const [savingPlugin, setSavingPlugin] = useState(false);
   const [authDraft, setAuthDraft] = useState({});
   const [savingAuth, setSavingAuth] = useState(false);
   const [authSaved, setAuthSaved] = useState(false);
   const [expandedPlugin, setExpandedPlugin] = useState(null);
   const [mcpTestResults, setMcpTestResults] = useState({});
   const [mcpTesting, setMcpTesting] = useState({});
-  const [draft, setDraft] = useState({
-    name: '',
-    description: '',
-    category: 'coding',
-    icon: '🔧',
-    instructions: '',
-    userConfig: {},
-    mcps: [],
-  });
 
   const agentPluginIds = agent.skills || [];
   const assignedPlugins = plugins.filter(s => agentPluginIds.includes(s.id));
@@ -48,65 +35,6 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
 
   const handleRemove = async (pluginId) => {
     await api.removePlugin(agent.id, pluginId);
-    onRefresh();
-  };
-
-  const resetDraft = () => {
-    setDraft({
-      name: '',
-      description: '',
-      category: 'coding',
-      icon: '🔧',
-      instructions: '',
-      userConfig: {},
-      mcps: [],
-    });
-    setEditingPluginId(null);
-    setShowCreate(false);
-  };
-
-  const handleCreate = async () => {
-    if (!draft.name.trim() || !draft.instructions.trim()) return;
-    setSavingPlugin(true);
-    try {
-      await api.createPlugin(draft);
-      resetDraft();
-      onRefresh();
-    } finally {
-      setSavingPlugin(false);
-    }
-  };
-
-  const handleEdit = (plugin) => {
-    setEditingPluginId(plugin.id);
-    setShowCreate(false);
-    setDraft({
-      name: plugin.name || '',
-      description: plugin.description || '',
-      category: plugin.category || 'general',
-      icon: plugin.icon || '🔧',
-      instructions: plugin.instructions || '',
-      userConfig: plugin.userConfig || {},
-      mcps: Array.isArray(plugin.mcps) ? plugin.mcps : [],
-    });
-  };
-
-  const handleUpdate = async () => {
-    if (!editingPluginId || !draft.name.trim() || !draft.instructions.trim()) return;
-    setSavingPlugin(true);
-    try {
-      await api.updatePlugin(editingPluginId, draft);
-      resetDraft();
-      onRefresh();
-    } finally {
-      setSavingPlugin(false);
-    }
-  };
-
-  const handleDelete = async (pluginId, pluginName) => {
-    if (!confirm(`Delete plugin "${pluginName}"?`)) return;
-    await api.deletePlugin(pluginId);
-    if (editingPluginId === pluginId) resetDraft();
     onRefresh();
   };
 
@@ -226,13 +154,6 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
                       </div>
                       <p className="text-xs text-dark-400 truncate">{plugin.description}</p>
                     </div>
-                    <button
-                      onClick={() => handleEdit(plugin)}
-                      className="p-1 text-dark-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                      title="View plugin"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
                     <button
                       onClick={() => handleRemove(plugin.id)}
                       className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
@@ -385,29 +306,6 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
           ))}
         </div>
 
-        {showCreate && (
-          <PluginEditor
-            value={draft}
-            onChange={setDraft}
-            onSubmit={handleCreate}
-            onCancel={resetDraft}
-            saving={savingPlugin}
-            submitLabel="Create Plugin"
-          />
-        )}
-
-        {editingPluginId && (
-          <PluginEditor
-            value={draft}
-            onChange={setDraft}
-            onSubmit={handleUpdate}
-            onCancel={resetDraft}
-            saving={savingPlugin}
-            submitLabel="Save Plugin"
-            readOnly
-          />
-        )}
-
         <div className="space-y-2 mt-3">
           {filteredAvailable.map(plugin => (
             <div key={plugin.id} className="flex items-center gap-3 p-3 bg-dark-800/30 rounded-lg border border-dark-700/30 hover:border-dark-600 transition-colors group">
@@ -432,13 +330,6 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
                 <p className="text-xs text-dark-500 truncate">{plugin.description}</p>
               </div>
               <button
-                onClick={() => handleEdit(plugin)}
-                className="p-1 text-dark-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                title="View plugin"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-              <button
                 onClick={() => handleAssign(plugin.id)}
                 className="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-md text-xs font-medium transition-colors flex-shrink-0"
               >
@@ -446,7 +337,7 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
               </button>
             </div>
           ))}
-          {filteredAvailable.length === 0 && !showCreate && !editingPluginId && (
+          {filteredAvailable.length === 0 && (
             <p className="text-center text-dark-500 text-xs py-4">
               {availablePlugins.length === 0 ? 'All plugins assigned' : 'No plugins in this category'}
             </p>
