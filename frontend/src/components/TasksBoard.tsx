@@ -20,10 +20,10 @@ import BoardTabs from './tasks/BoardTabs';
 // ── TasksBoard (multi-board) ────────────────────────────────────────────────
 
 export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent, githubProjects = [], projectContexts = [] }) {
-  const [projectFilter, setProjectFilter] = useState('');
-  const [agentFilter, setAgentFilter] = useState('');
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('manual');
+  const [projectFilter, setProjectFilter] = useState(() => localStorage.getItem('tasks_projectFilter') || '');
+  const [agentFilter, setAgentFilter] = useState(() => localStorage.getItem('tasks_agentFilter') || '');
+  const [search, setSearch] = useState(() => localStorage.getItem('tasks_search') || '');
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('tasks_sortBy') || 'manual');
   const [selectedTask, setSelectedTask] = useState(null);
   const [commitModalTask, setCommitModalTask] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -83,6 +83,12 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
   useEffect(() => {
     if (activeBoardId) localStorage.setItem('activeBoardId', activeBoardId);
   }, [activeBoardId]);
+
+  // Persist filter state
+  useEffect(() => { localStorage.setItem('tasks_projectFilter', projectFilter); }, [projectFilter]);
+  useEffect(() => { localStorage.setItem('tasks_agentFilter', agentFilter); }, [agentFilter]);
+  useEffect(() => { localStorage.setItem('tasks_search', search); }, [search]);
+  useEffect(() => { localStorage.setItem('tasks_sortBy', sortBy); }, [sortBy]);
 
   // Active board data
   const activeBoard = useMemo(() => boards.find(b => b.id === activeBoardId) || null, [boards, activeBoardId]);
