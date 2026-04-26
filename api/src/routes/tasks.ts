@@ -159,7 +159,7 @@ router.put('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { title, description, column, agentId, type, priority, dueDate, boardId, position } = req.body;
+    const { title, description, column, agentId, type, priority, dueDate, boardId, position, isManual } = req.body;
     const now = new Date().toISOString();
     const username = req.user?.username || 'user';
 
@@ -221,6 +221,7 @@ router.put('/:id', async (req, res) => {
     if (type !== undefined && type !== task.taskType) { task.taskType = type; editedFields.push('taskType'); }
     if (priority !== undefined && priority !== task.priority) { task.priority = priority; editedFields.push('priority'); }
     if (dueDate !== undefined && dueDate !== task.dueDate) { task.dueDate = dueDate; editedFields.push('dueDate'); }
+    if (isManual !== undefined && isManual !== task.isManual) { task.isManual = !!isManual; editedFields.push('isManual'); }
     if (position !== undefined) { task.position = position; }
     task.updatedAt = now;
 
@@ -272,6 +273,7 @@ router.put('/:id', async (req, res) => {
         if (type !== undefined) memTask.taskType = task.taskType;
         if (priority !== undefined) memTask.priority = task.priority;
         if (dueDate !== undefined) memTask.dueDate = task.dueDate;
+        if (isManual !== undefined) memTask.isManual = task.isManual;
         if (position !== undefined) memTask.position = task.position;
         memTask.updatedAt = task.updatedAt;
 

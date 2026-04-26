@@ -29,6 +29,7 @@ export function rowToTask(row) {
     completedActionIdx: row.completed_action_idx != null ? row.completed_action_idx : undefined,
     actionRunning: row.action_running || false,
     actionRunningAgentId: row.action_running_agent_id || undefined,
+    isManual: row.is_manual || false,
     position: parseInt(row.position, 10) || 0,
   };
 }
@@ -101,15 +102,15 @@ async function _doSaveTask(task) {
                           task_type, priority, due_date, source, recurrence, commits, history,
                           error, created_at, updated_at, completed_at, started_at,
                           execution_status, completed_action_idx, action_running, action_running_agent_id,
-                          position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),$18,$19,$20,$21,$22,$23,$24)
+                          is_manual, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),$18,$19,$20,$21,$22,$23,$24,$25)
        ON CONFLICT (id) DO UPDATE SET
          text = $3, title = $4, status = $5, project = $6, board_id = $7, assignee = $8,
          task_type = $9, priority = $10, due_date = $11, source = $12, recurrence = $13,
          commits = $14, history = $15, error = $16, updated_at = NOW(),
          completed_at = $18, started_at = $19,
          execution_status = $20, completed_action_idx = $21, action_running = $22, action_running_agent_id = $23,
-         position = $24`,
+         is_manual = $24, position = $25`,
       [
         task.id,
         task.agentId,
@@ -134,6 +135,7 @@ async function _doSaveTask(task) {
         task.completedActionIdx != null ? task.completedActionIdx : null,
         task.actionRunning || false,
         task.actionRunningAgentId || null,
+        task.isManual || false,
         task.position ?? 0,
       ]
     );
@@ -240,6 +242,7 @@ export async function getTasksForResume() {
         AND t.status NOT IN ('done', 'backlog', 'error')
         AND (t.execution_status IS NULL OR t.execution_status != 'watching')
         AND t.action_running = FALSE
+        AND (t.is_manual IS NULL OR t.is_manual = FALSE)
       ORDER BY t.started_at ASC
     `);
     return result.rows.map(row => ({
@@ -554,7 +557,7 @@ export async function updateTaskFields(taskId, fields) {
     'task_type', 'priority', 'due_date', 'source', 'recurrence',
     'commits', 'history', 'error', 'completed_at', 'started_at',
     'execution_status', 'completed_action_idx', 'action_running', 'action_running_agent_id',
-    'position',
+    'is_manual', 'position',
   ];
   // Map camelCase to snake_case
   const camelToSnake = {
@@ -562,6 +565,7 @@ export async function updateTaskFields(taskId, fields) {
     completedAt: 'completed_at', startedAt: 'started_at',
     executionStatus: 'execution_status', completedActionIdx: 'completed_action_idx',
     actionRunning: 'action_running', actionRunningAgentId: 'action_running_agent_id',
+    isManual: 'is_manual',
   };
   const sets = [];
   const values = [taskId];

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Trash2, Clock, AlertTriangle, User, GitCommit, Repeat, Loader2, Square,
-  Flag, Sun, Play,
+  Flag, Sun, Play, Hand,
 } from 'lucide-react';
 import { SOURCE_META, TASK_TYPE_MAP, PRIORITY_MAP, isToday, timeAgo } from './taskConstants';
 
@@ -254,9 +254,11 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         transition-all hover:shadow-lg hover:shadow-black/20
         ${isError
           ? 'border-red-500/40 bg-red-500/5 hover:border-red-500/60'
-          : today
-            ? 'border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60 ring-1 ring-amber-500/20'
-            : 'border-dark-700 hover:border-dark-500'
+          : task.isManual
+            ? 'border-orange-500/40 bg-orange-500/5 hover:border-orange-500/60 ring-1 ring-orange-500/20'
+            : today
+              ? 'border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60 ring-1 ring-amber-500/20'
+              : 'border-dark-700 hover:border-dark-500'
         }`}
     >
       {/* Task text */}
@@ -323,6 +325,12 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
           <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-teal-500/10 text-teal-400 ring-1 ring-teal-500/20">
             <Repeat className="w-2.5 h-2.5" />
             {task.recurrence.period === 'custom' ? `${task.recurrence.intervalMinutes}m` : task.recurrence.period}
+          </span>
+        )}
+        {task.isManual && (
+          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-orange-500/10 text-orange-400 ring-1 ring-orange-500/20">
+            <Hand className="w-2.5 h-2.5" />
+            Manual
           </span>
         )}
       </div>

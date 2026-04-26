@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, X, Tag, Repeat, Layers } from 'lucide-react';
+import { Plus, X, Tag, Repeat, Layers, Hand } from 'lucide-react';
 import { api } from '../../api';
 import { TASK_TYPES } from './taskConstants';
 
@@ -22,6 +22,7 @@ export default function CreateTaskModal({ agents, allProjects, defaultProject, o
   const [project, setProject] = useState(defaultProject || '');
   const [status, setStatus] = useState(initialStatus);
   const [taskType, setTaskType] = useState('');
+  const [isManual, setIsManual] = useState(false);
   const [recurring, setRecurring] = useState(false);
   const [recurrencePeriod, setRecurrencePeriod] = useState('daily');
   const [customInterval, setCustomInterval] = useState(60);
@@ -54,7 +55,7 @@ export default function CreateTaskModal({ agents, allProjects, defaultProject, o
           ? customInterval
           : RECURRENCE_PERIODS.find(p => p.value === recurrencePeriod)?.minutes || 1440,
       } : undefined;
-      const created = await api.addTask(defaultAgentId, trimmed, project.trim() || undefined, status, boardId, recurrence, taskType || undefined);
+      const created = await api.addTask(defaultAgentId, trimmed, project.trim() || undefined, status, boardId, recurrence, taskType || undefined, isManual || undefined);
       // Pass the created task so the parent can optimistically insert it
       // before the next loadTasks() fetch (avoids the race where the DB
       // INSERT hasn't committed yet).
@@ -156,8 +157,19 @@ export default function CreateTaskModal({ agents, allProjects, defaultProject, o
             </div>
           </div>
 
-          {/* Recurrence */}
-          <div className="border border-dark-700 rounded-lg p-3">
+          {/* Manual + Recurrence */}
+          <div className="border border-dark-700 rounded-lg p-3 space-y-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isManual}
+                onChange={e => setIsManual(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-dark-600 bg-dark-800 text-orange-500 focus:ring-orange-500 focus:ring-offset-0"
+              />
+              <Hand className="w-3.5 h-3.5 text-dark-400" />
+              <span className="text-xs font-semibold text-dark-300 uppercase tracking-wide">Manual task</span>
+              <span className="text-[10px] text-dark-500 ml-1">— not processed by agents</span>
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"

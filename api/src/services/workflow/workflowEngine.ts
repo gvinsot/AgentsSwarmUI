@@ -62,6 +62,11 @@ export async function processColumnEntry(task, agentManager, { by = null } = {})
     return;
   }
 
+  if (task.isManual) {
+    console.log(`[WorkflowEngine] Skipping — task is manual (no automatic agent processing)`);
+    return;
+  }
+
   // ── Per-task lock: prevent concurrent processing ────────────────────────
   // When executeChangeStatus calls setTaskStatus with skipAutoRefine=false,
   // it triggers a nested processColumnEntry while the parent chain is still
@@ -215,6 +220,7 @@ export async function recheckPendingTransitions(agentManager) {
 
     for (const task of agentTasks) {
       if (task.status === 'error') continue;
+      if (task.isManual) continue;
 
       const transitions = boardTransMap.get(task.boardId)
         || (boardTransMap.size === 1 ? [...boardTransMap.values()][0] : []);

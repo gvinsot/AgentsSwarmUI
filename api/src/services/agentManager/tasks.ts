@@ -44,7 +44,7 @@ export function purgeStaleTaskSignals(activeTaskIds: Set<string>): void {
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {
 
-  addTask(this: any, agentId: string, text: string, project: any, source: any, initialStatus?: string, { boardId, skipAutoRefine = false, recurrence, taskType }: { boardId?: string; skipAutoRefine?: boolean; recurrence?: any; taskType?: string } = {}): any {
+  addTask(this: any, agentId: string, text: string, project: any, source: any, initialStatus?: string, { boardId, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const defaultStatus = 'backlog';
@@ -57,6 +57,7 @@ export const tasksMethods = {
       project: project !== undefined ? project : (agent.project || null),
       source: source || null,
       boardId: boardId || null,
+      isManual: isManual || false,
       position: Date.now(),
       createdAt: now,
       history: [{ status, at: now, by: source?.name || source?.type || 'user' }],
@@ -80,7 +81,7 @@ export const tasksMethods = {
     Promise.resolve(savePromise)
       .catch(() => {})
       .then(() => this._emit('task:updated', { agentId, task: taskPayload }));
-    if (!skipAutoRefine) this._checkAutoRefine({ ...newTask, agentId });
+    if (!skipAutoRefine && !newTask.isManual) this._checkAutoRefine({ ...newTask, agentId });
     return newTask;
   },
 
@@ -161,7 +162,7 @@ export const tasksMethods = {
       .catch(() => {})
       .then(() => this._emit('task:updated', { agentId, task: taskPayload }));
     if (by !== 'jira-sync') onTaskStatusChanged(task, status, this);
-    if (!skipAutoRefine && status !== 'error') this._checkAutoRefine({ ...task, agentId }, { by: by || 'user' });
+    if (!skipAutoRefine && status !== 'error' && !task.isManual) this._checkAutoRefine({ ...task, agentId }, { by: by || 'user' });
     return task;
   },
 

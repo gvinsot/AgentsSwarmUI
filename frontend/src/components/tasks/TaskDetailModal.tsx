@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Trash2, X, AlertTriangle, Edit3, Save, Check, Tag, Calendar,
   ChevronDown, Zap, User, GitCommit, Repeat, FolderKanban, Loader2, Layers,
-  ArrowRight,
+  ArrowRight, Hand,
 } from 'lucide-react';
 import { api, updateTask as updateTaskById } from '../../api';
 import ReactMarkdown from 'react-markdown';
@@ -392,6 +392,33 @@ export default function TaskDetailModal({ task, agents, allProjects, onClose, on
                 </span>
               </div>
             )}
+
+            {/* Manual toggle */}
+            <div className="flex items-center justify-between py-2 border-b border-dark-800">
+              <div className="flex items-center gap-2 text-xs text-dark-400">
+                <Hand className="w-3.5 h-3.5" />
+                Manual
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-[10px] text-dark-500">{task.isManual ? 'Not processed by agents' : 'Processed by agents'}</span>
+                <button
+                  onClick={async () => {
+                    const newVal = !task.isManual;
+                    try {
+                      await api.updateTask(task.agentId, task.id, { isManual: newVal });
+                      onRefresh?.();
+                    } catch (err) {
+                      console.error('Failed to toggle manual:', err);
+                    }
+                  }}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors
+                    ${task.isManual ? 'bg-orange-500' : 'bg-dark-600'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform
+                    ${task.isManual ? 'translate-x-4' : 'translate-x-1'}`} />
+                </button>
+              </label>
+            </div>
 
             {/* Project */}
             <div className="flex items-center justify-between py-2 border-b border-dark-800">

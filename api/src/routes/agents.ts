@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { globalTaskStore } from '../services/globalTaskStore.js';
 import { getWorkflowForBoard } from '../services/configManager.js';
-import { getAllBoards, getBoardsByUser } from '../services/database.js';
+import { getAllBoards, getBoardsByUser, saveTaskToDb } from '../services/database.js';
 import { stripToolCalls } from '../services/workflow/index.js';
 import { setTaskSignal } from '../services/agentManager/tasks.js';
 
@@ -321,7 +321,7 @@ export function agentRoutes(agentManager) {
   // ── Task endpoints ──────────────────────────────────────────────────────
   router.post('/:id/tasks', requireAgentAccess, async (req, res) => {
     try {
-      const { text, project, source, status, boardId, recurrence, taskType } = req.body;
+      const { text, project, source, status, boardId, recurrence, taskType, isManual } = req.body;
       if (!text) return res.status(400).json({ error: 'Text required' });
       const agent = agentManager.agents.get(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -356,7 +356,7 @@ export function agentRoutes(agentManager) {
       }
 
       console.log(`[CreateTask] POST /:id/tasks — input: status="${status}", boardId="${boardId}" → resolved: status="${resolvedStatus}", boardId="${resolvedBoardId}" text="${(text || '').slice(0, 60)}"`);
-      const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: resolvedBoardId, recurrence: recurrence || undefined, taskType: taskType || undefined });
+      const task = agentManager.addTask(req.params.id, text, project, resolvedSource, resolvedStatus, { boardId: resolvedBoardId, recurrence: recurrence || undefined, taskType: taskType || undefined, isManual: isManual || false });
       if (!task) return res.status(404).json({ error: 'Agent not found' });
       console.log(`[CreateTask] Task created: id=${task.id} status="${task.status}" boardId="${task.boardId}"`);
       res.status(201).json(task);
@@ -367,7 +367,7 @@ export function agentRoutes(agentManager) {
 
   router.patch('/:id/tasks/:taskId', requireAgentAccess, (req, res) => {
     try {
-    const { status, text, title, project, source, recurrence, taskType } = req.body || {};
+    const { status, text, title, project, source, recurrence, taskType, isManual } = req.body || {};
     // Source is immutable once set at creation — reject any attempt to change it
     if (source !== undefined) {
       return res.status(400).json({ error: 'Source cannot be modified after creation' });
@@ -394,6 +394,13 @@ export function agentRoutes(agentManager) {
       agentManager.updateTaskType(req.params.id, req.params.taskId, taskType || null);
     }
 
+    // Handle isManual update
+    if (isManual !== undefined && oldTask) {
+      oldTask.isManual = !!isManual;
+      saveTaskToDb({ ...oldTask, agentId: req.params.id });
+      agentManager._emit('task:updated', { agentId: req.params.id, task: { ...oldTask, agentId: req.params.id } });
+    }
+
     let task;
     if (title !== undefined) {
       task = agentManager.updateTaskTitle(req.params.id, req.params.taskId, title.trim() || null);
@@ -410,6 +417,8 @@ export function agentRoutes(agentManager) {
       task = agentManager._getAgentTasks(req.params.id).find(t => t.id === req.params.taskId);
     } else if (taskType !== undefined) {
       // If only taskType was sent, return the updated task
+      task = agentManager._getAgentTasks(req.params.id).find(t => t.id === req.params.taskId);
+    } else if (isManual !== undefined) {
       task = agentManager._getAgentTasks(req.params.id).find(t => t.id === req.params.taskId);
     } else {
       task = agentManager.toggleTask(req.params.id, req.params.taskId);

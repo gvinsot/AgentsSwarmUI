@@ -144,11 +144,11 @@ export const api = {
     }).then(handleResponse),
 
   // Tasks
-  addTask: (agentId, text, project, status, boardId, recurrence, taskType) =>
+  addTask: (agentId, text, project, status, boardId, recurrence, taskType, isManual) =>
     fetch(`${API_BASE}/agents/${agentId}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ text, ...(project !== undefined && { project }), ...(status && { status }), ...(boardId && { boardId }), ...(recurrence && { recurrence }), ...(taskType && { taskType }) })
+      body: JSON.stringify({ text, ...(project !== undefined && { project }), ...(status && { status }), ...(boardId && { boardId }), ...(recurrence && { recurrence }), ...(taskType && { taskType }), ...(isManual && { isManual }) })
     }).then(handleResponse),
 
   toggleTask: (agentId, taskId) =>
