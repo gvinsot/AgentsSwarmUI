@@ -69,12 +69,57 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
     touchDragRef.current = null;
   }
 
+  // Document-level touchmove blocker — active only while drag is armed.
+  // Must live on the document so it fires even if the browser re-targets the touch
+  // to the scroll container (which would bypass per-element listeners).
+  const docTouchBlocker = useRef(null);
+  function installDocTouchBlocker() {
+    if (docTouchBlocker.current) return;
+    const handler = (e) => {
+      if (longPressArmedRef.current || touchDragRef.current) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', handler, { passive: false });
+    docTouchBlocker.current = handler;
+  }
+  function removeDocTouchBlocker() {
+    if (!docTouchBlocker.current) return;
+    document.removeEventListener('touchmove', docTouchBlocker.current);
+    docTouchBlocker.current = null;
+  }
+
   // Attach native touch listeners so preventDefault() works AND events fire
   // even when the browser's scroll container intercepts the gesture.
   // React synthetic onTouchEnd/onTouchCancel can be silently swallowed on mobile.
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
+
+    const handleTouchStart = (e) => {
+      if (taskRef.current?.actionRunning) return;
+      const touch = e.touches[0];
+      const startX = touch.clientX;
+      const startY = touch.clientY;
+      longPressArmedRef.current = false;
+      longPressTimerRef.current = setTimeout(() => {
+        longPressArmedRef.current = true;
+        touchDragRef.current = {
+          startX,
+          startY,
+          started: false,
+          ghost: null,
+          lastColumnId: null,
+        };
+        // Block scrolling at the document level — this is the key fix:
+        // per-element touchAction changes mid-gesture are ignored by the browser.
+        installDocTouchBlocker();
+        if (cardRef.current) {
+          cardRef.current.style.transform = 'scale(0.97)';
+          cardRef.current.style.transition = 'transform 0.15s ease';
+        }
+      }, 500);
+    };
 
     const handleTouchMove = (e) => {
       // If long-press timer is still pending, cancel it if user moves (they're scrolling)
@@ -88,8 +133,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
       const dx = touch.clientX - touchDragRef.current.startX;
       const dy = touch.clientY - touchDragRef.current.startY;
 
-      // Prevent scrolling as soon as drag is armed — must happen BEFORE the 20px threshold
-      // Otherwise the browser may interpret early movement as a scroll and fire touchcancel
       e.preventDefault();
 
       if (!touchDragRef.current.started) {
@@ -122,14 +165,13 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         touchDragRef.current.ghost.style.top = (touch.clientY - 30) + 'px';
       }
 
-      // Auto-scroll the board when dragging near edges (critical for mobile — columns are wider than screen)
+      // Auto-scroll the board when dragging near edges
       const scrollEl = touchDragRef.current.scrollContainer;
       if (scrollEl) {
         const rect = scrollEl.getBoundingClientRect();
-        const edgeZone = 60; // px from edge to trigger scroll
-        const scrollSpeed = 12; // px per frame
+        const edgeZone = 60;
+        const scrollSpeed = 12;
 
-        // Clear any existing auto-scroll
         if (autoScrollRef.current) {
           cancelAnimationFrame(autoScrollRef.current);
           autoScrollRef.current = null;
@@ -140,7 +182,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         const startAutoScroll = (direction) => {
           const tick = () => {
             scrollEl.scrollLeft += direction * scrollSpeed;
-            // Update column highlight during auto-scroll (finger is stationary but board scrolls)
             const col2 = getColumnAtPoint(touchX, touchY);
             if (col2 && touchDragRef.current) {
               highlightColumn(col2);
@@ -152,13 +193,13 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         };
 
         if (touch.clientX > rect.right - edgeZone) {
-          startAutoScroll(1); // scroll right
+          startAutoScroll(1);
         } else if (touch.clientX < rect.left + edgeZone) {
-          startAutoScroll(-1); // scroll left
+          startAutoScroll(-1);
         }
       }
 
-      // Highlight the column under the touch point using bounding rects (reliable on mobile)
+      // Highlight the column under the touch point
       const colUnder = getColumnAtPoint(touch.clientX, touch.clientY);
       highlightColumn(colUnder);
       if (colUnder) {
@@ -166,46 +207,41 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
       }
     };
 
-    // Native touchend — fires reliably even when React synthetic events are swallowed
-    const handleTouchEnd = (e) => {
-      // Stop auto-scroll
+    const cleanupTouchState = () => {
       if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
       if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-      // Prevent browser from generating synthetic mouse/click events after touch drop
-      if (touchDragRef.current?.started) e.preventDefault();
+      removeDocTouchBlocker();
       if (cardRef.current) {
         cardRef.current.style.transform = '';
         cardRef.current.style.transition = '';
-        cardRef.current.style.touchAction = '';
         cardRef.current.style.opacity = '';
       }
       longPressArmedRef.current = false;
+    };
+
+    const handleTouchEnd = (e) => {
+      const wasDragging = touchDragRef.current?.started;
+      cleanupTouchState();
+      if (wasDragging) e.preventDefault();
       const touch = e.changedTouches?.[0];
       finalizeTouchDrop(touch?.clientX ?? null, touch?.clientY ?? null);
     };
 
-    // Native touchcancel — mobile browsers fire this instead of touchend when they take over the gesture
     const handleTouchCancel = () => {
-      if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
-      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-      if (cardRef.current) {
-        cardRef.current.style.transform = '';
-        cardRef.current.style.transition = '';
-        cardRef.current.style.touchAction = '';
-        cardRef.current.style.opacity = '';
-      }
-      longPressArmedRef.current = false;
-      // touchcancel has no reliable coordinates — rely solely on lastColumnId
+      cleanupTouchState();
       finalizeTouchDrop(null, null);
     };
 
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
     el.addEventListener('touchmove', handleTouchMove, { passive: false });
     el.addEventListener('touchend', handleTouchEnd, { passive: false });
     el.addEventListener('touchcancel', handleTouchCancel);
     return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
       el.removeEventListener('touchmove', handleTouchMove);
       el.removeEventListener('touchend', handleTouchEnd);
       el.removeEventListener('touchcancel', handleTouchCancel);
+      removeDocTouchBlocker();
     };
   }, []);
 
@@ -224,30 +260,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         e.target.classList.remove('opacity-40');
         // Reset after a tick so click doesn't fire after drop
         setTimeout(() => { isDraggingRef.current = false; }, 50);
-      }}
-      onTouchStart={(e) => {
-        if (task.actionRunning) return; // Block touch drag for running tasks
-        const touch = e.touches[0];
-        const startX = touch.clientX;
-        const startY = touch.clientY;
-        longPressArmedRef.current = false;
-        // Wait 500ms before arming drag — prevents accidental drags while allowing scroll
-        longPressTimerRef.current = setTimeout(() => {
-          longPressArmedRef.current = true;
-          touchDragRef.current = {
-            startX,
-            startY,
-            started: false,
-            ghost: null,
-            lastColumnId: null,
-          };
-          // Visual feedback: subtle scale pulse to indicate drag is armed
-          if (cardRef.current) {
-            cardRef.current.style.transform = 'scale(0.97)';
-            cardRef.current.style.transition = 'transform 0.15s ease';
-            cardRef.current.style.touchAction = 'none'; // Prevent browser from hijacking touch
-          }
-        }, 500);
       }}
       onClick={() => { if (!isDraggingRef.current) onOpen(task); }}
       className={`group/card bg-dark-800 rounded-lg border p-3 cursor-pointer
