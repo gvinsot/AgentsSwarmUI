@@ -31,6 +31,11 @@ function buildDailyActivity(tasks, days = 14) {
 }
 
 // ── Mini bar chart (canvas) showing daily activity ──────────────────────────
+const AXIS_COLOR = '#6b7280';
+const AXIS_LABEL_FONT = '9px system-ui, sans-serif';
+const PADDING_LEFT = 20;
+const PADDING_BOTTOM = 14;
+
 function MiniActivityChart({ data, height = 48 }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -45,6 +50,8 @@ function MiniActivityChart({ data, height = 48 }) {
     return () => obs.disconnect();
   }, []);
 
+  const totalH = height + PADDING_BOTTOM;
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !data?.length) return;
@@ -52,48 +59,90 @@ function MiniActivityChart({ data, height = 48 }) {
     const dpr = window.devicePixelRatio || 1;
 
     canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    canvas.height = totalH * dpr;
     canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    canvas.style.height = `${totalH}px`;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, width, totalH);
 
+    const chartW = width - PADDING_LEFT;
+    const chartH = height;
     const maxVal = Math.max(...data.map(d => d.created + d.completed), 1);
+
+    // Y axis line
+    ctx.strokeStyle = AXIS_COLOR;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(PADDING_LEFT, 0);
+    ctx.lineTo(PADDING_LEFT, chartH);
+    ctx.stroke();
+
+    // X axis line
+    ctx.beginPath();
+    ctx.moveTo(PADDING_LEFT, chartH);
+    ctx.lineTo(width, chartH);
+    ctx.stroke();
+
+    // Y axis labels (0 and max)
+    ctx.fillStyle = AXIS_COLOR;
+    ctx.font = AXIS_LABEL_FONT;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(String(maxVal), PADDING_LEFT - 3, 10);
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('0', PADDING_LEFT - 3, chartH);
+
+    // Bars
     const gap = 2;
-    const barW = Math.max(2, (width - gap * (data.length - 1)) / data.length);
+    const barW = Math.max(2, (chartW - gap * (data.length - 1)) / data.length);
 
     data.forEach((d, i) => {
-      const x = i * (barW + gap);
-      const createdH = (d.created / maxVal) * (height - 2);
-      const completedH = (d.completed / maxVal) * (height - 2);
+      const x = PADDING_LEFT + i * (barW + gap);
+      const createdH = (d.created / maxVal) * (chartH - 2);
+      const completedH = (d.completed / maxVal) * (chartH - 2);
 
-      // Completed (green) stacked on bottom
       if (completedH > 0) {
         ctx.fillStyle = '#22c55e';
         ctx.globalAlpha = 0.8;
         const r = Math.min(2, barW / 2);
-        roundRect(ctx, x, height - completedH, barW, completedH, r);
+        roundRect(ctx, x, chartH - completedH, barW, completedH, r);
         ctx.fill();
       }
 
-      // Created (purple) stacked on top of completed
       if (createdH > 0) {
         ctx.fillStyle = '#a855f7';
         ctx.globalAlpha = 0.8;
         const r = Math.min(2, barW / 2);
-        roundRect(ctx, x, height - completedH - createdH, barW, createdH, r);
+        roundRect(ctx, x, chartH - completedH - createdH, barW, createdH, r);
         ctx.fill();
       }
 
       ctx.globalAlpha = 1;
     });
-  }, [data, width, height]);
+
+    // X axis labels (first, middle, last dates)
+    ctx.fillStyle = AXIS_COLOR;
+    ctx.font = AXIS_LABEL_FONT;
+    ctx.textBaseline = 'top';
+    const labelY = chartH + 3;
+    const fmtDate = (d) => d?.date?.slice(5) || '';
+
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtDate(data[0]), PADDING_LEFT, labelY);
+
+    const mid = Math.floor(data.length / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText(fmtDate(data[mid]), PADDING_LEFT + mid * (barW + gap) + barW / 2, labelY);
+
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtDate(data[data.length - 1]), width, labelY);
+  }, [data, width, height, totalH]);
 
   useEffect(() => { draw(); }, [draw]);
 
   if (!data?.length || data.every(d => d.created === 0 && d.completed === 0)) {
     return (
-      <div ref={containerRef} className="w-full flex items-center justify-center text-dark-500 text-xs" style={{ height }}>
+      <div ref={containerRef} className="w-full flex items-center justify-center text-dark-500 text-xs" style={{ height: totalH }}>
         No activity
       </div>
     );
@@ -101,7 +150,7 @@ function MiniActivityChart({ data, height = 48 }) {
 
   return (
     <div ref={containerRef} className="w-full">
-      <canvas ref={canvasRef} className="w-full" style={{ height }} />
+      <canvas ref={canvasRef} className="w-full" style={{ height: totalH }} />
     </div>
   );
 }
