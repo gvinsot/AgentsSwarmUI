@@ -5,6 +5,7 @@ import {
   Sun, Moon, GitBranch
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { api } from '../api';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
 import AddAgentModal from './AddAgentModal';
@@ -41,11 +42,17 @@ export default function Dashboard({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [boards, setBoards] = useState([]);
+  const [boardFilter, setBoardFilter] = useState('');
   const mobileMenuRef = useRef(null);
   const userMenuRef = useRef(null);
   const { theme, toggleTheme } = useTheme();
   const isAdmin = user?.role === 'admin';
   const isBasic = user?.role === 'basic';
+
+  useEffect(() => {
+    api.getBoards().then(setBoards).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -98,6 +105,10 @@ export default function Dashboard({
     if (a.role !== 'Swarm Leaders' && b.role === 'Swarm Leaders') return 1;
     return 0;
   });
+
+  const filteredAgents = boardFilter
+    ? sortedAgents.filter(a => a.boardId === boardFilter)
+    : sortedAgents;
 
   const selectedAgentData = sortedAgents.find(a => a.id === selectedAgent);
 
@@ -341,9 +352,22 @@ export default function Dashboard({
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-dark-200">
                   Agents
-                  <span className="ml-2 text-sm font-normal text-dark-400">({sortedAgents.length})</span>
+                  <span className="ml-2 text-sm font-normal text-dark-400">({filteredAgents.length}{boardFilter ? `/${sortedAgents.length}` : ''})</span>
                 </h2>
                 <div className="flex items-center gap-2">
+                  {boards.length > 1 && (
+                    <select
+                      value={boardFilter}
+                      onChange={(e) => setBoardFilter(e.target.value)}
+                      className="h-9 px-2 pr-7 text-sm bg-dark-800 border border-dark-700 rounded-lg text-dark-200 focus:outline-none focus:border-indigo-500 appearance-none"
+                      style={{ backgroundImage: 'none' }}
+                    >
+                      <option value="">All boards</option>
+                      {boards.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <div className="hidden sm:flex items-center border border-dark-700 rounded-lg overflow-hidden">
                     <button
                       onClick={() => setViewMode('grid')}
@@ -370,14 +394,14 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {sortedAgents.length === 0 ? (
+              {filteredAgents.length === 0 ? (
                 <div className="text-center py-20">
                   <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-dark-800 flex items-center justify-center">
                     <MessageSquare className="w-8 h-8 text-dark-500" />
                   </div>
-                  <h3 className="text-dark-300 font-medium mb-1">No agents yet</h3>
-                  <p className="text-dark-500 text-sm mb-4">{isBasic ? 'No agents are available for you' : 'Create your first agent to get started'}</p>
-                  {!isBasic && (
+                  <h3 className="text-dark-300 font-medium mb-1">{boardFilter ? 'No agents in this board' : 'No agents yet'}</h3>
+                  <p className="text-dark-500 text-sm mb-4">{boardFilter ? 'Try selecting a different board' : isBasic ? 'No agents are available for you' : 'Create your first agent to get started'}</p>
+                  {!isBasic && !boardFilter && (
                     <button
                       onClick={() => setShowAddModal(true)}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
@@ -393,7 +417,7 @@ export default function Dashboard({
                     ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
                     : 'space-y-3'
                 }>
-                  {sortedAgents.map(agent => (
+                  {filteredAgents.map(agent => (
                     <AgentCard
                       key={agent.id}
                       agent={agent}
