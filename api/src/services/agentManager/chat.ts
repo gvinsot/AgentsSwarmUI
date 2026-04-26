@@ -300,9 +300,23 @@ export const chatMethods = {
     }
 
     if (agent.ragDocuments.length > 0) {
+      for (const doc of agent.ragDocuments) {
+        if (doc.type === 'url' && doc.url) {
+          const lastFetched = doc.lastFetched ? new Date(doc.lastFetched).getTime() : 0;
+          const staleAfterMs = 60 * 60 * 1000; // 1 hour
+          if (Date.now() - lastFetched > staleAfterMs) {
+            try {
+              await this.refreshRagUrlDocument(id, doc.id);
+            } catch (err: any) {
+              console.warn(`[RAG] Failed to refresh URL doc "${doc.name}": ${err.message}`);
+            }
+          }
+        }
+      }
       systemContent += '\n\n--- Reference Documents ---\n';
       for (const doc of agent.ragDocuments) {
-        systemContent += `\n[${doc.name}]:\n${doc.content}\n`;
+        const label = doc.type === 'url' ? `${doc.name} (source: ${doc.url})` : doc.name;
+        systemContent += `\n[${label}]:\n${doc.content}\n`;
       }
     }
 

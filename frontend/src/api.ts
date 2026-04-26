@@ -246,6 +246,19 @@ export const api = {
       body: JSON.stringify({ name, content })
     }).then(handleResponse),
 
+  addRagUrl: (agentId, name, url) =>
+    fetch(`${API_BASE}/agents/${agentId}/rag/url`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name, url })
+    }).then(handleResponse),
+
+  refreshRagDoc: (agentId, docId) =>
+    fetch(`${API_BASE}/agents/${agentId}/rag/${docId}/refresh`, {
+      method: 'POST',
+      headers: getHeaders(),
+    }).then(handleResponse),
+
   deleteRagDoc: (agentId, docId) =>
     fetch(`${API_BASE}/agents/${agentId}/rag/${docId}`, {
       method: 'DELETE',

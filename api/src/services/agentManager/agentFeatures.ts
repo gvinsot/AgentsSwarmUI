@@ -2,6 +2,23 @@
 import { v4 as uuidv4 } from 'uuid';
 import { saveAgent } from '../database.js';
 
+async function fetchUrlContent(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'PulsarTeam/1.0', 'Accept': 'text/plain, text/html, text/markdown, application/json, */*' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const maxChars = 200_000;
+    return text.length > maxChars ? text.slice(0, maxChars) + '\n\n[... truncated at 200k chars]' : text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /** @this {import('./index.js').AgentManager} */
 export const agentFeaturesMethods = {
 
@@ -9,8 +26,36 @@ export const agentFeaturesMethods = {
   addRagDocument(this: any, agentId: string, name: string, content: string): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
-    const doc = { id: uuidv4(), name, content, addedAt: new Date().toISOString() };
+    const doc = { id: uuidv4(), name, content, type: 'text' as const, addedAt: new Date().toISOString() };
     agent.ragDocuments.push(doc);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return doc;
+  },
+
+  async addRagUrlDocument(this: any, agentId: string, name: string, url: string): Promise<any> {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const content = await fetchUrlContent(url);
+    const doc = {
+      id: uuidv4(), name, url, content,
+      type: 'url' as const,
+      addedAt: new Date().toISOString(),
+      lastFetched: new Date().toISOString(),
+    };
+    agent.ragDocuments.push(doc);
+    saveAgent(agent);
+    this._emit('agent:updated', this._sanitize(agent));
+    return doc;
+  },
+
+  async refreshRagUrlDocument(this: any, agentId: string, docId: string): Promise<any> {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const doc = agent.ragDocuments.find((d: any) => d.id === docId);
+    if (!doc || doc.type !== 'url' || !doc.url) return null;
+    doc.content = await fetchUrlContent(doc.url);
+    doc.lastFetched = new Date().toISOString();
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return doc;

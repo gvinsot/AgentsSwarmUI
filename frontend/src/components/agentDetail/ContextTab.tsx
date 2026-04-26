@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Plus, Trash2, FileText, ArrowRightLeft, AlertCircle, BarChart3 } from 'lucide-react';
+import { Plus, Trash2, FileText, ArrowRightLeft, AlertCircle, BarChart3, Globe, RefreshCw, Link } from 'lucide-react';
 import { api } from '../../api';
 
 function estimateTokens(text: string): number {
@@ -11,8 +11,13 @@ function estimateTokens(text: string): number {
 export default function ContextTab({ agent, agents, socket, onRefresh }) {
   // RAG state
   const [showAdd, setShowAdd] = useState(false);
+  const [showAddUrl, setShowAddUrl] = useState(false);
   const [docName, setDocName] = useState('');
   const [docContent, setDocContent] = useState('');
+  const [docUrl, setDocUrl] = useState('');
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlError, setUrlError] = useState('');
+  const [refreshingDocId, setRefreshingDocId] = useState<string | null>(null);
 
   // Handoff state
   const [targetId, setTargetId] = useState('');
@@ -38,8 +43,11 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
 
     const systemPromptEstimate = estimateTokens('x'.repeat(agent.systemPrompt?.length || 0));
 
+    const urlCount = docs.filter(d => d.type === 'url').length;
+
     return {
       docsCount: docs.length,
+      urlCount,
       docsChars,
       docsTokens,
       historyMessages: history.length,
@@ -58,6 +66,35 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
     setDocContent('');
     setShowAdd(false);
     onRefresh();
+  };
+
+  const handleAddUrl = async () => {
+    if (!docName.trim() || !docUrl.trim()) return;
+    setUrlLoading(true);
+    setUrlError('');
+    try {
+      await api.addRagUrl(agent.id, docName.trim(), docUrl.trim());
+      setDocName('');
+      setDocUrl('');
+      setShowAddUrl(false);
+      onRefresh();
+    } catch (err: any) {
+      setUrlError(err.message || 'Failed to fetch URL');
+    } finally {
+      setUrlLoading(false);
+    }
+  };
+
+  const handleRefreshUrl = async (docId: string) => {
+    setRefreshingDocId(docId);
+    try {
+      await api.refreshRagDoc(agent.id, docId);
+      onRefresh();
+    } catch (err: any) {
+      alert(`Refresh failed: ${err.message}`);
+    } finally {
+      setRefreshingDocId(null);
+    }
   };
 
   const handleDelete = async (docId) => {
@@ -123,7 +160,7 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
           </div>
           <div className="p-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50 text-center">
             <p className="text-lg font-bold text-indigo-400">{formatNumber(stats.docsTokens)}</p>
-            <p className="text-[10px] text-dark-500 uppercase tracking-wider">Documents ({stats.docsCount})</p>
+            <p className="text-[10px] text-dark-500 uppercase tracking-wider">Docs ({stats.docsCount}{stats.urlCount > 0 ? `, ${stats.urlCount} URL` : ''})</p>
           </div>
           <div className="p-2.5 bg-dark-800/50 rounded-lg border border-dark-700/50 text-center">
             <p className="text-lg font-bold text-emerald-400">{formatNumber(stats.historyTokens)}</p>
@@ -150,7 +187,14 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
               <input type="file" className="hidden" accept=".txt,.md,.json,.csv,.xml,.yaml,.yml" onChange={handleFileUpload} />
             </label>
             <button
-              onClick={() => setShowAdd(!showAdd)}
+              onClick={() => { setShowAddUrl(!showAddUrl); setShowAdd(false); }}
+              className="flex items-center gap-1 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 text-dark-200 rounded-lg text-xs transition-colors"
+            >
+              <Globe className="w-3 h-3" />
+              URL
+            </button>
+            <button
+              onClick={() => { setShowAdd(!showAdd); setShowAddUrl(false); }}
               className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -189,27 +233,95 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
           </div>
         )}
 
-        <div className="space-y-2">
-          {(agent.ragDocuments || []).map(doc => (
-            <div key={doc.id} className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 group">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-indigo-400" />
-                  <span className="text-sm font-medium text-dark-200">{doc.name}</span>
-                </div>
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  className="p-1 text-dark-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <p className="text-xs text-dark-400 font-mono line-clamp-3">{doc.content}</p>
-              <p className="text-[10px] text-dark-500 mt-1">
-                {doc.content.length} chars · ~{formatNumber(estimateTokens(doc.content))} tokens · Added {new Date(doc.addedAt).toLocaleDateString()}
-              </p>
+        {showAddUrl && (
+          <div className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 space-y-3 animate-fadeIn mb-3">
+            <input
+              type="text"
+              value={docName}
+              onChange={(e) => setDocName(e.target.value)}
+              className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
+              placeholder="Document name (e.g. API Reference)"
+            />
+            <div className="flex items-center gap-2">
+              <Link className="w-4 h-4 text-dark-400 flex-shrink-0" />
+              <input
+                type="url"
+                value={docUrl}
+                onChange={(e) => setDocUrl(e.target.value)}
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-indigo-500"
+                placeholder="https://example.com/docs/api.md"
+              />
             </div>
-          ))}
+            <p className="text-[10px] text-dark-500">
+              The URL content will be fetched now and automatically refreshed every hour during agent sessions.
+            </p>
+            {urlError && (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" /> {urlError}
+              </p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowAddUrl(false); setUrlError(''); }} className="px-3 py-1.5 text-dark-400 hover:text-dark-200 text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={handleAddUrl}
+                disabled={!docName.trim() || !docUrl.trim() || urlLoading}
+                className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {urlLoading ? (
+                  <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Fetching...</>
+                ) : (
+                  <><Globe className="w-3 h-3" /> Add URL</>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {(agent.ragDocuments || []).map(doc => {
+            const isUrl = doc.type === 'url';
+            const isRefreshing = refreshingDocId === doc.id;
+            return (
+              <div key={doc.id} className="p-3 bg-dark-800/50 rounded-lg border border-dark-700/50 group">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isUrl ? <Globe className="w-4 h-4 text-cyan-400 flex-shrink-0" /> : <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0" />}
+                    <span className="text-sm font-medium text-dark-200 truncate">{doc.name}</span>
+                    {isUrl && (
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-400/70 hover:text-cyan-400 truncate max-w-[200px]">
+                        {doc.url}
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    {isUrl && (
+                      <button
+                        onClick={() => handleRefreshUrl(doc.id)}
+                        disabled={isRefreshing}
+                        className="p-1 text-dark-500 hover:text-cyan-400 disabled:opacity-40"
+                        title="Refresh from URL"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(doc.id)}
+                      className="p-1 text-dark-500 hover:text-red-400"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-dark-400 font-mono line-clamp-3">{doc.content}</p>
+                <p className="text-[10px] text-dark-500 mt-1">
+                  {doc.content?.length || 0} chars · ~{formatNumber(estimateTokens(doc.content || ''))} tokens · Added {new Date(doc.addedAt).toLocaleDateString()}
+                  {isUrl && doc.lastFetched && <> · Fetched {new Date(doc.lastFetched).toLocaleString()}</>}
+                </p>
+              </div>
+            );
+          })}
         </div>
 
         {(!agent.ragDocuments || agent.ragDocuments.length === 0) && !showAdd && (

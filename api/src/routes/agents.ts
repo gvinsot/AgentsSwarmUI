@@ -526,6 +526,29 @@ export function agentRoutes(agentManager) {
     res.status(201).json(doc);
   });
 
+  router.post('/:id/rag/url', requireAgentAccess, async (req, res) => {
+    try {
+      const { name, url } = req.body;
+      if (!name || !url) return res.status(400).json({ error: 'Name and url required' });
+      try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+      const doc = await agentManager.addRagUrlDocument(req.params.id, name, url);
+      if (!doc) return res.status(404).json({ error: 'Agent not found' });
+      res.status(201).json(doc);
+    } catch (err: any) {
+      res.status(502).json({ error: `Failed to fetch URL: ${err.message}` });
+    }
+  });
+
+  router.post('/:id/rag/:docId/refresh', requireAgentAccess, async (req, res) => {
+    try {
+      const doc = await agentManager.refreshRagUrlDocument(req.params.id, req.params.docId);
+      if (!doc) return res.status(404).json({ error: 'URL document not found' });
+      res.json(doc);
+    } catch (err: any) {
+      res.status(502).json({ error: `Failed to refresh: ${err.message}` });
+    }
+  });
+
   router.delete('/:id/rag/:docId', requireAgentAccess, (req, res) => {
     const success = agentManager.deleteRagDocument(req.params.id, req.params.docId);
     if (!success) return res.status(404).json({ error: 'Not found' });
