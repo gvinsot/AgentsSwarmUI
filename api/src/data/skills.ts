@@ -123,6 +123,13 @@ DEPLOY:
 - @write_file(path, """content""") — create or update files
 - @search_files(pattern, query) — find relevant code
 - @run_command(command) — run tests, builds, git commands, etc.
+
+DOCUMENT CONVERSION — pandoc is installed. Before reading large non-text documents, convert them to markdown first:
+  @run_command(pandoc document.docx -t markdown -o document.md)
+  Supported formats: .docx, .pptx, .xlsx, .odt, .ods, .odp, .epub, .rst, .tex, .latex, .html, .rtf, .csv, .tsv, .json, .xml
+  After conversion, use @read_file(document.md) to read the content.
+  For spreadsheets (.xlsx, .ods, .csv), the output will be markdown tables.
+
 - @list_my_tasks() — list your assigned tasks with their status and ID
 - @update_task(taskId, status) — update a task status (any workflow column ID or error)
 - @task_execution_complete(comment, taskId, commits) — signal that your current task is finished (REQUIRED when executing a task). taskId is optional (auto-detected). commits is optional (format: hash:msg, hash:msg — must be already pushed).

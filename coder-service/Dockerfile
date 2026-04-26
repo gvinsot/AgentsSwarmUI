@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium-driver \
     fonts-liberation \
     fonts-noto-color-emoji \
+    # Document conversion (docx, pptx, xlsx, odt, epub, rst, latex → markdown)
+    pandoc \
     # Utilities
     util-linux \
     openssh-client \

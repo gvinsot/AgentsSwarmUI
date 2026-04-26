@@ -16,6 +16,8 @@ RUN apk add --no-cache \
     less \
     patch diffutils \
     docker-cli docker-cli-compose \
+    # Document conversion (docx, pptx, xlsx, odt, epub, rst, latex → markdown)
+    pandoc \
     # Go
     go \
     # Headless Chromium for web scraping, testing, PDF generation
