@@ -5,7 +5,6 @@ import { api } from '../../api';
 const DEFAULT_PERMISSIONS = {
   linuxUser: {
     runAsRoot: false,
-    customUser: '',
   },
   network: {
     internetAccess: true,
@@ -291,17 +290,6 @@ export default function PermissionsTab({ agent, onRefresh }) {
             onChange={(v) => update('linuxUser', 'runAsRoot', v)}
           />
         </PermissionRow>
-        <div>
-          <label className="block text-xs text-dark-400 mb-1">Custom user</label>
-          <input
-            type="text"
-            value={perms.linuxUser.customUser}
-            onChange={(e) => update('linuxUser', 'customUser', e.target.value)}
-            placeholder="Leave empty for default (agent user)"
-            className="w-full px-2.5 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500"
-          />
-          <p className="text-[10px] text-dark-500 mt-1">Override the Linux user identity (e.g., "node", "www-data")</p>
-        </div>
       </PermissionCard>
 
       {/* Network Access */}
@@ -451,7 +439,7 @@ export default function PermissionsTab({ agent, onRefresh }) {
         <div className="grid grid-cols-2 gap-2 text-[11px]">
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${perms.linuxUser.runAsRoot ? 'bg-red-500' : 'bg-emerald-500'}`} />
-            <span className="text-dark-400">User: {perms.linuxUser.runAsRoot ? 'root' : perms.linuxUser.customUser || 'agent (default)'}</span>
+            <span className="text-dark-400">User: {perms.linuxUser.runAsRoot ? 'root' : 'agent (default)'}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${perms.network.internetAccess ? 'bg-emerald-500' : 'bg-red-500'}`} />

@@ -44,7 +44,6 @@ const createAgentSchema = z.object({
   permissions: z.object({
     linuxUser: z.object({
       runAsRoot: z.boolean().optional(),
-      customUser: z.string().max(100).optional(),
     }).optional(),
     network: z.object({
       internetAccess: z.boolean().optional(),
