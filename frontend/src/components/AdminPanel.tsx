@@ -490,37 +490,6 @@ export default function AdminPanel({ onClose, onImpersonate, showToast }) {
             </div>
           ) : settings ? (
             <div className="space-y-6">
-              {/* Jira Integration */}
-              <div className="p-5 bg-dark-800 rounded-xl border border-dark-700 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-semibold text-dark-200 flex items-center gap-2">
-                      <span className="text-lg">🔗</span> Jira Integration
-                    </h4>
-                    <p className="text-xs text-dark-400 mt-1">
-                      Synchronize tasks with Jira boards. Requires JIRA_BOARD_URL, JIRA_API_KEY, and JIRA_USER_EMAIL environment variables.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSettings(s => ({ ...s, jiraEnabled: s.jiraEnabled === 'true' ? 'false' : 'true' }))}
-                    className="flex-shrink-0"
-                  >
-                    {settings.jiraEnabled === 'true' ? (
-                      <ToggleRight className="w-10 h-10 text-green-400" />
-                    ) : (
-                      <ToggleLeft className="w-10 h-10 text-dark-500" />
-                    )}
-                  </button>
-                </div>
-                <div className={`text-xs px-3 py-2 rounded-lg ${
-                  settings.jiraEnabled === 'true'
-                    ? 'bg-green-900/20 text-green-400 border border-green-800/30'
-                    : 'bg-dark-900 text-dark-500 border border-dark-600'
-                }`}>
-                  {settings.jiraEnabled === 'true' ? 'Jira sync is enabled — tasks will be synchronized with your Jira board' : 'Jira sync is disabled — no data will be exchanged with Jira'}
-                </div>
-              </div>
-
               {/* Git Connections */}
               <div className="p-5 bg-dark-800 rounded-xl border border-dark-700 space-y-4">
                 <div className="flex items-center justify-between">

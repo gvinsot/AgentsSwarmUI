@@ -36,14 +36,14 @@ import { ensureApiKeysTable } from './services/apiKeyManager.js';
 import { authenticateApiKey } from './middleware/apiKeyAuth.js';
 import { swarmApiRoutes } from './routes/swarmApi.js';
 import { projectContextRoutes } from './routes/projectContexts.js';
-import { jiraRoutes, jiraWebhookRoute } from './routes/jira.js';
+import { jiraRoutes } from './routes/jira.js';
+import { createJiraMcpHandler } from './services/jiraMcp.js';
 import budgetRoutes from './routes/budget.js';
 import { userRoutes } from './routes/users.js';
 import { llmConfigRoutes } from './routes/llmConfigs.js';
 import { boardRoutes } from './routes/boards.js';
 import { contactRoutes } from './routes/contact.js';
 import taskRoutes from './routes/tasks.js';
-import { startJiraSync, registerWebhook } from './services/jiraSync.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -119,9 +119,6 @@ app.use('/api/auth', authRouter);
 // User management (admin only)
 app.use('/api/users', authenticateToken, requireRole('admin'), userRoutes());
 
-// Jira webhook — public endpoint, secured by shared secret header
-app.use('/api/jira/webhook', jiraWebhookRoute(agentManager));
-
 // Public contact form — rate-limited, no auth required
 app.use('/api/contact', contactRoutes(agentManager));
 
@@ -143,7 +140,7 @@ app.use('/api/budget', authenticateToken, budgetRoutes);
 app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 app.use('/api/llm-configs', authenticateToken, llmConfigRoutes(agentManager));
 app.use('/api/settings/general', authenticateToken, settingsRoutes());
-app.use('/api/jira', authenticateToken, jiraRoutes(agentManager));
+app.use('/api/jira', authenticateToken, jiraRoutes());
 app.use('/api/boards', authenticateToken, boardRoutes(agentManager));
 app.use('/api/tasks', authenticateToken, taskRoutes);
 
@@ -156,6 +153,9 @@ app.all('/api/gmail/mcp', authenticateToken, (req, res) => gmailMcpHandler(req, 
 
 const slackMcpHandler = createSlackMcpHandler();
 app.all('/api/slack/mcp', authenticateToken, (req, res) => slackMcpHandler(req, res));
+
+const jiraMcpHandler = createJiraMcpHandler();
+app.all('/api/jira/mcp', authenticateToken, (req, res) => jiraMcpHandler(req, res));
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
@@ -253,8 +253,6 @@ async function start() {
   await skillManager.seedDefaults(BUILTIN_SKILLS);
   await agentManager.loadFromDatabase();
   agentManager.startTaskLoop();
-  startJiraSync(agentManager, io, 60000); // sync every 60s
-  registerWebhook().catch(() => {}); // auto-register Jira webhook
 
   await executionManager.cleanupOrphans();
 

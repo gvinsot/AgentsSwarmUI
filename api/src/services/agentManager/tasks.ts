@@ -2,7 +2,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus, getTaskById, getTasksByAgent, getActiveTasksByAgent, getActiveTaskForExecutor, getRecurringDoneTasks, hasActiveTask, updateTaskFields } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
-import { onTaskStatusChanged } from '../jiraSync.js';
 import { isActiveStatus, getWorkflowManagedStatuses } from '../workflow/index.js';
 import { getProjectGitUrl } from '../githubProjects.js';
 
@@ -161,7 +160,6 @@ export const tasksMethods = {
     Promise.resolve(savePromise)
       .catch(() => {})
       .then(() => this._emit('task:updated', { agentId, task: taskPayload }));
-    if (by !== 'jira-sync') onTaskStatusChanged(task, status, this);
     if (!skipAutoRefine && status !== 'error' && !task.isManual) this._checkAutoRefine({ ...task, agentId }, { by: by || 'user' });
     return task;
   },

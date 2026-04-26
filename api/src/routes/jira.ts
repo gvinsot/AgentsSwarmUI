@@ -1,107 +1,102 @@
 import express from 'express';
-import { getJiraSyncStatus, fullSync, getJiraColumns, handleWebhook, verifyWebhook, getJiraIssueDetails, addCommentToJira, analyzeAndCommentJira } from '../services/jiraSync.js';
-
-export function jiraRoutes(agentManager) {
-  const router = express.Router();
-
-  // GET /jira/status — sync status for UI
-  router.get('/status', async (req, res) => {
-    res.json(await getJiraSyncStatus());
-  });
-
-  // GET /jira/columns — Jira board columns (for workflow config dropdowns)
-  router.get('/columns', async (req, res) => {
-    try {
-      const columns = await getJiraColumns();
-      res.json(columns);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST /jira/sync — trigger manual sync
-  router.post('/sync', async (req, res) => {
-    try {
-      await fullSync(agentManager);
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // GET /jira/issue/:jiraKey — fetch full issue details
-  router.get('/issue/:jiraKey', async (req, res) => {
-    try {
-      const details = await getJiraIssueDetails(req.params.jiraKey);
-      if (!details) return res.status(404).json({ error: 'Issue not found or Jira not configured' });
-      res.json(details);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST /jira/comment/:jiraKey — post a comment to a Jira issue
-  router.post('/comment/:jiraKey', async (req, res) => {
-    const { comment } = req.body;
-    if (!comment) return res.status(400).json({ error: 'comment is required' });
-    try {
-      const success = await addCommentToJira(req.params.jiraKey, comment);
-      res.json({ success });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST /jira/ai-comment/:jiraKey — trigger AI analysis and post as comment
-  router.post('/ai-comment/:jiraKey', async (req, res) => {
-    const { instructions, role } = req.body || {};
-    const jiraKey = req.params.jiraKey;
-
-    // Find the task linked to this Jira key
-    let task = null;
-    let agentId = null;
-    for (const [id, agent] of agentManager.agents) {
-      const found = agentManager._getAgentTasks(id).find(t => t.jiraKey === jiraKey);
-      if (found) {
-        task = found;
-        agentId = id;
-        break;
-      }
-    }
-
-    try {
-      await analyzeAndCommentJira(jiraKey, task || { text: jiraKey }, agentId, agentManager, instructions || '', role || '');
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  return router;
-}
 
 /**
- * Jira webhook endpoint — mounted WITHOUT JWT auth (Jira can't authenticate).
- * Secured via X-Jira-Webhook-Secret header.
+ * Jira per-agent authentication routes.
+ *
+ * Unlike Gmail/OneDrive (OAuth2), Jira uses API token + Basic Auth.
+ * Each agent stores its own Jira credentials (domain, email, apiToken).
+ *
+ * Flow:
+ * 1. Admin enters Jira domain, email, and API token in the agent's Plugins tab
+ * 2. POST /api/jira/connect with { agentId, domain, email, apiToken }
+ * 3. Server stores credentials in-memory keyed by agentId
+ * 4. MCP tools use these credentials to call Jira REST APIs
  */
-export function jiraWebhookRoute(agentManager) {
+
+// In-memory credential store: "agent:<agentId>" → { domain, email, apiToken }
+const credentialStore = new Map<string, { domain: string; email: string; apiToken: string }>();
+
+function credKey(agentId: string) {
+  return `agent:${agentId}`;
+}
+
+export function getJiraCredentialStore() {
+  return credentialStore;
+}
+
+export function hasJiraCredentialsForAgent(agentId: string): boolean {
+  if (!agentId) return false;
+  return credentialStore.has(credKey(agentId));
+}
+
+export function getJiraCredentialsForAgent(agentId: string | null) {
+  if (!agentId) return null;
+  return credentialStore.get(credKey(agentId)) || null;
+}
+
+export function jiraRoutes() {
   const router = express.Router();
 
-  router.post('/', async (req, res) => {
-    console.log(`[Jira] Webhook received: ${req.headers['content-type']} | event=${req.body?.webhookEvent || 'unknown'} | issue=${req.body?.issue?.key || 'none'} | auth-header=${req.headers['x-automation-webhook-token'] ? 'present' : 'missing'}`);
-
-    if (!verifyWebhook(req)) {
-      console.warn('[Jira] Webhook rejected: invalid or missing secret');
-      return res.status(401).json({ error: 'Invalid webhook secret' });
+  // GET /jira/status?agentId= — check connection status for an agent
+  router.get('/status', (req, res) => {
+    const agentId = (req.query.agentId as string) || null;
+    if (!agentId) {
+      return res.json({ connected: false, agentId: null });
     }
+    const creds = credentialStore.get(credKey(agentId));
+    res.json({
+      connected: !!creds,
+      domain: creds?.domain || null,
+      email: creds?.email || null,
+      agentId,
+    });
+  });
+
+  // POST /jira/connect — store Jira credentials for an agent
+  router.post('/connect', async (req, res) => {
+    const { agentId, domain, email, apiToken } = req.body;
+    if (!agentId || !domain || !email || !apiToken) {
+      return res.status(400).json({ error: 'agentId, domain, email, and apiToken are required' });
+    }
+
+    // Validate credentials by calling Jira API
+    const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const baseUrl = `https://${cleanDomain}`;
+    const encoded = Buffer.from(`${email}:${apiToken}`).toString('base64');
 
     try {
-      await handleWebhook(req.body, agentManager);
-      res.status(200).json({ ok: true });
+      const testRes = await fetch(`${baseUrl}/rest/api/3/myself`, {
+        headers: {
+          Authorization: `Basic ${encoded}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!testRes.ok) {
+        const body = await testRes.text().catch(() => '');
+        return res.status(400).json({ error: `Jira authentication failed (${testRes.status}): ${body.slice(0, 200)}` });
+      }
+
+      const myself = await testRes.json();
+
+      credentialStore.set(credKey(agentId), { domain: cleanDomain, email, apiToken });
+      console.log(`✅ [Jira] Credentials stored for agent "${agentId.slice(0, 8)}" → ${cleanDomain} (${myself.displayName || email})`);
+      res.json({ success: true, agentId, displayName: myself.displayName, domain: cleanDomain });
     } catch (err) {
-      console.error('[Jira] Webhook handler error:', err.message);
-      res.status(500).json({ error: err.message });
+      console.error('[Jira] Connection test failed:', err);
+      res.status(500).json({ error: `Connection failed: ${err.message}` });
     }
+  });
+
+  // POST /jira/disconnect — clear credentials for an agent
+  router.post('/disconnect', (req, res) => {
+    const agentId = req.body?.agentId || null;
+    if (!agentId) {
+      return res.status(400).json({ error: 'agentId is required' });
+    }
+    credentialStore.delete(credKey(agentId));
+    console.log(`🔌 [Jira] Disconnected agent "${agentId.slice(0, 8)}"`);
+    res.json({ success: true });
   });
 
   return router;

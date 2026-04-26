@@ -8,6 +8,7 @@ import PluginEditor from '../PluginEditor';
 import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
+import JiraConnect from '../JiraConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -141,6 +142,13 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasSlackMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === SLACK_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(SLACK_MCP_ID)
+  );
+
+  // Detect if Jira MCP is among the assigned plugins' MCPs
+  const JIRA_MCP_ID = 'mcp-jira';
+  const hasJiraMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === JIRA_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(JIRA_MCP_ID)
   );
 
   const handleSaveAuth = async () => {
@@ -332,6 +340,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasSlackMcp && (
           <div className="mt-3">
             <SlackConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasJiraMcp && (
+          <div className="mt-3">
+            <JiraConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>

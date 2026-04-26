@@ -78,5 +78,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-jira',
+    name: 'Jira',
+    url: '__internal__jira',
+    description: 'Jira — search issues, create/update issues, manage sprints, boards, comments, and transitions (per-agent API key)',
+    icon: '🎫',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

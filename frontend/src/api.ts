@@ -644,18 +644,23 @@ export const api = {
   getGlobalAgentTime: (days = 30) =>
     fetch(`${API_BASE}/agents/tasks/stats/agent-time?days=${days}`, { headers: getHeaders() }).then(handleResponse),
 
-  // Jira
-  getJiraStatus: () =>
-    fetch(`${API_BASE}/jira/status`, { headers: getHeaders() }).then(handleResponse),
+  // Jira (per-agent)
+  getJiraStatus: (agentId?: string) =>
+    fetch(`${API_BASE}/jira/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
 
-  triggerJiraSync: () =>
-    fetch(`${API_BASE}/jira/sync`, {
+  connectJira: (agentId: string, domain: string, email: string, apiToken: string) =>
+    fetch(`${API_BASE}/jira/connect`, {
       method: 'POST',
       headers: getHeaders(),
+      body: JSON.stringify({ agentId, domain, email, apiToken }),
     }).then(handleResponse),
 
-  getJiraColumns: () =>
-    fetch(`${API_BASE}/jira/columns`, { headers: getHeaders() }).then(handleResponse),
+  disconnectJira: (agentId?: string) =>
+    fetch(`${API_BASE}/jira/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ agentId }),
+    }).then(handleResponse),
 
   // Users (admin only)
   getUsers: () =>

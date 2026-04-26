@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardShare, rowToTask } from '../services/database.js';
 import { listStarredRepos } from '../services/githubProjects.js';
-import { onTaskStatusChanged } from '../services/jiraSync.js';
 import { setTaskSignal } from '../services/agentManager/tasks.js';
 
 const router = Router();
@@ -299,9 +298,8 @@ router.put('/:id', async (req, res) => {
 
     await mgr.saveTaskDirectly(task);
 
-    // ── Trigger Jira sync and workflow processing when status changed ────
+    // ── Trigger workflow processing when status changed ────
     if (statusChanged) {
-      onTaskStatusChanged(task, task.status, mgr);
       if (task.status !== 'error') {
         mgr._checkAutoRefine({ ...task }, { by: username });
       }
@@ -412,7 +410,6 @@ router.post('/bulk-move', async (req, res) => {
         }
         // Signal the reminder loop / execution wait to exit
         setTaskSignal(taskId, 'stopped', true);
-        onTaskStatusChanged(task, targetColumn, mgr);
         if (targetColumn !== 'error') {
           mgr._checkAutoRefine({ ...task }, { by: username });
         }
