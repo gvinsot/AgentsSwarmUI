@@ -809,7 +809,7 @@ export class VLLMProvider {
   ownerId: string | null;
   client: OpenAI;
 
-  constructor(baseUrl: string, model: string, apiKey: string, agentId: string | null = null, ownerId: string | null = null) {
+  constructor(baseUrl: string, model: string, apiKey: string, agentId: string | null = null, ownerId: string | null = null, permissions: any = null) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.model = model;
     this.agentId = agentId;
@@ -821,6 +821,7 @@ export class VLLMProvider {
     const headers: Record<string, string> = {};
     if (agentId) headers['X-Agent-Id'] = agentId;
     if (ownerId) headers['X-Owner-Id'] = ownerId;
+    if (permissions) headers['X-Agent-Permissions'] = JSON.stringify(permissions);
     if (Object.keys(headers).length) clientOpts.defaultHeaders = headers;
     this.client = new OpenAI(clientOpts);
   }
@@ -1051,7 +1052,8 @@ export function createProvider(config: any): any {
         config.model || 'claude-sonnet-4-20250514',
         process.env.CODER_API_KEY || '',
         config.agentId || null,
-        config.ownerId || null
+        config.ownerId || null,
+        config.permissions || null
       );
     case 'mistral':
       return new MistralProvider(

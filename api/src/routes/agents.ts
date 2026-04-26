@@ -41,6 +41,25 @@ const createAgentSchema = z.object({
   copyApiKeyFromAgent: z.string().uuid().optional(),
   llmConfigId: z.string().max(200).nullable().optional(),
   boardId: z.string().uuid().nullable().optional(),
+  permissions: z.object({
+    linuxUser: z.object({
+      runAsRoot: z.boolean().optional(),
+      customUser: z.string().max(100).optional(),
+    }).optional(),
+    network: z.object({
+      internetAccess: z.boolean().optional(),
+      allowedDomains: z.array(z.string().max(200)).optional(),
+    }).optional(),
+    filesystem: z.object({
+      readAccess: z.boolean().optional(),
+      writeAccess: z.boolean().optional(),
+      restrictedPaths: z.array(z.string().max(500)).optional(),
+    }).optional(),
+    execution: z.object({
+      shellAccess: z.boolean().optional(),
+      dangerousSkipPermissions: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
 });
 
 // Schema for updating an agent (all fields optional)

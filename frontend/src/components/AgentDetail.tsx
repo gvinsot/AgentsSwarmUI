@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   X, MessageSquare, Settings,
-  StopCircle, FolderCode, Activity, Wrench, ArrowLeft, Layers,
+  StopCircle, FolderCode, Activity, Wrench, ArrowLeft, Layers, Shield,
 } from 'lucide-react';
 import { api } from '../api';
 import VoiceChatTab from './VoiceChatTab';
@@ -10,6 +10,7 @@ import PluginsTab from './agentDetail/PluginsTab';
 import ContextTab from './agentDetail/ContextTab';
 import ActionLogsTab from './agentDetail/ActionLogsTab';
 import SettingsTab from './agentDetail/SettingsTab';
+import PermissionsTab from './agentDetail/PermissionsTab';
 
 // Re-export cleanToolSyntax so existing imports (e.g. BroadcastPanel) keep working
 export { cleanToolSyntax } from './agentDetail/cleanToolSyntax';
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'context', label: 'Context', icon: Layers },
   { id: 'plugins', label: 'Plugins', icon: Wrench },
+  { id: 'permissions', label: 'Permissions', icon: Shield },
   { id: 'logs', label: 'Action Logs', icon: Activity },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -257,7 +259,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
 
       {/* Tabs */}
       <div className="flex border-b border-dark-700 px-2 overflow-x-auto">
-        {TABS.filter(tab => !(userRole === 'basic' && tab.id === 'settings')).map(tab => {
+        {TABS.filter(tab => !(userRole === 'basic' && (tab.id === 'settings' || tab.id === 'permissions'))).map(tab => {
           const Icon = tab.icon;
           return (
             <button
@@ -310,6 +312,9 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
         )}
         {activeTab === 'plugins' && (
           <PluginsTab agent={agent} plugins={skills} onRefresh={onRefresh} />
+        )}
+        {activeTab === 'permissions' && (
+          <PermissionsTab agent={agent} onRefresh={onRefresh} />
         )}
         {activeTab === 'logs' && (
           <ActionLogsTab agent={agent} onRefresh={onRefresh} />

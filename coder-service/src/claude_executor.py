@@ -39,8 +39,22 @@ from auth_oauth import (
 # When task_id changes for an agent, a new session is created automatically.
 _agent_sessions: dict[str, str] = {}  # "agent_id:task_id" -> session UUID
 _agent_current_task: dict[str, str] = {}  # agent_id -> current task_id
+_agent_permissions: dict[str, dict] = {}  # agent_id -> permissions dict
 
 MAX_AUTH_RETRIES = 2
+
+
+def set_agent_permissions(agent_id: str, permissions: dict) -> None:
+    """Store permissions for an agent (received via X-Agent-Permissions header)."""
+    if agent_id and permissions:
+        _agent_permissions[agent_id] = permissions
+
+
+def get_agent_permissions(agent_id: Optional[str]) -> Optional[dict]:
+    """Get stored permissions for an agent."""
+    if not agent_id:
+        return None
+    return _agent_permissions.get(agent_id)
 
 
 def get_agent_sessions() -> dict[str, str]:
@@ -55,7 +69,7 @@ def get_agent_current_task() -> dict[str, str]:
 
 # --- Command builder ----------------------------------------------------------
 
-def _build_claude_cmd(output_format: str = "json", system_prompt: Optional[str] = None, agent_id: Optional[str] = None, task_id: Optional[str] = None) -> tuple[list[str], str]:
+def _build_claude_cmd(output_format: str = "json", system_prompt: Optional[str] = None, agent_id: Optional[str] = None, task_id: Optional[str] = None, permissions: Optional[dict] = None) -> tuple[list[str], str]:
     """Build the claude CLI command with appropriate flags.
 
     The prompt is passed via stdin (not as a CLI argument) to avoid
@@ -67,16 +81,19 @@ def _build_claude_cmd(output_format: str = "json", system_prompt: Optional[str] 
     - Within the same task, sessions are resumed to maintain context.
     This lets Claude Code maintain full context within a task execution.
     """
+    exec_perms = (permissions or {}).get("execution", {})
+    skip_permissions = exec_perms.get("dangerousSkipPermissions", True)
+
     cmd = [
         "claude",
         "-p",
         "--output-format", output_format,
         "--max-turns", str(CLAUDE_MAX_TURNS),
         "--model", CLAUDE_MODEL,
-        # Headless mode: skip all permission prompts so the agent can run autonomously
-        "--dangerously-skip-permissions",
         "--effort", "high",
     ]
+    if skip_permissions:
+        cmd.append("--dangerously-skip-permissions")
 
     # Session persistence: keyed by (agent_id, task_id)
     if agent_id:
@@ -197,7 +214,7 @@ async def run_claude_sync(prompt: str, system_prompt: Optional[str] = None, agen
 
     async def _run_sync_proc(aid: Optional[str]):
         """Run a Claude CLI subprocess synchronously. Returns (proc, stdout, stderr)."""
-        cmd, proc_cwd = _build_claude_cmd(output_format="json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
+        cmd, proc_cwd = _build_claude_cmd(output_format="json", system_prompt=system_prompt, agent_id=aid, task_id=task_id, permissions=get_agent_permissions(aid))
         logger.info(f"Executing Claude Code{agent_label}: {prompt[:100]}...")
         logger.debug(f"Command: {' '.join(cmd)} (cwd={proc_cwd})")
         p = await asyncio.create_subprocess_exec(
@@ -419,7 +436,7 @@ async def stream_claude_events(prompt: str, system_prompt: Optional[str] = None,
 
     async def _start_stream_proc(aid: Optional[str]):
         """Start a Claude CLI subprocess for streaming. Returns the process."""
-        cmd, proc_cwd = _build_claude_cmd(output_format="stream-json", system_prompt=system_prompt, agent_id=aid, task_id=task_id)
+        cmd, proc_cwd = _build_claude_cmd(output_format="stream-json", system_prompt=system_prompt, agent_id=aid, task_id=task_id, permissions=get_agent_permissions(aid))
         logger.info(f"Streaming Claude Code{agent_label}: {prompt[:100]}...")
         p = await asyncio.create_subprocess_exec(
             *cmd,

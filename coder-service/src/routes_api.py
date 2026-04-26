@@ -27,6 +27,7 @@ from agent_user import get_agent_project_dir, ensure_agent_project
 from claude_executor import (
     run_claude_sync, stream_claude_events,
     get_agent_sessions, get_agent_current_task,
+    set_agent_permissions,
 )
 from code_executor import execute_python, execute_shell
 
@@ -78,10 +79,17 @@ async def execute_message(
     authorization: Optional[str] = Header(None),
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     """Execute a natural language request via Claude Code CLI."""
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    if x_agent_id and x_agent_permissions:
+        try:
+            set_agent_permissions(x_agent_id, json.loads(x_agent_permissions))
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     result = await run_claude_sync(request.content, request.system_prompt, agent_id=x_agent_id, owner_id=x_owner_id)
     return ExecutionResponse(**result)
@@ -210,10 +218,17 @@ async def stream_execution(
     authorization: Optional[str] = Header(None),
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     """Stream execution results in real-time via SSE."""
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    if x_agent_id and x_agent_permissions:
+        try:
+            set_agent_permissions(x_agent_id, json.loads(x_agent_permissions))
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     async def event_generator():
         try:
@@ -316,9 +331,16 @@ async def openai_chat_completions(
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
     x_task_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    if x_agent_id and x_agent_permissions:
+        try:
+            set_agent_permissions(x_agent_id, json.loads(x_agent_permissions))
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     if not request.messages:
         raise HTTPException(status_code=400, detail="At least one message is required")
@@ -426,9 +448,16 @@ async def openai_completions(
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
     x_task_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    if x_agent_id and x_agent_permissions:
+        try:
+            set_agent_permissions(x_agent_id, json.loads(x_agent_permissions))
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     model = request.model or CLAUDE_MODEL
 

@@ -608,7 +608,8 @@ export const chatMethods = {
       endpoint: llmConfig.endpoint,
       apiKey: llmConfig.apiKey,
       agentId: id,
-      ownerId: agent.ownerId || null
+      ownerId: agent.ownerId || null,
+      permissions: agent.permissions || null,
     });
 
     let fullResponse = '';
