@@ -90,6 +90,16 @@ export const BUILTIN_MCP_SERVERS = [
     enabled: true,
   },
   {
+    id: 'mcp-github',
+    name: 'GitHub',
+    url: '__internal__github',
+    description: 'GitHub — repos, issues, PRs, branches, commits, workflows, code search (per-agent OAuth)',
+    icon: '🐙',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'mcp-auto-learn',
     name: 'Auto Learn',
     url: '__internal__auto_learn',

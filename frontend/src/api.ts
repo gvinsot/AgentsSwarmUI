@@ -662,6 +662,27 @@ export const api = {
       body: JSON.stringify({ agentId }),
     }).then(handleResponse),
 
+  // GitHub OAuth (per-agent)
+  getGitHubStatus: (agentId?: string) =>
+    fetch(`${API_BASE}/github/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  getGitHubAuthUrl: (agentId?: string) =>
+    fetch(`${API_BASE}/github/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+
+  githubCallback: (code: string, state: string) =>
+    fetch(`${API_BASE}/github/callback`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ code, state })
+    }).then(handleResponse),
+
+  disconnectGitHub: (agentId?: string) =>
+    fetch(`${API_BASE}/github/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(agentId ? { agentId } : {})
+    }).then(handleResponse),
+
   // Users (admin only)
   getUsers: () =>
     fetch(`${API_BASE}/users`, { headers: getHeaders() }).then(handleResponse),

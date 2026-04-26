@@ -9,6 +9,7 @@ import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
+import GitHubConnect from '../GitHubConnect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -149,6 +150,12 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasJiraMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === JIRA_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(JIRA_MCP_ID)
+  );
+
+  const GITHUB_MCP_ID = 'mcp-github';
+  const hasGitHubMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === GITHUB_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(GITHUB_MCP_ID)
   );
 
   const handleSaveAuth = async () => {
@@ -345,6 +352,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasJiraMcp && (
           <div className="mt-3">
             <JiraConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasGitHubMcp && (
+          <div className="mt-3">
+            <GitHubConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>

@@ -40,6 +40,8 @@ import { swarmApiRoutes } from './routes/swarmApi.js';
 import { projectContextRoutes } from './routes/projectContexts.js';
 import { jiraRoutes } from './routes/jira.js';
 import { createJiraMcpHandler } from './services/jiraMcp.js';
+import { githubRoutes } from './routes/github.js';
+import { createGitHubMcpHandler } from './services/githubMcp.js';
 import budgetRoutes from './routes/budget.js';
 import { userRoutes } from './routes/users.js';
 import { llmConfigRoutes } from './routes/llmConfigs.js';
@@ -60,7 +62,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data:",
-  "connect-src 'self' wss: ws: https://api.openai.com https://accounts.google.com https://oauth2.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com",
+  "connect-src 'self' wss: ws: https://api.openai.com https://accounts.google.com https://oauth2.googleapis.com https://github.com https://api.github.com https://fonts.googleapis.com https://fonts.gstatic.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "frame-ancestors 'none'"
@@ -144,6 +146,7 @@ app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 app.use('/api/llm-configs', authenticateToken, llmConfigRoutes(agentManager));
 app.use('/api/settings/general', authenticateToken, settingsRoutes());
 app.use('/api/jira', authenticateToken, jiraRoutes());
+app.use('/api/github', authenticateToken, githubRoutes());
 app.use('/api/boards', authenticateToken, boardRoutes(agentManager));
 app.use('/api/tasks', authenticateToken, taskRoutes);
 
@@ -159,6 +162,9 @@ app.all('/api/slack/mcp', authenticateToken, (req, res) => slackMcpHandler(req, 
 
 const jiraMcpHandler = createJiraMcpHandler();
 app.all('/api/jira/mcp', authenticateToken, (req, res) => jiraMcpHandler(req, res));
+
+const githubMcpHandler = createGitHubMcpHandler();
+app.all('/api/github/mcp', authenticateToken, (req, res) => githubMcpHandler(req, res));
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));
