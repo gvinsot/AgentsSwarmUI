@@ -1,14 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  X, MessageSquare, FileText, ArrowRightLeft, Settings,
-  StopCircle, FolderCode, Activity, Wrench, ArrowLeft,
+  X, MessageSquare, Settings,
+  StopCircle, FolderCode, Activity, Wrench, ArrowLeft, Layers,
 } from 'lucide-react';
 import { api } from '../api';
 import VoiceChatTab from './VoiceChatTab';
 import ChatTab from './agentDetail/ChatTab';
 import PluginsTab from './agentDetail/PluginsTab';
-import RagTab from './agentDetail/RagTab';
-import HandoffTab from './agentDetail/HandoffTab';
+import ContextTab from './agentDetail/ContextTab';
 import ActionLogsTab from './agentDetail/ActionLogsTab';
 import SettingsTab from './agentDetail/SettingsTab';
 
@@ -17,8 +16,7 @@ export { cleanToolSyntax } from './agentDetail/cleanToolSyntax';
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'rag', label: 'RAG', icon: FileText },
-  { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft },
+  { id: 'context', label: 'Context', icon: Layers },
   { id: 'plugins', label: 'Plugins', icon: Wrench },
   { id: 'logs', label: 'Action Logs', icon: Activity },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -307,11 +305,8 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
             />
           )
         )}
-        {activeTab === 'rag' && (
-          <RagTab agent={agent} onRefresh={onRefresh} />
-        )}
-        {activeTab === 'handoff' && (
-          <HandoffTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
+        {activeTab === 'context' && (
+          <ContextTab agent={agent} agents={agents} socket={socket} onRefresh={onRefresh} />
         )}
         {activeTab === 'plugins' && (
           <PluginsTab agent={agent} plugins={skills} onRefresh={onRefresh} />
