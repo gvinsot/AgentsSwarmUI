@@ -302,5 +302,60 @@ Call them using the @mcp_call(Swarm API, tool_name, {"param": "value"}) syntax s
       "mcp-jira"
     ],
     "instructions": "You can interact with Jira using the Jira MCP tools.\n\nThe MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\nCall them using the @mcp_call(Jira, tool_name, {\"param\": \"value\"}) syntax shown there.\n\n## Jira MCP Tools Reference\n\n@mcp_call(Jira, get_myself, {})\n  — Get the authenticated Jira user profile.\n\n@mcp_call(Jira, list_projects, {})\n  — List all accessible Jira projects.\n\n@mcp_call(Jira, search_issues, {\"jql\": \"project = PROJ AND status = 'In Progress'\", \"maxResults\": 20})\n  — Search issues using JQL. Supports all JQL operators.\n\n@mcp_call(Jira, get_issue, {\"issueKey\": \"PROJ-123\"})\n  — Get full issue details (description, comments, attachments, subtasks).\n\n@mcp_call(Jira, create_issue, {\"projectKey\": \"PROJ\", \"summary\": \"New task\", \"description\": \"Details\", \"issueType\": \"Task\"})\n  — Create a new issue. issueType: Task, Bug, Story, Epic, Sub-task.\n\n@mcp_call(Jira, update_issue, {\"issueKey\": \"PROJ-123\", \"summary\": \"Updated title\"})\n  — Update issue fields (summary, description, priority, assignee, labels).\n\n@mcp_call(Jira, add_comment, {\"issueKey\": \"PROJ-123\", \"comment\": \"My comment\"})\n  — Add a comment to an issue.\n\n@mcp_call(Jira, transition_issue, {\"issueKey\": \"PROJ-123\"})\n  — List available transitions. Add transitionId to execute one.\n  Example: @mcp_call(Jira, transition_issue, {\"issueKey\": \"PROJ-123\", \"transitionId\": \"31\"})\n\n@mcp_call(Jira, list_boards, {})\n  — List all Jira boards (Scrum/Kanban).\n\n@mcp_call(Jira, get_board_columns, {\"boardId\": 1})\n  — Get board columns/statuses.\n\n@mcp_call(Jira, get_sprint, {\"boardId\": 1})\n  — Get active sprint with issues.\n\n@mcp_call(Jira, assign_issue, {\"issueKey\": \"PROJ-123\", \"accountId\": \"abc123\"})\n  — Assign or unassign an issue.\n\n## USAGE GUIDELINES\n- Start by listing projects: @mcp_call(Jira, list_projects, {})\n- Use JQL for powerful searches: status, assignee, labels, sprint, dates\n- Before transitioning, call transition_issue without transitionId to see options\n- Always confirm with the user before creating issues or modifying data\n- Use get_issue to read full details before making updates"
+  },
+  {
+    "id": "skill-auto-learn",
+    "name": "Auto Learn",
+    "description": "Shared skill library — agents can create, search, update, and reuse learned knowledge and procedures",
+    "category": "general",
+    "icon": "🎓",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-auto-learn"
+    ],
+    "instructions": `You have access to a shared skill library where you can learn, store, and retrieve reusable knowledge.
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(Auto Learn, tool_name, {"param": "value"}) syntax shown there.
+
+## AVAILABLE TOOLS
+
+@mcp_call(Auto Learn, list_skills, {})
+  — List all skills in the shared library.
+
+@mcp_call(Auto Learn, search_skills, {"query": "deployment"})
+  — Search for existing skills by keyword. Matches name, description, category, and instructions.
+
+@mcp_call(Auto Learn, get_skill, {"skill_id": "agent-skill-..."})
+  — Get the full details and instructions of a specific skill.
+
+@mcp_call(Auto Learn, create_skill, {"name": "Fix CORS Issues", "description": "Step-by-step guide to diagnose and fix CORS errors", "category": "coding", "instructions": "..."})
+  — Create a new skill with detailed instructions. Categories: coding, devops, writing, security, analysis, general.
+
+@mcp_call(Auto Learn, update_skill, {"skill_id": "agent-skill-...", "instructions": "Updated instructions..."})
+  — Update an existing skill (name, description, category, or instructions).
+
+@mcp_call(Auto Learn, delete_skill, {"skill_id": "agent-skill-..."})
+  — Delete a skill from the library.
+
+## WHEN TO USE
+
+### Learning (creating/updating skills)
+- After solving a complex or non-obvious problem, capture the solution as a skill
+- When you discover a project-specific pattern or convention that other agents should know
+- When you find a useful debugging technique or workaround
+- When a deployment or configuration procedure is not documented elsewhere
+
+### Searching (finding existing skills)
+- Before tackling a new problem, search for relevant skills that might help
+- When asked to do something you haven't done before in this project
+- When you need project-specific conventions or procedures
+
+## BEST PRACTICES
+- Always search before creating �� avoid duplicates
+- Write clear, actionable instructions with concrete examples
+- Include the "why" alongside the "how" — context helps other agents apply the skill correctly
+- Keep skills focused on one topic — split broad knowledge into multiple skills
+- Update skills when you discover better approaches`
   }
 ];

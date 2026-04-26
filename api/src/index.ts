@@ -17,6 +17,7 @@ import { CodeIndexService } from './services/codeIndexService.js';
 import { createCodeIndexMcpHandler } from './services/codeIndexMcp.js';
 import { createGandiDnsMcpHandler } from './services/gandiDnsMcp.js';
 import { pluginRoutes } from './routes/plugins.js';
+import { agentSkillRoutes } from './routes/agentSkills.js';
 import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { leaderToolsRoutes } from './routes/leaderTools.js';
@@ -29,6 +30,7 @@ import { gmailRoutes } from './routes/gmail.js';
 import { createGmailMcpHandler } from './services/gmailMcp.js';
 import { slackRoutes } from './routes/slack.js';
 import { createSlackMcpHandler } from './services/slackMcp.js';
+import { createAutoLearnMcpHandler } from './services/autoLearnMcp.js';
 import { apiKeyRoutes } from './routes/apiKeys.js';
 import { settingsRoutes } from './routes/settings.js';
 import { createSwarmApiMcpHandler, createSwarmApiMcpSseHandlers } from './services/swarmApiMcp.js';
@@ -130,6 +132,7 @@ app.use('/api/code-index', authenticateToken, codeIndexRoutes(codeIndexService))
 app.use('/api/plugins', authenticateToken, pluginRoutes(skillManager, mcpManager));
 // Backward compatibility
 app.use('/api/skills', authenticateToken, pluginRoutes(skillManager, mcpManager));
+app.use('/api/agent-skills', authenticateToken, agentSkillRoutes());
 app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/gmail', authenticateToken, gmailRoutes());
@@ -162,6 +165,9 @@ app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHand
 
 const gandiDnsMcpHandler = createGandiDnsMcpHandler(mcpManager);
 app.all('/api/gandi-dns/mcp', authenticateToken, (req, res) => gandiDnsMcpHandler(req, res));
+
+const autoLearnMcpHandler = createAutoLearnMcpHandler();
+app.all('/api/auto-learn/mcp', authenticateToken, (req, res) => autoLearnMcpHandler(req, res));
 
 // Internal Swarm API MCP endpoint (JWT auth — used by agents via mcpManager)
 const swarmApiMcpInternalHandler = createSwarmApiMcpHandler(agentManager);

@@ -88,5 +88,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-auto-learn',
+    name: 'Auto Learn',
+    url: '__internal__auto_learn',
+    description: 'Auto Learn — shared skill library where agents can create, search, update and reuse learned knowledge',
+    icon: '🎓',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

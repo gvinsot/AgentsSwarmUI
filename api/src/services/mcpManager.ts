@@ -18,6 +18,7 @@ export function resolveInternalMcpConfig(serverUrl: string, {
     '__internal__gmail': `http://localhost:${port}/api/gmail/mcp`,
     '__internal__slack': `http://localhost:${port}/api/slack/mcp`,
     '__internal__jira': `http://localhost:${port}/api/jira/mcp`,
+    '__internal__auto_learn': `http://localhost:${port}/api/auto-learn/mcp`,
   };
 
   if (!mappings[serverUrl]) {
