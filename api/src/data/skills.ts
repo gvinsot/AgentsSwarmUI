@@ -323,6 +323,53 @@ Call them using the @mcp_call(Swarm API, tool_name, {"param": "value"}) syntax s
     "instructions": "You can interact with GitHub using the GitHub MCP tools.\n\nThe MCP tools are listed in the \"--- MCP Tools ---\" section of your prompt.\nCall them using the @mcp_call(GitHub, tool_name, {\"param\": \"value\"}) syntax shown there.\n\n## GitHub MCP Tools Reference\n\n@mcp_call(GitHub, get_authenticated_user, {})\n  — Get the authenticated GitHub user profile.\n\n@mcp_call(GitHub, list_repos, {\"type\": \"all\", \"sort\": \"updated\", \"per_page\": 30})\n  — List repositories accessible to the authenticated user.\n\n@mcp_call(GitHub, get_repo, {\"owner\": \"octocat\", \"repo\": \"hello-world\"})\n  — Get detailed info about a specific repository.\n\n@mcp_call(GitHub, list_issues, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"state\": \"open\"})\n  — List issues. Filter by state, labels, assignee.\n\n@mcp_call(GitHub, get_issue, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"issue_number\": 1})\n  — Get full issue details with comments.\n\n@mcp_call(GitHub, create_issue, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"title\": \"Bug report\", \"body\": \"Details\"})\n  — Create a new issue.\n\n@mcp_call(GitHub, update_issue, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"issue_number\": 1, \"state\": \"closed\"})\n  — Update an issue (title, body, state, labels, assignees).\n\n@mcp_call(GitHub, add_issue_comment, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"issue_number\": 1, \"body\": \"Comment\"})\n  — Add a comment to an issue or PR.\n\n@mcp_call(GitHub, list_pull_requests, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"state\": \"open\"})\n  — List pull requests.\n\n@mcp_call(GitHub, get_pull_request, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"pull_number\": 1})\n  — Get full PR details with review status.\n\n@mcp_call(GitHub, create_pull_request, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"title\": \"Feature\", \"head\": \"feature-branch\", \"base\": \"main\"})\n  — Create a new pull request.\n\n@mcp_call(GitHub, list_branches, {\"owner\": \"octocat\", \"repo\": \"hello-world\"})\n  — List branches in a repository.\n\n@mcp_call(GitHub, get_file_content, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"path\": \"README.md\"})\n  — Get file or directory content.\n\n@mcp_call(GitHub, search_code, {\"query\": \"repo:octocat/hello-world function main\"})\n  — Search for code across repos.\n\n@mcp_call(GitHub, list_commits, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"per_page\": 10})\n  — List recent commits.\n\n@mcp_call(GitHub, list_workflows, {\"owner\": \"octocat\", \"repo\": \"hello-world\"})\n  — List GitHub Actions workflows.\n\n@mcp_call(GitHub, list_workflow_runs, {\"owner\": \"octocat\", \"repo\": \"hello-world\", \"per_page\": 5})\n  — List recent CI/CD workflow runs.\n\n## USAGE GUIDELINES\n- Start by listing repos: @mcp_call(GitHub, list_repos, {})\n- Use search_code for finding code across repositories\n- Check workflow runs to monitor CI/CD status\n- Always confirm with the user before creating issues, PRs, or modifying data"
   },
   {
+    "id": "skill-web-browser",
+    "name": "Web Browser",
+    "description": "Search, crawl and extract content from the web. Cloudflare-protected pages are bypassed via FlareSolverr.",
+    "category": "general",
+    "icon": "🌍",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-browser"
+    ],
+    "instructions": `You can browse the internet using the Web Browser MCP tools. Pages protected by Cloudflare or other bot-detection systems are automatically bypassed via FlareSolverr.
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(Web Browser, tool_name, {"param": "value"}) syntax shown there.
+
+## AVAILABLE TOOLS
+
+@mcp_call(Web Browser, search_web, {"query": "best practices docker swarm 2026"})
+  — Search the web (DuckDuckGo) and get the results page as clean Markdown. Use this first to discover relevant URLs.
+
+@mcp_call(Web Browser, crawl, {"url": "https://example.com/article"})
+  — Crawl a single page and return its main content as clean Markdown (boilerplate, nav, footer, ads filtered out).
+  Optional: word_count_threshold (default 10) to control how aggressively short blocks are dropped.
+
+@mcp_call(Web Browser, crawl_many, {"urls": ["https://a.com", "https://b.com"]})
+  — Crawl several pages in parallel. Use this when you need to compare or aggregate sources.
+
+@mcp_call(Web Browser, get_links, {"url": "https://example.com"})
+  — List all hyperlinks on a page (internal and external), filtered to ignore nav/footer noise.
+
+@mcp_call(Web Browser, extract, {"url": "https://example.com/products", "instruction": "Extract product name and price for each item"})
+  — Use the configured LLM to extract structured information from a page.
+  Optional: schema_json — provide a JSON schema string to force structured JSON output.
+
+## RECOMMENDED WORKFLOW
+
+1. Start with @mcp_call(Web Browser, search_web, {"query": "..."}) to find candidate URLs.
+2. Pick 1–3 promising URLs from the search results, then @mcp_call(Web Browser, crawl, ...) (or crawl_many) to read their content.
+3. Use @mcp_call(Web Browser, extract, ...) only when you need structured data (tables, product lists, etc.) — for prose, plain crawl + your own reading is faster.
+4. Use @mcp_call(Web Browser, get_links, ...) when you need to follow references from a starting page.
+
+## IMPORTANT
+- Always cite the source URL when returning information you got from the web.
+- Prefer crawl over extract when you only need to read a page — it's faster and cheaper.
+- Cloudflare / bot-blocked pages are handled transparently; if a crawl fails, retry once before giving up.
+- Never use this tool to perform side effects (form submissions, logins). It is read-only by design.`
+  },
+  {
     "id": "skill-auto-learn",
     "name": "Auto Learn",
     "description": "Shared skill library — agents can create, search, update, and reuse learned knowledge and procedures",

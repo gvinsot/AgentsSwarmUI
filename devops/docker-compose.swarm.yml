@@ -45,6 +45,7 @@ services:
       - JIRA_WEBHOOK_SECRET=${JIRA_WEBHOOK_SECRET:-}
       - CODER_API_KEY=${CODER_API_KEY:-change-me-in-production}
       - CODER_SERVICE_URL=http://coder-service:8000
+      - BROWSER_SERVICE_URL=http://mcp-browser:8000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker CLI for sandbox management
       - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro  # SSH keys (also mounted into sandboxes)
@@ -238,6 +239,79 @@ services:
         delay: 10s
         failure_action: rollback
 
+  flaresolverr:
+    image: 21hsmw/flaresolverr:nodriver
+    networks:
+      proxy:
+        # Internet access for solving Cloudflare challenges
+      backend:
+        # Internal network for mcp-browser → flaresolverr communication
+        aliases:
+          - flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.gpu == none
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        delay: 10s
+        failure_action: rollback
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8191/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  mcp-browser:
+    build:
+      context: ..
+      dockerfile: mcp-browser/Dockerfile
+    image: registry.methodinfo.fr/mcp-browser:latest
+    networks:
+      proxy:
+        # Internet access for web search (DuckDuckGo) and crawling
+        aliases:
+          - mcp-browser
+      backend:
+        # Internal network for talking to flaresolverr
+        aliases:
+          - mcp-browser
+    environment:
+      - TZ=Europe/Paris
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      # Use FlareSolverr to bypass Cloudflare / bot protections
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
+      - MAX_SEARCH_RESULT=5
+    depends_on:
+      - flaresolverr
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.gpu == none
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        delay: 10s
+        failure_action: rollback
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   coder-android-cache:
     driver: local
@@ -249,3 +323,6 @@ networks:
     external: true
   postgresqlcluster_internal:
     external: true
+  backend:
+    driver: overlay
+    attachable: true

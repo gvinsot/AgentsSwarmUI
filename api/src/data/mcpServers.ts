@@ -108,5 +108,15 @@ export const BUILTIN_MCP_SERVERS = [
     apiKey: '',
     builtin: true,
     enabled: true,
+  },
+  {
+    id: 'mcp-browser',
+    name: 'Web Browser',
+    url: '__internal__browser',
+    description: 'Web Browser — search, crawl and extract web content. Cloudflare-protected pages are bypassed via FlareSolverr',
+    icon: '🌍',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
   }
 ];

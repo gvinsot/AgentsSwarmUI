@@ -16,6 +16,7 @@ import { MCPManager } from './services/mcpManager.js';
 import { CodeIndexService } from './services/codeIndexService.js';
 import { createCodeIndexMcpHandler } from './services/codeIndexMcp.js';
 import { createGandiDnsMcpHandler } from './services/gandiDnsMcp.js';
+import { createBrowserMcpHandler } from './services/browserMcp.js';
 import { pluginRoutes } from './routes/plugins.js';
 import { agentSkillRoutes } from './routes/agentSkills.js';
 import { mcpServerRoutes } from './routes/mcpServers.js';
@@ -174,6 +175,9 @@ app.all('/api/gandi-dns/mcp', authenticateToken, (req, res) => gandiDnsMcpHandle
 
 const autoLearnMcpHandler = createAutoLearnMcpHandler();
 app.all('/api/auto-learn/mcp', authenticateToken, (req, res) => autoLearnMcpHandler(req, res));
+
+const browserMcpHandler = createBrowserMcpHandler();
+app.all('/api/browser/mcp', authenticateToken, (req, res) => browserMcpHandler(req, res));
 
 // Internal Swarm API MCP endpoint (JWT auth — used by agents via mcpManager)
 const swarmApiMcpInternalHandler = createSwarmApiMcpHandler(agentManager);
