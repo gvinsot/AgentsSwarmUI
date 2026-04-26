@@ -196,6 +196,7 @@ export class AgentManager {
         agent.skills = agent.skills || [];
         agent.mcpServers = agent.mcpServers || [];
         agent.mcpAuth = agent.mcpAuth || {};
+        agent.credentials = agent.credentials || {};
         agent.isVoice = agent.isVoice || false;
         agent.voice = agent.voice || 'alloy';
         agent.projectContexts = agent.projectContexts || {};
@@ -351,14 +352,20 @@ export class AgentManager {
   // ─── Utility methods ────────────────────────────────────────────────
 
   _sanitize(agent: any) {
-    const { apiKey, mcpAuth, ...rest } = agent;
+    const { apiKey, mcpAuth, credentials, ...rest } = agent;
     const sanitizedMcpAuth: Record<string, any> = {};
     if (mcpAuth && typeof mcpAuth === 'object') {
       for (const [serverId, conf] of Object.entries(mcpAuth)) {
         sanitizedMcpAuth[serverId] = { hasApiKey: !!(conf as any)?.apiKey };
       }
     }
-    const sanitized: any = { ...rest, hasApiKey: !!apiKey, mcpAuth: sanitizedMcpAuth };
+    const sanitizedCredentials: Record<string, { hasValue: boolean }> = {};
+    if (credentials && typeof credentials === 'object') {
+      for (const [name, value] of Object.entries(credentials)) {
+        sanitizedCredentials[name] = { hasValue: !!value };
+      }
+    }
+    const sanitized: any = { ...rest, hasApiKey: !!apiKey, mcpAuth: sanitizedMcpAuth, credentials: sanitizedCredentials };
     if (agent.llmConfigId) {
       const config = this.llmConfigs.get(agent.llmConfigId);
       if (config) {

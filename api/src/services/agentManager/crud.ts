@@ -78,7 +78,7 @@ export const crudMethods = {
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'ragDocuments', 'skills', 'mcpServers', 'mcpAuth', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
-      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId', 'boardId'
+      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId', 'boardId', 'credentials'
     ];
 
     for (const key of allowed) {
@@ -105,6 +105,17 @@ export const crudMethods = {
           }
           if (this.mcpManager) {
             this.mcpManager.disconnectAgent(id).catch(() => {});
+          }
+          continue;
+        }
+        if (key === 'credentials') {
+          if (!agent.credentials) agent.credentials = {};
+          for (const [name, value] of Object.entries(updates.credentials || {})) {
+            if (value) {
+              agent.credentials[name] = value;
+            } else {
+              delete agent.credentials[name];
+            }
           }
           continue;
         }

@@ -321,6 +321,16 @@ export const chatMethods = {
       }
     }
 
+    const agentCredentials = agent.credentials || {};
+    const credentialKeys = Object.keys(agentCredentials);
+    if (credentialKeys.length > 0) {
+      systemContent += '\n\n--- Agent Credentials ---\n';
+      systemContent += 'These credentials are available for use with plugins and external services.\n';
+      for (const key of credentialKeys) {
+        systemContent += `- ${key}: ${agentCredentials[key]}\n`;
+      }
+    }
+
     if (agentSkills.includes('skill-agents-direct-access')) {
       const askableAgents = Array.from(this.agents.values())
         .filter((a: any) => a.id !== id && a.enabled !== false)

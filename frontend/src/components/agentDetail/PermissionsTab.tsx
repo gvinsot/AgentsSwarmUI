@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Shield, Globe, HardDrive, Terminal, User, FolderLock } from 'lucide-react';
+import { Save, Shield, Globe, HardDrive, Terminal, User, FolderLock, KeyRound, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 
 const DEFAULT_PERMISSIONS = {
@@ -111,6 +111,61 @@ function TagInput({ tags, onChange, placeholder }) {
   );
 }
 
+function CredentialInput({ name, hasValue, onSave, onDelete }) {
+  const [value, setValue] = useState('');
+  const [visible, setVisible] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div className="flex items-center gap-2 p-2 bg-dark-800 rounded-lg border border-dark-600/50">
+      <KeyRound className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" />
+      <span className="text-sm text-dark-200 min-w-[80px]">{name}</span>
+      <div className="flex-1 flex items-center gap-1.5">
+        {editing ? (
+          <>
+            <input
+              type={visible ? 'text' : 'password'}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && value.trim()) { onSave(name, value.trim()); setValue(''); setEditing(false); } }}
+              placeholder="Enter value..."
+              className="flex-1 px-2 py-1 bg-dark-700 border border-dark-500 rounded text-xs text-dark-200 focus:outline-none focus:border-indigo-500"
+              autoFocus
+            />
+            <button onClick={() => setVisible(!visible)} className="text-dark-500 hover:text-dark-300">
+              {visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => { if (value.trim()) { onSave(name, value.trim()); setValue(''); setEditing(false); } }}
+              disabled={!value.trim()}
+              className="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white text-xs rounded disabled:opacity-40 transition-colors"
+            >
+              Save
+            </button>
+            <button onClick={() => { setValue(''); setEditing(false); }} className="px-2 py-1 bg-dark-600 hover:bg-dark-500 text-dark-300 text-xs rounded transition-colors">
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <span className={`text-xs ${hasValue ? 'text-emerald-400' : 'text-dark-500'}`}>
+              {hasValue ? '••••••••' : 'not set'}
+            </span>
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={() => setEditing(true)} className="px-2 py-1 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded transition-colors">
+                {hasValue ? 'Update' : 'Set'}
+              </button>
+              <button onClick={() => onDelete(name)} className="p-1 text-dark-500 hover:text-red-400 transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PermissionsTab({ agent, onRefresh }) {
   const [perms, setPerms] = useState(() => ({
     ...DEFAULT_PERMISSIONS,
@@ -124,6 +179,9 @@ export default function PermissionsTab({ agent, onRefresh }) {
   const [saved, setSaved] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
+  const [credentials, setCredentials] = useState<Record<string, { hasValue: boolean }>>(() => agent.credentials || {});
+  const [newCredName, setNewCredName] = useState('');
+
   useEffect(() => {
     setPerms({
       ...DEFAULT_PERMISSIONS,
@@ -133,6 +191,7 @@ export default function PermissionsTab({ agent, onRefresh }) {
       filesystem: { ...DEFAULT_PERMISSIONS.filesystem, ...agent.permissions?.filesystem },
       execution: { ...DEFAULT_PERMISSIONS.execution, ...agent.permissions?.execution },
     });
+    setCredentials(agent.credentials || {});
     setHasChanges(false);
     setSaved(false);
   }, [agent.id]);
@@ -159,6 +218,33 @@ export default function PermissionsTab({ agent, onRefresh }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveCredential = async (name: string, value: string) => {
+    try {
+      await api.updateAgent(agent.id, { credentials: { [name]: value } });
+      setCredentials(prev => ({ ...prev, [name]: { hasValue: true } }));
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to save credential:', err);
+    }
+  };
+
+  const handleDeleteCredential = async (name: string) => {
+    try {
+      await api.updateAgent(agent.id, { credentials: { [name]: '' } });
+      setCredentials(prev => { const next = { ...prev }; delete next[name]; return next; });
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to delete credential:', err);
+    }
+  };
+
+  const handleAddCredential = () => {
+    const name = newCredName.trim();
+    if (!name || credentials[name]) return;
+    setCredentials(prev => ({ ...prev, [name]: { hasValue: false } }));
+    setNewCredName('');
   };
 
   return (
@@ -320,6 +406,45 @@ export default function PermissionsTab({ agent, onRefresh }) {
         )}
       </PermissionCard>
 
+      {/* Credentials */}
+      <PermissionCard
+        icon={KeyRound}
+        title="Credentials"
+        description="Key-value secrets injected into the agent's context for plugin and external service authentication. Values are stored encrypted and never exposed in the UI."
+      >
+        <div className="space-y-2">
+          {Object.entries(credentials).map(([name, meta]) => (
+            <CredentialInput
+              key={name}
+              name={name}
+              hasValue={(meta as any).hasValue}
+              onSave={handleSaveCredential}
+              onDelete={handleDeleteCredential}
+            />
+          ))}
+        </div>
+        <div className="flex gap-1.5 mt-2">
+          <input
+            type="text"
+            value={newCredName}
+            onChange={(e) => setNewCredName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCredential())}
+            placeholder="Credential name (e.g. GITHUB_TOKEN)"
+            className="flex-1 px-2 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500"
+          />
+          <button
+            onClick={handleAddCredential}
+            disabled={!newCredName.trim() || !!credentials[newCredName.trim()]}
+            className="px-2.5 py-1.5 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded-lg disabled:opacity-40 transition-colors"
+          >
+            Add
+          </button>
+        </div>
+        {Object.keys(credentials).length === 0 && (
+          <p className="text-[11px] text-dark-500 italic">No credentials configured. Add a credential above to inject secrets into plugins.</p>
+        )}
+      </PermissionCard>
+
       {/* Summary */}
       <div className="p-3 bg-dark-700/30 rounded-lg border border-dark-600/30">
         <h4 className="text-xs font-medium text-dark-400 mb-2">Active Configuration Summary</h4>
@@ -346,6 +471,12 @@ export default function PermissionsTab({ agent, onRefresh }) {
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${perms.execution.shellAccess ? 'bg-emerald-500' : 'bg-red-500'}`} />
             <span className="text-dark-400">Shell: {perms.execution.shellAccess ? 'enabled' : 'disabled'}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${Object.keys(credentials).length > 0 ? 'bg-emerald-500' : 'bg-dark-500'}`} />
+            <span className="text-dark-400">
+              Credentials: {Object.keys(credentials).length > 0 ? `${Object.keys(credentials).length} configured` : 'none'}
+            </span>
           </div>
         </div>
       </div>

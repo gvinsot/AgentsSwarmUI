@@ -60,6 +60,7 @@ const createAgentSchema = z.object({
       dangerousSkipPermissions: z.boolean().optional(),
     }).optional(),
   }).optional(),
+  credentials: z.record(z.string().max(100), z.string().max(2000)).optional(),
 });
 
 // Schema for updating an agent (all fields optional)
