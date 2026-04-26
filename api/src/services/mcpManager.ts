@@ -433,7 +433,7 @@ export class MCPManager {
    * Call an MCP tool on behalf of an agent, using per-agent auth if configured.
    * Falls back to the global connection when no agent-specific auth exists.
    */
-  async callToolByNameForAgent(serverName, toolName, args = {}, agentId = null, agentMcpAuth = {}) {
+  async callToolByNameForAgent(serverName, toolName, args = {}, agentId = null, agentMcpAuth = {}, boardId = null) {
     let server = Array.from(this.servers.values()).find(
       s => s.name.toLowerCase() === serverName.toLowerCase()
     );
@@ -452,7 +452,7 @@ export class MCPManager {
     // For internal OAuth-based MCPs (OneDrive, Gmail): always use per-agent connection
     // to pass agentId context so the MCP handler can resolve agent-specific OAuth tokens
     if (agentId && (server.url === '__internal__onedrive' || server.url === '__internal__gmail' || server.url === '__internal__slack' || server.url === '__internal__jira' || server.url === '__internal__github')) {
-      return this._callToolWithAgentContext(server, toolName, args, agentId);
+      return this._callToolWithAgentContext(server, toolName, args, agentId, boardId);
     }
 
     // No per-agent auth — use global connection
@@ -525,19 +525,20 @@ export class MCPManager {
    * Used for servers like OneDrive that need to know which agent is calling
    * to resolve agent-specific tokens, without requiring an API key.
    */
-  async _callToolWithAgentContext(server, toolName, args, agentId) {
-    const cacheKey = `${agentId}:${server.id}`;
+  async _callToolWithAgentContext(server, toolName, args, agentId, boardId = null) {
+    const cacheKey = `${agentId}:${server.id}${boardId ? `:${boardId}` : ''}`;
     let client = this.agentClients.get(cacheKey);
 
     // Connect if no cached client or previous connection is dead
     if (!client || !client.isConnected) {
-      console.log(`🔌 [MCP] Creating per-agent context connection for agent=${agentId.slice(0, 8)} server="${server.name}"`);
+      console.log(`🔌 [MCP] Creating per-agent context connection for agent=${agentId.slice(0, 8)} server="${server.name}"${boardId ? ` board=${boardId.slice(0, 8)}` : ''}`);
       client = new MCPClient('PulsarTeam');
       const internalConfig = resolveInternalMcpConfig(server.url);
       const connectOpts = {
         headers: {
           ...internalConfig.headers,
           'X-Agent-Id': agentId,
+          ...(boardId ? { 'X-Board-Id': boardId } : {}),
         },
       };
       await client.connect(internalConfig.url, connectOpts);
@@ -562,6 +563,7 @@ export class MCPManager {
           headers: {
             ...internalConfig.headers,
             'X-Agent-Id': agentId,
+            ...(boardId ? { 'X-Board-Id': boardId } : {}),
           },
         };
         await newClient.connect(internalConfig.url, connectOpts);

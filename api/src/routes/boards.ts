@@ -168,6 +168,91 @@ export function boardRoutes(agentManager) {
     }
   });
 
+  // ── Board Plugins ─────────────────────────────────────────────────────
+
+  // GET /:id/plugins — get board plugins
+  router.get('/:id/plugins', async (req, res) => {
+    try {
+      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'read');
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+      res.json({
+        plugins: access.board.plugins || [],
+        mcpAuth: access.board.mcp_auth || {},
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /:id/plugins — update board plugins (skill IDs array)
+  router.put('/:id/plugins', async (req, res) => {
+    try {
+      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+      const { plugins } = req.body;
+      if (!Array.isArray(plugins)) {
+        return res.status(400).json({ error: 'plugins must be an array of skill IDs' });
+      }
+      const updated = await updateBoard(req.params.id, { plugins });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /:id/plugins/assign — add a plugin to the board
+  router.post('/:id/plugins/assign', async (req, res) => {
+    try {
+      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+      const { pluginId } = req.body;
+      if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
+
+      const currentPlugins = Array.isArray(access.board.plugins) ? access.board.plugins : [];
+      if (currentPlugins.includes(pluginId)) {
+        return res.json(access.board); // already assigned
+      }
+      const updated = await updateBoard(req.params.id, { plugins: [...currentPlugins, pluginId] });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /:id/plugins/remove — remove a plugin from the board
+  router.post('/:id/plugins/remove', async (req, res) => {
+    try {
+      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+      const { pluginId } = req.body;
+      if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
+
+      const currentPlugins = Array.isArray(access.board.plugins) ? access.board.plugins : [];
+      const updated = await updateBoard(req.params.id, {
+        plugins: currentPlugins.filter(id => id !== pluginId),
+      });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /:id/mcp-auth — update board MCP auth config
+  router.put('/:id/mcp-auth', async (req, res) => {
+    try {
+      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+      const updated = await updateBoard(req.params.id, { mcp_auth: req.body });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // DELETE /:id — delete a board (owner or admin only)
   router.delete('/:id', async (req, res) => {
     try {

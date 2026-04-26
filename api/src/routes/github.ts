@@ -1,37 +1,23 @@
 import express from 'express';
 import crypto from 'crypto';
+import {
+  storeOAuthToken, getOAuthToken, hasOAuthToken, deleteOAuthToken, resolveAccessToken,
+} from '../services/database.js';
+import type { ScopeType } from '../services/database.js';
 
 /**
- * GitHub OAuth2 routes.
- *
- * Flow:
- * 1. Client calls GET /api/github/auth-url → receives the GitHub OAuth login URL
- * 2. User logs in on GitHub, gets redirected to the configured redirect URI
- * 3. Client captures the auth code and POST /api/github/callback with { code, state }
- * 4. Server exchanges the code for an access token via GitHub OAuth2
- * 5. Token is stored in-memory (per-agent) and used by the GitHub MCP proxy
- *
- * Per-agent mode:
- *   When agentId is provided, tokens are stored under "agent:<agentId>" key.
- *   Each agent gets its own GitHub connection with its own repo access scope.
- *
- * Environment variables:
- *   GITHUB_OAUTH_CLIENT_ID     — GitHub OAuth App client ID
- *   GITHUB_OAUTH_CLIENT_SECRET — GitHub OAuth App client secret
- *   GITHUB_OAUTH_REDIRECT_URI  — Must match the callback URL in the GitHub OAuth App settings
+ * GitHub OAuth2 routes — unified token store.
+ * Resolution: agent → board → user → error
  */
 
-const tokenStore = new Map();
 const stateStore = new Map();
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-function generateOAuthState(username, agentId = null) {
+function generateOAuthState(username, agentId = null, boardId = null) {
   const now = Date.now();
-  for (const [k, v] of stateStore) {
-    if (v.expiresAt < now) stateStore.delete(k);
-  }
+  for (const [k, v] of stateStore) { if (v.expiresAt < now) stateStore.delete(k); }
   const state = crypto.randomBytes(32).toString('hex');
-  stateStore.set(state, { username, agentId, expiresAt: now + STATE_TTL_MS });
+  stateStore.set(state, { username, agentId, boardId, expiresAt: now + STATE_TTL_MS });
   return state;
 }
 
@@ -40,35 +26,36 @@ function consumeOAuthState(state) {
   if (!entry) return null;
   stateStore.delete(state);
   if (entry.expiresAt < Date.now()) return null;
-  return { username: entry.username, agentId: entry.agentId || null };
+  return { username: entry.username, agentId: entry.agentId || null, boardId: entry.boardId || null };
 }
 
-function tokenKey(agentId, username) {
-  if (agentId) return `agent:${agentId}`;
-  return username || 'default';
+function resolveScope(agentId, boardId, username): { scopeType: ScopeType; scopeId: string } {
+  if (agentId) return { scopeType: 'agent', scopeId: agentId };
+  if (boardId) return { scopeType: 'board', scopeId: boardId };
+  return { scopeType: 'user', scopeId: username || 'default' };
 }
 
 function getConfig() {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET;
   const redirectUri = process.env.GITHUB_OAUTH_REDIRECT_URI;
-
-  if (!clientId || !clientSecret || !redirectUri) {
-    return null;
-  }
-
+  if (!clientId || !clientSecret || !redirectUri) return null;
   return { clientId, clientSecret, redirectUri };
-}
-
-export function getGitHubTokenStore() {
-  return tokenStore;
 }
 
 export function hasGitHubTokensForAgent(agentId) {
   if (!agentId) return false;
-  const key = `agent:${agentId}`;
-  const tokens = tokenStore.get(key);
-  return !!(tokens && tokens.accessToken);
+  return hasOAuthToken('github', 'agent', agentId);
+}
+
+export function hasGitHubTokensForBoard(boardId) {
+  if (!boardId) return false;
+  return hasOAuthToken('github', 'board', boardId);
+}
+
+export async function getGitHubAccessTokenForAgent(agentId, boardId = null) {
+  // GitHub tokens don't expire
+  return resolveAccessToken('github', agentId, boardId);
 }
 
 export function githubRoutes() {
@@ -77,30 +64,31 @@ export function githubRoutes() {
   router.get('/status', (req, res) => {
     const config = getConfig();
     const agentId = req.query.agentId || null;
+    const boardId = req.query.boardId || null;
     const username = req.user?.username;
 
-    const key = tokenKey(agentId, username);
-    const tokens = tokenStore.get(key);
-    const connected = !!(tokens && tokens.accessToken);
+    const { scopeType, scopeId } = resolveScope(agentId, boardId, username);
+    const token = getOAuthToken('github', scopeType, scopeId);
+    const connected = !!(token && token.accessToken);
 
     res.json({
       configured: !!config,
       connected,
-      login: connected ? tokens.login || null : null,
+      login: connected ? token?.meta?.login || null : null,
       agentId: agentId || null,
+      boardId: boardId || null,
     });
   });
 
   router.get('/auth-url', (req, res) => {
     const config = getConfig();
     if (!config) {
-      return res.status(500).json({
-        error: 'GitHub OAuth not configured. Set GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_REDIRECT_URI.',
-      });
+      return res.status(500).json({ error: 'GitHub OAuth not configured. Set GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_REDIRECT_URI.' });
     }
 
     const agentId = req.query.agentId || null;
-    const state = generateOAuthState(req.user?.username || 'default', agentId);
+    const boardId = req.query.boardId || null;
+    const state = generateOAuthState(req.user?.username || 'default', agentId, boardId);
 
     const params = new URLSearchParams({
       client_id: config.clientId,
@@ -109,36 +97,24 @@ export function githubRoutes() {
       state,
     });
 
-    const authUrl = `https://github.com/login/oauth/authorize?${params}`;
-    res.json({ authUrl });
+    res.json({ authUrl: `https://github.com/login/oauth/authorize?${params}` });
   });
 
   router.post('/callback', async (req, res) => {
     const config = getConfig();
-    if (!config) {
-      return res.status(500).json({ error: 'GitHub OAuth not configured' });
-    }
+    if (!config) return res.status(500).json({ error: 'GitHub OAuth not configured' });
 
     const { code, state } = req.body;
-    if (!code) {
-      return res.status(400).json({ error: 'Authorization code is required' });
-    }
-    if (!state) {
-      return res.status(400).json({ error: 'State parameter required' });
-    }
+    if (!code) return res.status(400).json({ error: 'Authorization code is required' });
+    if (!state) return res.status(400).json({ error: 'State parameter required' });
 
     const stateData = consumeOAuthState(state);
-    if (!stateData) {
-      return res.status(400).json({ error: 'Invalid or expired state' });
-    }
+    if (!stateData) return res.status(400).json({ error: 'Invalid or expired state' });
 
     try {
       const response = await fetch('https://github.com/login/oauth/access_token', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           client_id: config.clientId,
           client_secret: config.clientSecret,
@@ -148,7 +124,6 @@ export function githubRoutes() {
       });
 
       const data = await response.json();
-
       if (data.error) {
         console.error('[GitHub] Token exchange failed:', data);
         return res.status(400).json({ error: data.error_description || 'Token exchange failed' });
@@ -157,11 +132,7 @@ export function githubRoutes() {
       let login = null;
       try {
         const userRes = await fetch('https://api.github.com/user', {
-          headers: {
-            Authorization: `Bearer ${data.access_token}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'PulsarTeam',
-          },
+          headers: { Authorization: `Bearer ${data.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'PulsarTeam' },
         });
         if (userRes.ok) {
           const user = await userRes.json();
@@ -171,50 +142,33 @@ export function githubRoutes() {
         console.warn('[GitHub] Could not fetch user profile:', err.message);
       }
 
-      const key = tokenKey(stateData.agentId, stateData.username);
-      tokenStore.set(key, {
+      const { scopeType, scopeId } = resolveScope(stateData.agentId, stateData.boardId, stateData.username);
+
+      await storeOAuthToken({
+        provider: 'github',
+        scopeType,
+        scopeId,
         accessToken: data.access_token,
-        scope: data.scope,
-        tokenType: data.token_type,
-        login,
+        meta: { scope: data.scope, tokenType: data.token_type, login },
       });
 
-      const target = stateData.agentId ? `agent "${stateData.agentId.slice(0, 8)}"` : `user "${stateData.username}"`;
-      console.log(`✅ [GitHub] OAuth token stored for ${target} (${login || 'unknown'})`);
-      res.json({ success: true, agentId: stateData.agentId, login });
+      console.log(`✅ [GitHub] OAuth token stored for ${scopeType}:${scopeId} (${login || 'unknown'})`);
+      res.json({ success: true, agentId: stateData.agentId, boardId: stateData.boardId, login });
     } catch (err) {
       console.error('[GitHub] Token exchange error:', err);
       res.status(500).json({ error: 'Token exchange failed' });
     }
   });
 
-  router.post('/disconnect', (req, res) => {
+  router.post('/disconnect', async (req, res) => {
     const agentId = req.body?.agentId || null;
+    const boardId = req.body?.boardId || null;
     const username = req.user?.username || 'default';
-    const key = tokenKey(agentId, username);
-    tokenStore.delete(key);
-    const target = agentId ? `agent "${agentId.slice(0, 8)}"` : `user "${username}"`;
-    console.log(`🔌 [GitHub] Disconnected ${target}`);
+    const { scopeType, scopeId } = resolveScope(agentId, boardId, username);
+    await deleteOAuthToken('github', scopeType, scopeId);
+    console.log(`🔌 [GitHub] Disconnected ${scopeType}:${scopeId}`);
     res.json({ success: true });
   });
 
   return router;
-}
-
-export async function getGitHubAccessTokenForAgent(agentId) {
-  if (agentId) {
-    const agentKey = `agent:${agentId}`;
-    const agentTokens = tokenStore.get(agentKey);
-    if (agentTokens?.accessToken) {
-      return agentTokens.accessToken;
-    }
-  }
-
-  for (const [key, tokens] of tokenStore) {
-    if (!key.startsWith('agent:') && tokens.accessToken) {
-      return tokens.accessToken;
-    }
-  }
-
-  throw new Error('Not connected to GitHub. Please authenticate first.');
 }

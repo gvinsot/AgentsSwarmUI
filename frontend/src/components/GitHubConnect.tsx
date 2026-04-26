@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Github, ExternalLink, Loader2, CheckCircle, AlertCircle, Unplug } from 'lucide-react';
 import { api } from '../api';
 
-export default function GitHubConnect({ agentId, onStatusChange }) {
+export default function GitHubConnect({ agentId, boardId, onStatusChange }) {
   const [status, setStatus] = useState({ configured: false, connected: false });
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -14,7 +14,7 @@ export default function GitHubConnect({ agentId, onStatusChange }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api.getGitHubStatus(agentId || undefined);
+      const data = await api.getGitHubStatus(agentId || undefined, boardId || undefined);
       setStatus(data);
       onStatusChangeRef.current?.(data);
     } catch (err) {
@@ -22,7 +22,7 @@ export default function GitHubConnect({ agentId, onStatusChange }) {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, boardId]);
 
   useEffect(() => {
     fetchStatus();
@@ -52,7 +52,7 @@ export default function GitHubConnect({ agentId, onStatusChange }) {
     setError(null);
     setConnecting(true);
     try {
-      const { authUrl } = await api.getGitHubAuthUrl(agentId || undefined);
+      const { authUrl } = await api.getGitHubAuthUrl(agentId || undefined, boardId || undefined);
 
       const width = 600;
       const height = 700;
@@ -87,7 +87,7 @@ export default function GitHubConnect({ agentId, onStatusChange }) {
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await api.disconnectGitHub(agentId || undefined);
+      await api.disconnectGitHub(agentId || undefined, boardId || undefined);
       await fetchStatus();
     } catch (err) {
       setError(err.message);

@@ -5,8 +5,8 @@ import { getGitHubAccessTokenForAgent } from '../routes/github.js';
 
 const GITHUB_API = 'https://api.github.com';
 
-async function githubFetch(path: string, agentId: string | null = null, options: Record<string, any> = {}) {
-  const token = await getGitHubAccessTokenForAgent(agentId);
+async function githubFetch(path: string, agentId: string | null = null, boardId: string | null = null, options: Record<string, any> = {}) {
+  const token = await getGitHubAccessTokenForAgent(agentId, boardId);
   const url = path.startsWith('http') ? path : `${GITHUB_API}${path}`;
 
   const res = await fetch(url, {
@@ -32,7 +32,7 @@ async function githubFetch(path: string, agentId: string | null = null, options:
   return res.text();
 }
 
-export function createGitHubMcpServer(agentId = null) {
+export function createGitHubMcpServer(agentId = null, boardId = null) {
   const server = new McpServer({
     name: 'GitHub',
     version: '1.0.0',
@@ -44,7 +44,7 @@ export function createGitHubMcpServer(agentId = null) {
     'Get the authenticated GitHub user profile (login, name, email, repos count).',
     {},
     async () => {
-      const user = await githubFetch('/user', agentId);
+      const user = await githubFetch('/user', agentId, boardId);
       return {
         content: [{
           type: 'text',
@@ -71,7 +71,7 @@ export function createGitHubMcpServer(agentId = null) {
         per_page: String(Math.min(per_page || 30, 100)),
         page: String(page || 1),
       });
-      const repos = await githubFetch(`/user/repos?${params}`, agentId);
+      const repos = await githubFetch(`/user/repos?${params}`, agentId, boardId);
 
       if (!repos.length) {
         return { content: [{ type: 'text', text: 'No repositories found.' }] };
@@ -95,7 +95,7 @@ export function createGitHubMcpServer(agentId = null) {
       repo: z.string().describe('Repository name'),
     },
     async ({ owner, repo }) => {
-      const r = await githubFetch(`/repos/${owner}/${repo}`, agentId);
+      const r = await githubFetch(`/repos/${owner}/${repo}`, agentId, boardId);
       return {
         content: [{
           type: 'text',
@@ -127,7 +127,7 @@ export function createGitHubMcpServer(agentId = null) {
       if (labels) params.set('labels', labels);
       if (assignee) params.set('assignee', assignee);
 
-      const issues = await githubFetch(`/repos/${owner}/${repo}/issues?${params}`, agentId);
+      const issues = await githubFetch(`/repos/${owner}/${repo}/issues?${params}`, agentId, boardId);
       const filtered = issues.filter(i => !i.pull_request);
 
       if (!filtered.length) {
@@ -153,12 +153,12 @@ export function createGitHubMcpServer(agentId = null) {
       issue_number: z.number().describe('Issue number'),
     },
     async ({ owner, repo, issue_number }) => {
-      const issue = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}`, agentId);
+      const issue = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}`, agentId, boardId);
       const labels = (issue.labels || []).map(l => l.name).join(', ');
 
       let commentsText = '';
       if (issue.comments > 0) {
-        const comments = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}/comments?per_page=20`, agentId);
+        const comments = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}/comments?per_page=20`, agentId, boardId);
         commentsText = '\n\n--- Comments ---\n' + comments.map((c, i) =>
           `[${i + 1}] ${c.user?.login} (${c.created_at?.slice(0, 10)}):\n${c.body}`
         ).join('\n\n');
@@ -191,7 +191,7 @@ export function createGitHubMcpServer(agentId = null) {
       if (labels) payload.labels = labels.split(',').map(l => l.trim());
       if (assignees) payload.assignees = assignees.split(',').map(a => a.trim());
 
-      const issue = await githubFetch(`/repos/${owner}/${repo}/issues`, agentId, {
+      const issue = await githubFetch(`/repos/${owner}/${repo}/issues`, agentId, boardId, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -227,7 +227,7 @@ export function createGitHubMcpServer(agentId = null) {
       if (labels) payload.labels = labels.split(',').map(l => l.trim());
       if (assignees) payload.assignees = assignees.split(',').map(a => a.trim());
 
-      const issue = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}`, agentId, {
+      const issue = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}`, agentId, boardId, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
@@ -252,7 +252,7 @@ export function createGitHubMcpServer(agentId = null) {
       body: z.string().describe('Comment body (markdown)'),
     },
     async ({ owner, repo, issue_number, body }) => {
-      const comment = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}/comments`, agentId, {
+      const comment = await githubFetch(`/repos/${owner}/${repo}/issues/${issue_number}/comments`, agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({ body }),
       });
@@ -284,7 +284,7 @@ export function createGitHubMcpServer(agentId = null) {
         per_page: String(Math.min(per_page || 30, 100)),
       });
 
-      const prs = await githubFetch(`/repos/${owner}/${repo}/pulls?${params}`, agentId);
+      const prs = await githubFetch(`/repos/${owner}/${repo}/pulls?${params}`, agentId, boardId);
 
       if (!prs.length) {
         return { content: [{ type: 'text', text: `No pull requests found for ${owner}/${repo} (state: ${state}).` }] };
@@ -309,11 +309,11 @@ export function createGitHubMcpServer(agentId = null) {
       pull_number: z.number().describe('Pull request number'),
     },
     async ({ owner, repo, pull_number }) => {
-      const pr = await githubFetch(`/repos/${owner}/${repo}/pulls/${pull_number}`, agentId);
+      const pr = await githubFetch(`/repos/${owner}/${repo}/pulls/${pull_number}`, agentId, boardId);
 
       let reviewsText = '';
       try {
-        const reviews = await githubFetch(`/repos/${owner}/${repo}/pulls/${pull_number}/reviews?per_page=10`, agentId);
+        const reviews = await githubFetch(`/repos/${owner}/${repo}/pulls/${pull_number}/reviews?per_page=10`, agentId, boardId);
         if (reviews.length) {
           reviewsText = '\n\n--- Reviews ---\n' + reviews.map(r =>
             `${r.user?.login}: ${r.state} (${r.submitted_at?.slice(0, 10)})`
@@ -344,7 +344,7 @@ export function createGitHubMcpServer(agentId = null) {
       draft: z.boolean().optional().default(false).describe('Create as draft PR'),
     },
     async ({ owner, repo, title, head, base, body, draft }) => {
-      const pr = await githubFetch(`/repos/${owner}/${repo}/pulls`, agentId, {
+      const pr = await githubFetch(`/repos/${owner}/${repo}/pulls`, agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({ title, head, base, body, draft }),
       });
@@ -369,7 +369,7 @@ export function createGitHubMcpServer(agentId = null) {
     },
     async ({ owner, repo, per_page }) => {
       const params = new URLSearchParams({ per_page: String(Math.min(per_page || 30, 100)) });
-      const branches = await githubFetch(`/repos/${owner}/${repo}/branches?${params}`, agentId);
+      const branches = await githubFetch(`/repos/${owner}/${repo}/branches?${params}`, agentId, boardId);
 
       const list = branches.map((b, i) =>
         `${i + 1}. ${b.name}${b.protected ? ' 🔒' : ''} — ${b.commit?.sha?.slice(0, 7)}`
@@ -391,7 +391,7 @@ export function createGitHubMcpServer(agentId = null) {
     },
     async ({ owner, repo, path, ref }) => {
       const params = ref ? `?ref=${encodeURIComponent(ref)}` : '';
-      const data = await githubFetch(`/repos/${owner}/${repo}/contents/${path}${params}`, agentId);
+      const data = await githubFetch(`/repos/${owner}/${repo}/contents/${path}${params}`, agentId, boardId);
 
       if (Array.isArray(data)) {
         const items = data.map(item =>
@@ -423,7 +423,7 @@ export function createGitHubMcpServer(agentId = null) {
         q: query,
         per_page: String(Math.min(per_page || 20, 100)),
       });
-      const result = await githubFetch(`/search/code?${params}`, agentId);
+      const result = await githubFetch(`/search/code?${params}`, agentId, boardId);
       const items = result.items || [];
 
       if (!items.length) {
@@ -452,7 +452,7 @@ export function createGitHubMcpServer(agentId = null) {
       const params = new URLSearchParams({ per_page: String(Math.min(per_page || 20, 100)) });
       if (sha) params.set('sha', sha);
 
-      const commits = await githubFetch(`/repos/${owner}/${repo}/commits?${params}`, agentId);
+      const commits = await githubFetch(`/repos/${owner}/${repo}/commits?${params}`, agentId, boardId);
 
       const list = commits.map((c, i) => {
         const msg = c.commit?.message?.split('\n')[0] || '';
@@ -472,7 +472,7 @@ export function createGitHubMcpServer(agentId = null) {
       repo: z.string().describe('Repository name'),
     },
     async ({ owner, repo }) => {
-      const data = await githubFetch(`/repos/${owner}/${repo}/actions/workflows`, agentId);
+      const data = await githubFetch(`/repos/${owner}/${repo}/actions/workflows`, agentId, boardId);
       const workflows = data.workflows || [];
 
       if (!workflows.length) {
@@ -501,7 +501,7 @@ export function createGitHubMcpServer(agentId = null) {
       const params = new URLSearchParams({ per_page: String(Math.min(per_page || 10, 100)) });
       if (status) params.set('status', status);
 
-      const data = await githubFetch(`/repos/${owner}/${repo}/actions/runs?${params}`, agentId);
+      const data = await githubFetch(`/repos/${owner}/${repo}/actions/runs?${params}`, agentId, boardId);
       const runs = data.workflow_runs || [];
 
       if (!runs.length) {
@@ -528,8 +528,9 @@ export function createGitHubMcpHandler() {
     }
     try {
       const agentId = req.headers['x-agent-id'] || null;
+      const boardId = req.headers['x-board-id'] || null;
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createGitHubMcpServer(agentId);
+      const server = createGitHubMcpServer(agentId, boardId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {

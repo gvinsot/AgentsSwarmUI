@@ -1,75 +1,78 @@
 import express from 'express';
+import {
+  storeOAuthToken, getOAuthToken, hasOAuthToken, deleteOAuthToken, resolveAccessToken,
+} from '../services/database.js';
+import type { ScopeType } from '../services/database.js';
 
 /**
- * Jira per-agent authentication routes.
- *
- * Unlike Gmail/OneDrive (OAuth2), Jira uses API token + Basic Auth.
- * Each agent stores its own Jira credentials (domain, email, apiToken).
- *
- * Flow:
- * 1. Admin enters Jira domain, email, and API token in the agent's Plugins tab
- * 2. POST /api/jira/connect with { agentId, domain, email, apiToken }
- * 3. Server stores credentials in-memory keyed by agentId
- * 4. MCP tools use these credentials to call Jira REST APIs
+ * Jira per-agent/board authentication routes — unified token store.
+ * Uses API token + Basic Auth (not OAuth2), but stored in the same unified table.
+ * Resolution: agent → board → error
  */
 
-// In-memory credential store: "agent:<agentId>" → { domain, email, apiToken }
-const credentialStore = new Map<string, { domain: string; email: string; apiToken: string }>();
-
-function credKey(agentId: string) {
-  return `agent:${agentId}`;
-}
-
-export function getJiraCredentialStore() {
-  return credentialStore;
+function resolveScope(agentId, boardId): { scopeType: ScopeType; scopeId: string } | null {
+  if (agentId) return { scopeType: 'agent', scopeId: agentId };
+  if (boardId) return { scopeType: 'board', scopeId: boardId };
+  return null;
 }
 
 export function hasJiraCredentialsForAgent(agentId: string): boolean {
   if (!agentId) return false;
-  return credentialStore.has(credKey(agentId));
+  return hasOAuthToken('jira', 'agent', agentId);
 }
 
-export function getJiraCredentialsForAgent(agentId: string | null) {
-  if (!agentId) return null;
-  return credentialStore.get(credKey(agentId)) || null;
+export function hasJiraCredentialsForBoard(boardId: string): boolean {
+  if (!boardId) return false;
+  return hasOAuthToken('jira', 'board', boardId);
+}
+
+export function getJiraCredentialsForAgent(agentId: string | null, boardId: string | null = null) {
+  // Try agent first, then board
+  if (agentId) {
+    const token = getOAuthToken('jira', 'agent', agentId);
+    if (token) return token.meta as { domain: string; email: string; apiToken: string } | null;
+  }
+  if (boardId) {
+    const token = getOAuthToken('jira', 'board', boardId);
+    if (token) return token.meta as { domain: string; email: string; apiToken: string } | null;
+  }
+  return null;
 }
 
 export function jiraRoutes() {
   const router = express.Router();
 
-  // GET /jira/status?agentId= — check connection status for an agent
   router.get('/status', (req, res) => {
     const agentId = (req.query.agentId as string) || null;
-    if (!agentId) {
-      return res.json({ connected: false, agentId: null });
+    const boardId = (req.query.boardId as string) || null;
+    if (!agentId && !boardId) {
+      return res.json({ connected: false, agentId: null, boardId: null });
     }
-    const creds = credentialStore.get(credKey(agentId));
+    const scope = resolveScope(agentId, boardId);
+    if (!scope) return res.json({ connected: false });
+    const token = getOAuthToken('jira', scope.scopeType, scope.scopeId);
     res.json({
-      connected: !!creds,
-      domain: creds?.domain || null,
-      email: creds?.email || null,
+      connected: !!token,
+      domain: token?.meta?.domain || null,
+      email: token?.meta?.email || null,
       agentId,
+      boardId,
     });
   });
 
-  // POST /jira/connect — store Jira credentials for an agent
   router.post('/connect', async (req, res) => {
-    const { agentId, domain, email, apiToken } = req.body;
-    if (!agentId || !domain || !email || !apiToken) {
-      return res.status(400).json({ error: 'agentId, domain, email, and apiToken are required' });
+    const { agentId, boardId, domain, email, apiToken } = req.body;
+    if ((!agentId && !boardId) || !domain || !email || !apiToken) {
+      return res.status(400).json({ error: 'agentId or boardId, domain, email, and apiToken are required' });
     }
 
-    // Validate credentials by calling Jira API
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
     const baseUrl = `https://${cleanDomain}`;
     const encoded = Buffer.from(`${email}:${apiToken}`).toString('base64');
 
     try {
       const testRes = await fetch(`${baseUrl}/rest/api/3/myself`, {
-        headers: {
-          Authorization: `Basic ${encoded}`,
-          Accept: 'application/json',
-        },
+        headers: { Authorization: `Basic ${encoded}`, Accept: 'application/json' },
       });
 
       if (!testRes.ok) {
@@ -78,24 +81,36 @@ export function jiraRoutes() {
       }
 
       const myself = await testRes.json();
+      const scope = resolveScope(agentId, boardId)!;
 
-      credentialStore.set(credKey(agentId), { domain: cleanDomain, email, apiToken });
-      console.log(`✅ [Jira] Credentials stored for agent "${agentId.slice(0, 8)}" → ${cleanDomain} (${myself.displayName || email})`);
-      res.json({ success: true, agentId, displayName: myself.displayName, domain: cleanDomain });
+      // Store the Jira credentials: accessToken is the encoded Basic auth, meta has the original creds
+      await storeOAuthToken({
+        provider: 'jira',
+        scopeType: scope.scopeType,
+        scopeId: scope.scopeId,
+        accessToken: encoded,
+        meta: { domain: cleanDomain, email, apiToken },
+      });
+
+      const target = agentId ? `agent "${agentId.slice(0, 8)}"` : `board "${boardId?.slice(0, 8)}"`;
+      console.log(`✅ [Jira] Credentials stored for ${target} → ${cleanDomain} (${myself.displayName || email})`);
+      res.json({ success: true, agentId, boardId, displayName: myself.displayName, domain: cleanDomain });
     } catch (err) {
       console.error('[Jira] Connection test failed:', err);
       res.status(500).json({ error: `Connection failed: ${err.message}` });
     }
   });
 
-  // POST /jira/disconnect — clear credentials for an agent
-  router.post('/disconnect', (req, res) => {
+  router.post('/disconnect', async (req, res) => {
     const agentId = req.body?.agentId || null;
-    if (!agentId) {
-      return res.status(400).json({ error: 'agentId is required' });
+    const boardId = req.body?.boardId || null;
+    if (!agentId && !boardId) {
+      return res.status(400).json({ error: 'agentId or boardId is required' });
     }
-    credentialStore.delete(credKey(agentId));
-    console.log(`🔌 [Jira] Disconnected agent "${agentId.slice(0, 8)}"`);
+    const scope = resolveScope(agentId, boardId)!;
+    await deleteOAuthToken('jira', scope.scopeType, scope.scopeId);
+    const target = agentId ? `agent "${agentId.slice(0, 8)}"` : `board "${boardId?.slice(0, 8)}"`;
+    console.log(`🔌 [Jira] Disconnected ${target}`);
     res.json({ success: true });
   });
 

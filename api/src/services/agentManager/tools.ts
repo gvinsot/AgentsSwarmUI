@@ -938,7 +938,7 @@ export const toolsMethods = {
           } else {
             parsedArgs = argsJson || {};
           }
-          const mcpResult = await this.mcpManager.callToolByNameForAgent(serverName, toolName, parsedArgs, agentId, agent.mcpAuth || {});
+          const mcpResult = await this.mcpManager.callToolByNameForAgent(serverName, toolName, parsedArgs, agentId, agent.mcpAuth || {}, agent.boardId || null);
 
           if (streamCallback) {
             const icon = mcpResult.success ? '✓' : '✗';

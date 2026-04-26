@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
-  Search, X, GitCommit, Plus, Settings, ArrowUpDown, Archive,
+  Search, X, GitCommit, Plus, Settings, ArrowUpDown, Archive, Puzzle,
 } from 'lucide-react';
 import { api, deleteTask as deleteTaskById, updateTask as updateTaskById, reorderTasks } from '../api';
 import AllCommitsDiffModal from './AllCommitsDiffModal';
@@ -16,6 +16,7 @@ import KanbanColumn from './tasks/KanbanColumn';
 import WorkflowEditor from './tasks/WorkflowEditor';
 import DeletedTasksPanel from './tasks/DeletedTasksPanel';
 import BoardTabs from './tasks/BoardTabs';
+import BoardPluginsTab from './tasks/BoardPluginsTab';
 
 // ── TasksBoard (multi-board) ────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
   const [showDeletedTasks, setShowDeletedTasks] = useState(false);
   const [shareBoard, setShareBoard] = useState(null);
   const [activityTarget, setActivityTarget] = useState(null);
+  const [showBoardPlugins, setShowBoardPlugins] = useState(false);
   const boardScrollRef = useRef(null);
 
   // Multi-board state
@@ -673,6 +675,17 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           </button>
         ))}
 
+        {/* Board plugins */}
+        {canEdit && activeBoard && !activeBoard.is_default && (
+          <button
+            onClick={() => setShowBoardPlugins(true)}
+            className="p-1.5 rounded-lg text-dark-400 hover:text-dark-200 hover:bg-dark-700 transition-colors flex-shrink-0"
+            title="Board plugins"
+          >
+            <Puzzle className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* Workflow settings */}
         {canEdit && (
           <button
@@ -830,6 +843,14 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
           owner={activityTarget.owner}
           repo={activityTarget.repo}
           onClose={() => setActivityTarget(null)}
+        />
+      )}
+
+      {/* Board Plugins modal */}
+      {showBoardPlugins && activeBoard && (
+        <BoardPluginsTab
+          board={activeBoard}
+          onClose={() => setShowBoardPlugins(false)}
         />
       )}
     </div>

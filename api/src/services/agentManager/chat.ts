@@ -1,7 +1,7 @@
 // ─── Chat: sendMessage, _cleanMarkdown, _buildSystemPrompt, _assembleMessages,
 //     _streamAndContinue, _processPostResponseActions ──
 import { createProvider } from '../llmProviders.js';
-import { saveAgent, saveTaskToDb } from '../database.js';
+import { saveAgent, saveTaskToDb, getBoardById } from '../database.js';
 import { TOOL_DEFINITIONS } from '../agentTools.js';
 import { getProjectGitUrl } from '../githubProjects.js';
 import { simplifyMcpSchema } from './helpers.js';
@@ -306,10 +306,24 @@ export const chatMethods = {
       }
     }
 
+    // Merge agent skills with board-level plugins
     const agentSkills = agent.skills || [];
+    let boardPluginIds: string[] = [];
+    let boardMcpAuth: Record<string, any> = {};
+    if (agent.boardId) {
+      try {
+        const board = await getBoardById(agent.boardId);
+        if (board) {
+          boardPluginIds = Array.isArray(board.plugins) ? board.plugins : [];
+          boardMcpAuth = board.mcp_auth || {};
+        }
+      } catch { /* board may not exist */ }
+    }
+    const allSkillIds = [...new Set([...agentSkills, ...boardPluginIds])];
+
     const pluginMcpIds = new Set<string>();
-    if (agentSkills.length > 0 && this.skillManager) {
-      const resolvedPlugins = agentSkills.map((sid: string) => this.skillManager.getById(sid)).filter(Boolean);
+    if (allSkillIds.length > 0 && this.skillManager) {
+      const resolvedPlugins = allSkillIds.map((sid: string) => this.skillManager.getById(sid)).filter(Boolean);
       if (resolvedPlugins.length > 0) {
         systemContent += '\n\n--- Active Plugins ---\n';
         for (const plugin of resolvedPlugins) {
@@ -331,7 +345,7 @@ export const chatMethods = {
       }
     }
 
-    if (agentSkills.includes('skill-agents-direct-access')) {
+    if (allSkillIds.includes('skill-agents-direct-access')) {
       const askableAgents = Array.from(this.agents.values())
         .filter((a: any) => a.id !== id && a.enabled !== false)
         .map((a: any) => `- ${a.name} (${a.role})${a.project ? ` [project: ${a.project}]` : ''}`);
@@ -342,10 +356,12 @@ export const chatMethods = {
       }
     }
 
+    // Merge agent + board MCP auth and server IDs
+    const mergedMcpAuth = { ...boardMcpAuth, ...(agent.mcpAuth || {}) };
     const directMcpIds = agent.mcpServers || [];
     const allMcpIds = [...new Set([...pluginMcpIds, ...directMcpIds])];
     if (allMcpIds.length > 0 && this.mcpManager) {
-      const { tools: mcpTools, unavailable: mcpUnavailable } = await this.mcpManager.getToolsForAgent(allMcpIds, id, agent.mcpAuth || {});
+      const { tools: mcpTools, unavailable: mcpUnavailable } = await this.mcpManager.getToolsForAgent(allMcpIds, id, mergedMcpAuth);
       if (mcpTools.length > 0) {
         systemContent += '\n\n--- MCP Tools ---\n';
         systemContent += 'These are NOT shell commands. Do NOT use @run_command or any bash tool to call them.\n';

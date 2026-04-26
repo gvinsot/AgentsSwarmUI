@@ -3,6 +3,7 @@ import { setPool, setDatabaseConnected } from './connection.js';
 import { ensureDefaultBoard } from './boards.js';
 import { loadSettingsCache } from './settings.js';
 import { refreshTokenSummaryCache } from './tokenUsage.js';
+import { loadOAuthTokens } from './oauthTokens.js';
 
 const { Pool } = pg;
 
@@ -284,6 +285,31 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('ALTER TABLE board_audit_logs DROP CONSTRAINT IF EXISTS board_audit_logs_board_id_fkey').catch(() => {});
       console.log('✅ Board audit logs table ready');
 
+      // ── OAuth Tokens table (unified store for all OAuth plugins) ──────────
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider TEXT NOT NULL,
+          scope_type TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          access_token TEXT NOT NULL,
+          refresh_token TEXT,
+          expires_at TIMESTAMPTZ,
+          meta JSONB,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(provider, scope_type, scope_id)
+        )
+      `);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_oauth_tokens_scope ON oauth_tokens(scope_type, scope_id)').catch(() => {});
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens(provider, scope_type, scope_id)').catch(() => {});
+      console.log('✅ OAuth tokens table ready');
+
+      // ── Board plugins columns ─────────────────────────────────────────────
+      await pool.query('ALTER TABLE boards ADD COLUMN IF NOT EXISTS plugins JSONB NOT NULL DEFAULT \'[]\'').catch(() => {});
+      await pool.query('ALTER TABLE boards ADD COLUMN IF NOT EXISTS mcp_auth JSONB NOT NULL DEFAULT \'{}\'').catch(() => {});
+      console.log('✅ Board plugins columns ready');
+
       // ── Finalize ──────────────────────────────────────────────────────────
       setPool(pool);
       setDatabaseConnected(true);
@@ -291,6 +317,7 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Populate caches
       await loadSettingsCache();
       await refreshTokenSummaryCache();
+      await loadOAuthTokens();
 
       return true;
     } catch (err) {

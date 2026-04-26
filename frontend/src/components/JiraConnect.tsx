@@ -10,7 +10,7 @@ import { api } from '../api';
  *   agentId        — the agent to configure Jira for
  *   onStatusChange — (optional) callback when connection status changes
  */
-export default function JiraConnect({ agentId, onStatusChange }: { agentId: string; onStatusChange?: (status: any) => void }) {
+export default function JiraConnect({ agentId, boardId, onStatusChange }: { agentId?: string; boardId?: string; onStatusChange?: (status: any) => void }) {
   const [status, setStatus] = useState<any>({ connected: false });
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -26,7 +26,7 @@ export default function JiraConnect({ agentId, onStatusChange }: { agentId: stri
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api.getJiraStatus(agentId);
+      const data = await api.getJiraStatus(agentId || undefined, boardId || undefined);
       setStatus(data);
       onStatusChangeRef.current?.(data);
     } catch (err: any) {
@@ -34,7 +34,7 @@ export default function JiraConnect({ agentId, onStatusChange }: { agentId: stri
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, boardId]);
 
   useEffect(() => {
     fetchStatus();
@@ -48,7 +48,7 @@ export default function JiraConnect({ agentId, onStatusChange }: { agentId: stri
     setError(null);
     setConnecting(true);
     try {
-      await api.connectJira(agentId, domain, email, apiToken);
+      await api.connectJira(agentId || '', domain, email, apiToken, boardId || undefined);
       setShowForm(false);
       setDomain('');
       setEmail('');
@@ -64,7 +64,7 @@ export default function JiraConnect({ agentId, onStatusChange }: { agentId: stri
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await api.disconnectJira(agentId);
+      await api.disconnectJira(agentId || undefined, boardId || undefined);
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);

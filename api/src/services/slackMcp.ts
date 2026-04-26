@@ -9,8 +9,8 @@ const SLACK_BASE = 'https://slack.com/api';
  * Helper to call the Slack Web API.
  * Uses agent-specific tokens when agentId is provided.
  */
-async function slackApi(method: string, agentId: string | null = null, params: Record<string, any> = {}) {
-  const token = getSlackAccessTokenForAgent(agentId);
+async function slackApi(method: string, agentId: string | null = null, boardId: string | null = null, params: Record<string, any> = {}) {
+  const token = await getSlackAccessTokenForAgent(agentId, boardId);
   const isGet = Object.keys(params).length === 0 || method === 'users.list' || method === 'conversations.list' || method === 'conversations.history' || method === 'conversations.info' || method === 'reactions.get';
 
   let res;
@@ -67,7 +67,7 @@ function formatMessage(msg: any) {
  * Create the Slack MCP server with all tools registered.
  * @param agentId - When provided, tools use agent-specific tokens.
  */
-export function createSlackMcpServer(agentId = null) {
+export function createSlackMcpServer(agentId = null, boardId = null) {
   const server = new McpServer({
     name: 'Slack',
     version: '1.0.0',
@@ -82,7 +82,7 @@ export function createSlackMcpServer(agentId = null) {
       limit: z.number().optional().default(100).describe('Max channels to return (default 100, max 200)'),
     },
     async ({ types, limit }) => {
-      const data = await slackApi('conversations.list', agentId, {
+      const data = await slackApi('conversations.list', agentId, boardId, {
         types: types || 'public_channel',
         limit: Math.min(limit || 100, 200),
         exclude_archived: true,
@@ -116,7 +116,7 @@ export function createSlackMcpServer(agentId = null) {
     },
     async ({ channel, limit }) => {
       const count = Math.min(limit || 20, 100);
-      const data = await slackApi('conversations.history', agentId, {
+      const data = await slackApi('conversations.history', agentId, boardId, {
         channel,
         limit: count,
       });
@@ -148,7 +148,7 @@ export function createSlackMcpServer(agentId = null) {
     },
     async ({ channel, thread_ts, limit }) => {
       const count = Math.min(limit || 50, 200);
-      const data = await slackApi('conversations.replies', agentId, {
+      const data = await slackApi('conversations.replies', agentId, boardId, {
         channel,
         ts: thread_ts,
         limit: count,
@@ -178,7 +178,7 @@ export function createSlackMcpServer(agentId = null) {
       const params: any = { channel, text };
       if (thread_ts) params.thread_ts = thread_ts;
 
-      const data = await slackApi('chat.postMessage', agentId, params);
+      const data = await slackApi('chat.postMessage', agentId, boardId, params);
 
       return {
         content: [{
@@ -199,7 +199,7 @@ export function createSlackMcpServer(agentId = null) {
       text: z.string().describe('Reply text'),
     },
     async ({ channel, thread_ts, text }) => {
-      const data = await slackApi('chat.postMessage', agentId, {
+      const data = await slackApi('chat.postMessage', agentId, boardId, {
         channel,
         text,
         thread_ts,
@@ -222,7 +222,7 @@ export function createSlackMcpServer(agentId = null) {
       limit: z.number().optional().default(100).describe('Max users to return (default 100)'),
     },
     async ({ limit }) => {
-      const data = await slackApi('users.list', agentId, {
+      const data = await slackApi('users.list', agentId, boardId, {
         limit: Math.min(limit || 100, 200),
       });
 
@@ -256,7 +256,7 @@ export function createSlackMcpServer(agentId = null) {
       // search.messages requires a user token, but we try with bot token
       // If it fails, we'll provide a clear error
       try {
-        const data = await slackApi('search.messages', agentId, {
+        const data = await slackApi('search.messages', agentId, boardId, {
           query,
           count: Math.min(count || 20, 100),
           sort: 'timestamp',
@@ -302,7 +302,7 @@ export function createSlackMcpServer(agentId = null) {
       channel: z.string().describe('Channel ID'),
     },
     async ({ channel }) => {
-      const data = await slackApi('conversations.info', agentId, { channel });
+      const data = await slackApi('conversations.info', agentId, boardId, { channel });
       const ch = data.channel;
 
       const info = [
@@ -332,7 +332,7 @@ export function createSlackMcpServer(agentId = null) {
       name: z.string().describe('Emoji name without colons (e.g. "thumbsup", "eyes", "white_check_mark")'),
     },
     async ({ channel, timestamp, name }) => {
-      await slackApi('reactions.add', agentId, {
+      await slackApi('reactions.add', agentId, boardId, {
         channel,
         timestamp,
         name,
@@ -352,7 +352,7 @@ export function createSlackMcpServer(agentId = null) {
       user: z.string().describe('User ID to open DM with'),
     },
     async ({ user }) => {
-      const data = await slackApi('conversations.open', agentId, {
+      const data = await slackApi('conversations.open', agentId, boardId, {
         users: user,
       });
 
@@ -380,9 +380,10 @@ export function createSlackMcpHandler() {
     }
     try {
       const agentId = req.headers['x-agent-id'] || null;
+      const boardId = req.headers['x-board-id'] || null;
 
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createSlackMcpServer(agentId);
+      const server = createSlackMcpServer(agentId, boardId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err: any) {

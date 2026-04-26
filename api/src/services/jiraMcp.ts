@@ -6,8 +6,8 @@ import { getJiraCredentialsForAgent } from '../routes/jira.js';
 /**
  * Helper to call Jira REST API with per-agent credentials.
  */
-async function jiraFetch(agentId: string | null, path: string, options: Record<string, any> = {}) {
-  const creds = getJiraCredentialsForAgent(agentId);
+async function jiraFetch(agentId: string | null, boardId: string | null, path: string, options: Record<string, any> = {}) {
+  const creds = getJiraCredentialsForAgent(agentId, boardId);
   if (!creds) throw new Error('Not connected to Jira. Please configure Jira credentials for this agent first.');
 
   const baseUrl = `https://${creds.domain}`;
@@ -66,7 +66,7 @@ function textToAdf(text: string) {
  * Create the Jira MCP server with all tools registered.
  * @param {string|null} agentId - When provided, tools use agent-specific credentials.
  */
-export function createJiraMcpServer(agentId: string | null = null) {
+export function createJiraMcpServer(agentId: string | null = null, pulsarBoardId: string | null = null) {
   const server = new McpServer({
     name: 'Jira',
     version: '1.0.0',
@@ -78,7 +78,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
     'Get the current authenticated Jira user profile.',
     {},
     async () => {
-      const user = await jiraFetch(agentId, '/rest/api/3/myself');
+      const user = await jiraFetch(agentId, pulsarBoardId, '/rest/api/3/myself');
       return {
         content: [{
           type: 'text',
@@ -94,7 +94,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
     'List all Jira projects accessible to the authenticated user.',
     {},
     async () => {
-      const projects = await jiraFetch(agentId, '/rest/api/3/project?expand=description');
+      const projects = await jiraFetch(agentId, pulsarBoardId, '/rest/api/3/project?expand=description');
       const list = (Array.isArray(projects) ? projects : []).map(p =>
         `- ${p.key}: ${p.name} (${p.projectTypeKey})${p.description ? ` — ${p.description.slice(0, 100)}` : ''}`
       ).join('\n');
@@ -116,6 +116,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       const limit = Math.min(maxResults || 20, 100);
       const data = await jiraFetch(
         agentId,
+        pulsarBoardId,
         `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${limit}&fields=summary,status,assignee,priority,issuetype,created,updated`
       );
       const issues = data.issues || [];
@@ -142,6 +143,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
     async ({ issueKey }) => {
       const issue = await jiraFetch(
         agentId,
+        pulsarBoardId,
         `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,description,status,priority,labels,assignee,reporter,issuetype,created,updated,comment,attachment,subtasks`
       );
       const f = issue.fields;
@@ -200,7 +202,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       if (assigneeAccountId) fields.assignee = { accountId: assigneeAccountId };
       if (labels) fields.labels = labels.split(',').map(l => l.trim());
 
-      const result = await jiraFetch(agentId, '/rest/api/3/issue', {
+      const result = await jiraFetch(agentId, pulsarBoardId, '/rest/api/3/issue', {
         method: 'POST',
         body: JSON.stringify({ fields }),
       });
@@ -232,7 +234,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       else if (assigneeAccountId) fields.assignee = { accountId: assigneeAccountId };
       if (labels) fields.labels = labels.split(',').map(l => l.trim());
 
-      await jiraFetch(agentId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+      await jiraFetch(agentId, pulsarBoardId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
         method: 'PUT',
         body: JSON.stringify({ fields }),
       });
@@ -252,7 +254,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       comment: z.string().describe('Comment text (plain text, will be converted to ADF)'),
     },
     async ({ issueKey, comment }) => {
-      await jiraFetch(agentId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
+      await jiraFetch(agentId, pulsarBoardId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
         method: 'POST',
         body: JSON.stringify({ body: textToAdf(comment) }),
       });
@@ -271,7 +273,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       transitionId: z.string().optional().describe('The transition ID to execute. Omit to list available transitions.'),
     },
     async ({ issueKey, transitionId }) => {
-      const data = await jiraFetch(agentId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`);
+      const data = await jiraFetch(agentId, pulsarBoardId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`);
       const transitions = data.transitions || [];
 
       if (!transitionId) {
@@ -290,7 +292,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
         };
       }
 
-      await jiraFetch(agentId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`, {
+      await jiraFetch(agentId, pulsarBoardId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`, {
         method: 'POST',
         body: JSON.stringify({ transition: { id: transitionId } }),
       });
@@ -309,7 +311,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       maxResults: z.number().optional().default(50).describe('Max results (default 50)'),
     },
     async ({ maxResults }) => {
-      const data = await jiraFetch(agentId, `/rest/agile/1.0/board?maxResults=${maxResults || 50}`);
+      const data = await jiraFetch(agentId, pulsarBoardId, `/rest/agile/1.0/board?maxResults=${maxResults || 50}`);
       const boards = data.values || [];
       const list = boards.map((b: any) =>
         `  - ID: ${b.id} | "${b.name}" (${b.type}) — ${b.location?.displayName || b.location?.projectKey || '?'}`
@@ -328,7 +330,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       boardId: z.number().describe('The Jira board ID (use list_boards to find it)'),
     },
     async ({ boardId }) => {
-      const config = await jiraFetch(agentId, `/rest/agile/1.0/board/${boardId}/configuration`);
+      const config = await jiraFetch(agentId, pulsarBoardId, `/rest/agile/1.0/board/${boardId}/configuration`);
       const columns = (config.columnConfig?.columns || []).map((col: any) => {
         const statuses = (col.statuses || []).map((s: any) => s.id).join(',');
         return `  - "${col.name}" (status IDs: ${statuses || 'none'})`;
@@ -347,7 +349,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       boardId: z.number().describe('The Jira board ID'),
     },
     async ({ boardId }) => {
-      const data = await jiraFetch(agentId, `/rest/agile/1.0/board/${boardId}/sprint?state=active`);
+      const data = await jiraFetch(agentId, pulsarBoardId, `/rest/agile/1.0/board/${boardId}/sprint?state=active`);
       const sprints = data.values || [];
       if (sprints.length === 0) {
         return { content: [{ type: 'text', text: `No active sprint found for board ${boardId}.` }] };
@@ -355,7 +357,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       const sprint = sprints[0];
       let issueText = '';
       try {
-        const issues = await jiraFetch(agentId, `/rest/agile/1.0/sprint/${sprint.id}/issue?maxResults=50&fields=summary,status,assignee,priority`);
+        const issues = await jiraFetch(agentId, pulsarBoardId, `/rest/agile/1.0/sprint/${sprint.id}/issue?maxResults=50&fields=summary,status,assignee,priority`);
         issueText = (issues.issues || []).map((i: any) =>
           `  - ${i.key}: ${i.fields.summary} [${i.fields.status?.name}] (${i.fields.assignee?.displayName || 'Unassigned'})`
         ).join('\n');
@@ -380,7 +382,7 @@ export function createJiraMcpServer(agentId: string | null = null) {
       accountId: z.string().optional().describe('The account ID to assign (omit or "unassigned" to unassign)'),
     },
     async ({ issueKey, accountId }) => {
-      await jiraFetch(agentId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/assignee`, {
+      await jiraFetch(agentId, pulsarBoardId, `/rest/api/3/issue/${encodeURIComponent(issueKey)}/assignee`, {
         method: 'PUT',
         body: JSON.stringify({ accountId: accountId === 'unassigned' ? null : accountId || null }),
       });
@@ -405,8 +407,9 @@ export function createJiraMcpHandler() {
     }
     try {
       const agentId = req.headers['x-agent-id'] || null;
+      const boardId = req.headers['x-board-id'] || null;
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createJiraMcpServer(agentId);
+      const server = createJiraMcpServer(agentId, boardId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err: any) {

@@ -18,8 +18,8 @@ function encodePath(path) {
  * Helper to call Microsoft Graph API with auto-refreshing tokens.
  * Uses agent-specific tokens when agentId is provided.
  */
-async function graphFetch(path: string, agentId: string | null = null, options: Record<string, any> = {}) {
-  const token = await getAccessTokenForAgent(agentId);
+async function graphFetch(path: string, agentId: string | null = null, boardId: string | null = null, options: Record<string, any> = {}) {
+  const token = await getAccessTokenForAgent(agentId, boardId);
   const url = path.startsWith('http') ? path : `${GRAPH_BASE}${path}`;
 
   const res = await fetch(url, {
@@ -70,7 +70,7 @@ function formatItem(item) {
  * Create the OneDrive MCP server with all tools registered.
  * @param {string|null} agentId - When provided, tools use agent-specific tokens.
  */
-export function createOneDriveMcpServer(agentId = null) {
+export function createOneDriveMcpServer(agentId = null, boardId = null) {
   const server = new McpServer({
     name: 'OneDrive',
     version: '1.0.0',
@@ -94,7 +94,7 @@ export function createOneDriveMcpServer(agentId = null) {
         endpoint = `/me/drive/root:/${encodePath(path)}:/children?$top=${limit}&$orderby=name`;
       }
 
-      const data = await graphFetch(endpoint, agentId);
+      const data = await graphFetch(endpoint, agentId, boardId);
       const items = (data.value || []).map(formatItem);
 
       const summary = items.map(i => {
@@ -121,7 +121,7 @@ export function createOneDriveMcpServer(agentId = null) {
       const limit = Math.min(top || 25, 100);
       const endpoint = `/me/drive/root/search(q='${encodeURIComponent(query)}')?$top=${limit}`;
 
-      const data = await graphFetch(endpoint, agentId);
+      const data = await graphFetch(endpoint, agentId, boardId);
       const items = (data.value || []).map(formatItem);
 
       const summary = items.map(i => {
@@ -144,7 +144,7 @@ export function createOneDriveMcpServer(agentId = null) {
     },
     async ({ path }) => {
       // Get file metadata first
-      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId);
+      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId, boardId);
       const mimeType = meta.file?.mimeType || '';
 
       // Check if file is text-readable
@@ -182,7 +182,7 @@ export function createOneDriveMcpServer(agentId = null) {
       path: z.string().describe('File or folder path in OneDrive'),
     },
     async ({ path }) => {
-      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId);
+      const meta = await graphFetch(`/me/drive/root:/${encodePath(path)}`, agentId, boardId);
       const info = formatItem(meta);
 
       return {
@@ -207,7 +207,7 @@ export function createOneDriveMcpServer(agentId = null) {
         endpoint = `/me/drive/root:/${encodePath(parentPath)}:/children`;
       }
 
-      const result = await graphFetch(endpoint, agentId, {
+      const result = await graphFetch(endpoint, agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({
           name,
@@ -294,6 +294,7 @@ export function createOneDriveMcpServer(agentId = null) {
       const result = await graphFetch(
         `/me/drive/root:/${encodePath(path)}:/createLink`,
         agentId,
+        boardId,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -315,7 +316,7 @@ export function createOneDriveMcpServer(agentId = null) {
     'Get information about the connected OneDrive (storage usage, owner, etc.).',
     {},
     async () => {
-      const drive = await graphFetch('/me/drive', agentId);
+      const drive = await graphFetch('/me/drive', agentId, boardId);
 
       const used = drive.quota?.used || 0;
       const total = drive.quota?.total || 0;
@@ -352,9 +353,10 @@ export function createOneDriveMcpHandler() {
     try {
       // Read agent context from custom header (set by MCPManager for per-agent calls)
       const agentId = req.headers['x-agent-id'] || null;
+      const boardId = req.headers['x-board-id'] || null;
 
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createOneDriveMcpServer(agentId);
+      const server = createOneDriveMcpServer(agentId, boardId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {

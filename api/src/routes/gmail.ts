@@ -1,115 +1,140 @@
 import express from 'express';
 import crypto from 'crypto';
+import {
+  storeOAuthToken, getOAuthToken, hasOAuthToken, deleteOAuthToken, resolveAccessToken,
+} from '../services/database.js';
+import type { OAuthTokenRecord, ScopeType } from '../services/database.js';
 
 /**
  * Gmail OAuth2 routes.
  *
- * Flow:
- * 1. Client calls GET /api/gmail/auth-url → receives the Google OAuth login URL
- * 2. User logs in on Google, gets redirected to the configured redirect URI
- * 3. Client captures the auth code and POST /api/gmail/callback with { code, state }
- * 4. Server exchanges the code for access + refresh tokens via Google OAuth2
- * 5. Tokens are stored in-memory (per-user OR per-agent) and used by the Gmail MCP proxy
+ * Tokens are stored in the unified oauth_tokens table, scoped by:
+ *   - agent:<agentId>  (per-agent)
+ *   - board:<boardId>  (per-board, shared by all agents on that board)
+ *   - user:<username>  (per-user fallback)
  *
- * Per-agent mode:
- *   When agentId is provided, tokens are stored under "agent:<agentId>" key.
- *   This allows each agent to have its own Gmail connection independent of others.
- *
- * Environment variables:
- *   GMAIL_CLIENT_ID     — Google OAuth2 client ID
- *   GMAIL_CLIENT_SECRET — Google OAuth2 client secret
- *   GMAIL_REDIRECT_URI  — Must match the redirect URI configured in Google Cloud Console
+ * Resolution order when an agent calls a Gmail MCP tool:
+ *   agent tokens → board tokens → user tokens → error
  */
 
-// In-memory token store: key → { accessToken, refreshToken, expiresAt, email }
-// Key is either a username (global) or "agent:<agentId>" (per-agent)
-const tokenStore = new Map();
-
-// In-memory OAuth state store: state → { username, agentId, expiresAt }
+// In-memory OAuth state store: state → { username, agentId, boardId, expiresAt }
 const stateStore = new Map();
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_TTL_MS = 10 * 60 * 1000;
 
-function generateOAuthState(username, agentId = null) {
+function generateOAuthState(username, agentId = null, boardId = null) {
   const now = Date.now();
   for (const [k, v] of stateStore) {
     if (v.expiresAt < now) stateStore.delete(k);
   }
   const state = crypto.randomBytes(32).toString('hex');
-  stateStore.set(state, { username, agentId, expiresAt: now + STATE_TTL_MS });
+  stateStore.set(state, { username, agentId, boardId, expiresAt: now + STATE_TTL_MS });
   return state;
 }
 
 function consumeOAuthState(state) {
   const entry = stateStore.get(state);
   if (!entry) return null;
-  stateStore.delete(state); // one-time use
+  stateStore.delete(state);
   if (entry.expiresAt < Date.now()) return null;
-  return { username: entry.username, agentId: entry.agentId || null };
+  return { username: entry.username, agentId: entry.agentId || null, boardId: entry.boardId || null };
 }
 
-/** Build the token store key for an agent or username. */
-function tokenKey(agentId, username) {
-  if (agentId) return `agent:${agentId}`;
-  return username || 'default';
+function resolveScope(agentId, boardId, username): { scopeType: ScopeType; scopeId: string } {
+  if (agentId) return { scopeType: 'agent', scopeId: agentId };
+  if (boardId) return { scopeType: 'board', scopeId: boardId };
+  return { scopeType: 'user', scopeId: username || 'default' };
 }
 
 function getConfig() {
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   const redirectUri = process.env.GMAIL_REDIRECT_URI;
-
-  if (!clientId || !clientSecret || !redirectUri) {
-    return null;
-  }
-
+  if (!clientId || !clientSecret || !redirectUri) return null;
   return { clientId, clientSecret, redirectUri };
 }
 
-export function getGmailTokenStore() {
-  return tokenStore;
-}
-
-/**
- * Check if an agent has Gmail tokens stored.
- */
 export function hasGmailTokensForAgent(agentId) {
   if (!agentId) return false;
-  const key = `agent:${agentId}`;
-  const tokens = tokenStore.get(key);
-  return !!(tokens && tokens.expiresAt > Date.now() - 3600000); // valid or refreshable
+  return hasOAuthToken('gmail', 'agent', agentId);
+}
+
+export function hasGmailTokensForBoard(boardId) {
+  if (!boardId) return false;
+  return hasOAuthToken('gmail', 'board', boardId);
+}
+
+async function refreshGmailToken(record: OAuthTokenRecord): Promise<string> {
+  const config = getConfig();
+  if (!config) throw new Error('Gmail not configured');
+  if (!record.refreshToken) throw new Error('No refresh token available');
+
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    refresh_token: record.refreshToken,
+    grant_type: 'refresh_token',
+  });
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    await deleteOAuthToken('gmail', record.scopeType, record.scopeId);
+    throw new Error(data.error_description || 'Token refresh failed');
+  }
+
+  await storeOAuthToken({
+    provider: 'gmail',
+    scopeType: record.scopeType,
+    scopeId: record.scopeId,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || record.refreshToken,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+    meta: record.meta,
+  });
+
+  console.log(`🔄 [Gmail] Token refreshed for ${record.scopeType}:${record.scopeId}`);
+  return data.access_token;
+}
+
+export async function getGmailAccessTokenForAgent(agentId, boardId = null) {
+  return resolveAccessToken('gmail', agentId, boardId, refreshGmailToken);
 }
 
 export function gmailRoutes() {
   const router = express.Router();
 
-  // Check if Gmail is configured (supports ?agentId= for per-agent status)
   router.get('/status', (req, res) => {
     const config = getConfig();
     const agentId = req.query.agentId || null;
+    const boardId = req.query.boardId || null;
     const username = req.user?.username;
 
-    const key = tokenKey(agentId, username);
-    const tokens = tokenStore.get(key);
-    const connected = !!(tokens && tokens.expiresAt > Date.now());
+    const { scopeType, scopeId } = resolveScope(agentId, boardId, username);
+    const token = getOAuthToken('gmail', scopeType, scopeId);
+    const connected = !!(token && (!token.expiresAt || token.expiresAt > Date.now()));
 
     res.json({
       configured: !!config,
       connected,
-      email: connected ? tokens.email || null : null,
+      email: connected ? token?.meta?.email || null : null,
       agentId: agentId || null,
+      boardId: boardId || null,
     });
   });
 
-  // Get the Google OAuth authorization URL (supports ?agentId= for per-agent auth)
   router.get('/auth-url', (req, res) => {
     const config = getConfig();
     if (!config) {
-      return res.status(500).json({
-        error: 'Gmail not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REDIRECT_URI.',
-      });
+      return res.status(500).json({ error: 'Gmail not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REDIRECT_URI.' });
     }
 
     const agentId = req.query.agentId || null;
+    const boardId = req.query.boardId || null;
 
     const scopes = [
       'https://www.googleapis.com/auth/gmail.readonly',
@@ -119,7 +144,7 @@ export function gmailRoutes() {
       'https://www.googleapis.com/auth/userinfo.email',
     ];
 
-    const state = generateOAuthState(req.user?.username || 'default', agentId);
+    const state = generateOAuthState(req.user?.username || 'default', agentId, boardId);
 
     const params = new URLSearchParams({
       client_id: config.clientId,
@@ -131,32 +156,21 @@ export function gmailRoutes() {
       state,
     });
 
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-    res.json({ authUrl });
+    res.json({ authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
   });
 
-  // Exchange authorization code for tokens
   router.post('/callback', async (req, res) => {
     const config = getConfig();
-    if (!config) {
-      return res.status(500).json({ error: 'Gmail not configured' });
-    }
+    if (!config) return res.status(500).json({ error: 'Gmail not configured' });
 
     const { code, state } = req.body;
-    if (!code) {
-      return res.status(400).json({ error: 'Authorization code is required' });
-    }
-    if (!state) {
-      return res.status(400).json({ error: 'State parameter required' });
-    }
+    if (!code) return res.status(400).json({ error: 'Authorization code is required' });
+    if (!state) return res.status(400).json({ error: 'State parameter required' });
 
     const stateData = consumeOAuthState(state);
-    if (!stateData) {
-      return res.status(400).json({ error: 'Invalid or expired state' });
-    }
+    if (!stateData) return res.status(400).json({ error: 'Invalid or expired state' });
 
     try {
-      const tokenUrl = 'https://oauth2.googleapis.com/token';
       const body = new URLSearchParams({
         client_id: config.clientId,
         client_secret: config.clientSecret,
@@ -165,20 +179,18 @@ export function gmailRoutes() {
         grant_type: 'authorization_code',
       });
 
-      const response = await fetch(tokenUrl, {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
       });
 
       const data = await response.json();
-
       if (!response.ok) {
         console.error('[Gmail] Token exchange failed:', data);
         return res.status(400).json({ error: 'Token exchange failed' });
       }
 
-      // Get user email from the access token
       let email = null;
       try {
         const profileRes = await fetch('https://www.googleapis.com/gmail/v1/users/me/profile', {
@@ -192,119 +204,35 @@ export function gmailRoutes() {
         console.warn('[Gmail] Could not fetch profile email:', err.message);
       }
 
-      const key = tokenKey(stateData.agentId, stateData.username);
-      tokenStore.set(key, {
+      const { scopeType, scopeId } = resolveScope(stateData.agentId, stateData.boardId, stateData.username);
+
+      await storeOAuthToken({
+        provider: 'gmail',
+        scopeType,
+        scopeId,
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
-        expiresAt: Date.now() + (data.expires_in - 60) * 1000, // subtract 60s buffer
-        email,
+        expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+        meta: { email },
       });
 
-      const target = stateData.agentId ? `agent "${stateData.agentId.slice(0, 8)}"` : `user "${stateData.username}"`;
-      console.log(`✅ [Gmail] OAuth tokens stored for ${target} (${email || 'unknown email'})`);
-      res.json({ success: true, expiresIn: data.expires_in, agentId: stateData.agentId, email });
+      console.log(`✅ [Gmail] OAuth tokens stored for ${scopeType}:${scopeId} (${email || 'unknown'})`);
+      res.json({ success: true, expiresIn: data.expires_in, agentId: stateData.agentId, boardId: stateData.boardId, email });
     } catch (err) {
       console.error('[Gmail] Token exchange error:', err);
       res.status(500).json({ error: 'Token exchange failed' });
     }
   });
 
-  // Disconnect (clear tokens) — supports agentId in body for per-agent disconnect
-  router.post('/disconnect', (req, res) => {
+  router.post('/disconnect', async (req, res) => {
     const agentId = req.body?.agentId || null;
+    const boardId = req.body?.boardId || null;
     const username = req.user?.username || 'default';
-    const key = tokenKey(agentId, username);
-    tokenStore.delete(key);
-    const target = agentId ? `agent "${agentId.slice(0, 8)}"` : `user "${username}"`;
-    console.log(`🔌 [Gmail] Disconnected ${target}`);
+    const { scopeType, scopeId } = resolveScope(agentId, boardId, username);
+    await deleteOAuthToken('gmail', scopeType, scopeId);
+    console.log(`🔌 [Gmail] Disconnected ${scopeType}:${scopeId}`);
     res.json({ success: true });
   });
 
   return router;
-}
-
-/**
- * Refresh the access token using the stored refresh token.
- * Called automatically by the MCP handler when the access token expires.
- */
-export async function refreshGmailAccessToken(key) {
-  const config = getConfig();
-  if (!config) throw new Error('Gmail not configured');
-
-  const tokens = tokenStore.get(key);
-  if (!tokens?.refreshToken) throw new Error('No refresh token available');
-
-  const tokenUrl = 'https://oauth2.googleapis.com/token';
-  const body = new URLSearchParams({
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    refresh_token: tokens.refreshToken,
-    grant_type: 'refresh_token',
-  });
-
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    console.error('[Gmail] Token refresh failed:', data);
-    tokenStore.delete(key);
-    throw new Error(data.error_description || 'Token refresh failed');
-  }
-
-  tokenStore.set(key, {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || tokens.refreshToken,
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
-    email: tokens.email,
-  });
-
-  console.log(`🔄 [Gmail] Token refreshed for "${key}"`);
-  return data.access_token;
-}
-
-/**
- * Get a valid access token for a key (username or "agent:<id>"), refreshing if needed.
- */
-export async function getGmailAccessToken(key = 'default') {
-  const tokens = tokenStore.get(key);
-  if (!tokens) throw new Error('Not connected to Gmail. Please authenticate first.');
-
-  if (Date.now() >= tokens.expiresAt) {
-    return refreshGmailAccessToken(key);
-  }
-
-  return tokens.accessToken;
-}
-
-/**
- * Get a valid access token for an agent, falling back to the default user.
- * This is the primary function used by the MCP handler.
- */
-export async function getGmailAccessTokenForAgent(agentId) {
-  // Try agent-specific tokens first
-  if (agentId) {
-    const agentKey = `agent:${agentId}`;
-    const agentTokens = tokenStore.get(agentKey);
-    if (agentTokens) {
-      if (Date.now() >= agentTokens.expiresAt) {
-        return refreshGmailAccessToken(agentKey);
-      }
-      return agentTokens.accessToken;
-    }
-  }
-
-  // Fall back to default user
-  const store = getGmailTokenStore();
-  for (const [key, tokens] of store) {
-    if (!key.startsWith('agent:') && tokens.expiresAt > Date.now()) {
-      return tokens.accessToken;
-    }
-  }
-
-  throw new Error('Not connected to Gmail. Please authenticate first.');
 }

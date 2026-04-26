@@ -9,8 +9,8 @@ const GMAIL_BASE = 'https://www.googleapis.com/gmail/v1';
  * Helper to call Gmail API with auto-refreshing tokens.
  * Uses agent-specific tokens when agentId is provided.
  */
-async function gmailFetch(path: string, agentId: string | null = null, options: Record<string, any> = {}) {
-  const token = await getGmailAccessTokenForAgent(agentId);
+async function gmailFetch(path: string, agentId: string | null = null, boardId: string | null = null, options: Record<string, any> = {}) {
+  const token = await getGmailAccessTokenForAgent(agentId, boardId);
   const url = path.startsWith('http') ? path : `${GMAIL_BASE}${path}`;
 
   const res = await fetch(url, {
@@ -155,7 +155,7 @@ function buildRawEmail({ to, cc, bcc, subject, body, inReplyTo, references }: { 
  * Create the Gmail MCP server with all tools registered.
  * @param {string|null} agentId - When provided, tools use agent-specific tokens.
  */
-export function createGmailMcpServer(agentId = null) {
+export function createGmailMcpServer(agentId = null, boardId = null) {
   const server = new McpServer({
     name: 'Gmail',
     version: '1.0.0',
@@ -167,7 +167,7 @@ export function createGmailMcpServer(agentId = null) {
     'Get the connected Gmail account profile (email address, total messages, etc.).',
     {},
     async () => {
-      const profile = await gmailFetch('/users/me/profile', agentId);
+      const profile = await gmailFetch('/users/me/profile', agentId, boardId);
       return {
         content: [{
           type: 'text',
@@ -203,7 +203,7 @@ export function createGmailMcpServer(agentId = null) {
         params.set('q', query);
       }
 
-      const list = await gmailFetch(`/users/me/messages?${params}`, agentId);
+      const list = await gmailFetch(`/users/me/messages?${params}`, agentId, boardId);
       const messages = list.messages || [];
 
       if (messages.length === 0) {
@@ -213,7 +213,7 @@ export function createGmailMcpServer(agentId = null) {
       // Fetch details for each message (headers + snippet)
       const details = await Promise.all(
         messages.slice(0, limit).map(m =>
-          gmailFetch(`/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`, agentId)
+          gmailFetch(`/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`, agentId, boardId)
         )
       );
 
@@ -248,7 +248,7 @@ export function createGmailMcpServer(agentId = null) {
         maxResults: String(limit),
       });
 
-      const list = await gmailFetch(`/users/me/messages?${params}`, agentId);
+      const list = await gmailFetch(`/users/me/messages?${params}`, agentId, boardId);
       const messages = list.messages || [];
 
       if (messages.length === 0) {
@@ -257,7 +257,7 @@ export function createGmailMcpServer(agentId = null) {
 
       const details = await Promise.all(
         messages.slice(0, limit).map(m =>
-          gmailFetch(`/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`, agentId)
+          gmailFetch(`/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`, agentId, boardId)
         )
       );
 
@@ -284,7 +284,7 @@ export function createGmailMcpServer(agentId = null) {
       messageId: z.string().describe('The Gmail message ID (returned by list_emails or search_emails)'),
     },
     async ({ messageId }) => {
-      const msg = await gmailFetch(`/users/me/messages/${messageId}?format=full`, agentId);
+      const msg = await gmailFetch(`/users/me/messages/${messageId}?format=full`, agentId, boardId);
       const headers = msg.payload?.headers || [];
       const from = getHeader(headers, 'From') || 'Unknown';
       const to = getHeader(headers, 'To') || '';
@@ -339,7 +339,7 @@ export function createGmailMcpServer(agentId = null) {
     async ({ to, subject, body, cc, bcc }) => {
       const raw = buildRawEmail({ to, cc, bcc, subject, body });
 
-      const result = await gmailFetch('/users/me/messages/send', agentId, {
+      const result = await gmailFetch('/users/me/messages/send', agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({ raw }),
       });
@@ -364,7 +364,7 @@ export function createGmailMcpServer(agentId = null) {
     },
     async ({ messageId, body, replyAll }) => {
       // Get the original message to extract headers
-      const original = await gmailFetch(`/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References`, agentId);
+      const original = await gmailFetch(`/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References`, agentId, boardId);
       const headers = original.payload?.headers || [];
 
       const from = getHeader(headers, 'From') || '';
@@ -392,7 +392,7 @@ export function createGmailMcpServer(agentId = null) {
         references: references ? `${references} ${originalMessageId}` : originalMessageId,
       });
 
-      const result = await gmailFetch('/users/me/messages/send', agentId, {
+      const result = await gmailFetch('/users/me/messages/send', agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({
           raw,
@@ -423,7 +423,7 @@ export function createGmailMcpServer(agentId = null) {
     async ({ to, subject, body, cc, bcc }) => {
       const raw = buildRawEmail({ to, cc, bcc, subject, body });
 
-      const result = await gmailFetch('/users/me/drafts', agentId, {
+      const result = await gmailFetch('/users/me/drafts', agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({
           message: { raw },
@@ -445,7 +445,7 @@ export function createGmailMcpServer(agentId = null) {
     'List all Gmail labels (folders/categories) in the account.',
     {},
     async () => {
-      const data = await gmailFetch('/users/me/labels', agentId);
+      const data = await gmailFetch('/users/me/labels', agentId, boardId);
       const labels = data.labels || [];
 
       const system = labels.filter(l => l.type === 'system');
@@ -481,7 +481,7 @@ export function createGmailMcpServer(agentId = null) {
         return { content: [{ type: 'text', text: 'No label changes specified.' }] };
       }
 
-      const result = await gmailFetch(`/users/me/messages/${messageId}/modify`, agentId, {
+      const result = await gmailFetch(`/users/me/messages/${messageId}/modify`, agentId, boardId, {
         method: 'POST',
         body: JSON.stringify({
           addLabelIds: addIds,
@@ -510,7 +510,7 @@ export function createGmailMcpServer(agentId = null) {
       messageId: z.string().describe('The Gmail message ID to trash'),
     },
     async ({ messageId }) => {
-      await gmailFetch(`/users/me/messages/${messageId}/trash`, agentId, {
+      await gmailFetch(`/users/me/messages/${messageId}/trash`, agentId, boardId, {
         method: 'POST',
       });
 
@@ -528,7 +528,7 @@ export function createGmailMcpServer(agentId = null) {
       threadId: z.string().describe('The Gmail thread ID (returned in message details)'),
     },
     async ({ threadId }) => {
-      const thread = await gmailFetch(`/users/me/threads/${threadId}?format=full`, agentId);
+      const thread = await gmailFetch(`/users/me/threads/${threadId}?format=full`, agentId, boardId);
       const messages = thread.messages || [];
 
       const formatted = messages.map((msg, i) => {
@@ -569,9 +569,10 @@ export function createGmailMcpHandler() {
     try {
       // Read agent context from custom header (set by MCPManager for per-agent calls)
       const agentId = req.headers['x-agent-id'] || null;
+      const boardId = req.headers['x-board-id'] || null;
 
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createGmailMcpServer(agentId);
+      const server = createGmailMcpServer(agentId, boardId);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {

@@ -10,7 +10,7 @@ import { api } from '../api';
  *   agentId       — (optional) when provided, authenticates Slack for this specific agent
  *   onStatusChange — (optional) callback when connection status changes
  */
-export default function SlackConnect({ agentId, onStatusChange }) {
+export default function SlackConnect({ agentId, boardId, onStatusChange }) {
   const [status, setStatus] = useState({ configured: false, connected: false });
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -22,7 +22,7 @@ export default function SlackConnect({ agentId, onStatusChange }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api.getSlackStatus(agentId || undefined);
+      const data = await api.getSlackStatus(agentId || undefined, boardId || undefined);
       setStatus(data);
       onStatusChangeRef.current?.(data);
     } catch (err) {
@@ -30,7 +30,7 @@ export default function SlackConnect({ agentId, onStatusChange }) {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, boardId]);
 
   useEffect(() => {
     fetchStatus();
@@ -61,7 +61,7 @@ export default function SlackConnect({ agentId, onStatusChange }) {
     setError(null);
     setConnecting(true);
     try {
-      const { authUrl } = await api.getSlackAuthUrl(agentId || undefined);
+      const { authUrl } = await api.getSlackAuthUrl(agentId || undefined, boardId || undefined);
 
       const width = 600;
       const height = 700;
@@ -96,7 +96,7 @@ export default function SlackConnect({ agentId, onStatusChange }) {
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await api.disconnectSlack(agentId || undefined);
+      await api.disconnectSlack(agentId || undefined, boardId || undefined);
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);

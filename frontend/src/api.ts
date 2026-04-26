@@ -355,67 +355,88 @@ export const api = {
       body: apiKey ? JSON.stringify({ apiKey }) : undefined,
     }).then(handleResponse),
 
-  // OneDrive OAuth (supports optional agentId for per-agent auth)
-  getOnedriveStatus: (agentId) =>
-    fetch(`${API_BASE}/onedrive/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  // OneDrive OAuth (supports agentId or boardId)
+  getOnedriveStatus: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/onedrive/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
-  getOnedriveAuthUrl: (agentId) =>
-    fetch(`${API_BASE}/onedrive/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  getOnedriveAuthUrl: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/onedrive/auth-url${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
   onedriveCallback: (code, state) =>
     fetch(`${API_BASE}/onedrive/callback`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ code, state })
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ code, state })
     }).then(handleResponse),
 
-  disconnectOnedrive: (agentId) =>
+  disconnectOnedrive: (agentId?, boardId?) =>
     fetch(`${API_BASE}/onedrive/disconnect`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(agentId ? { agentId } : {})
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) })
     }).then(handleResponse),
 
-  // Gmail OAuth (supports optional agentId for per-agent auth)
-  getGmailStatus: (agentId) =>
-    fetch(`${API_BASE}/gmail/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  // Gmail OAuth (supports agentId or boardId)
+  getGmailStatus: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/gmail/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
-  getGmailAuthUrl: (agentId) =>
-    fetch(`${API_BASE}/gmail/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  getGmailAuthUrl: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/gmail/auth-url${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
   gmailCallback: (code, state) =>
     fetch(`${API_BASE}/gmail/callback`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ code, state })
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ code, state })
     }).then(handleResponse),
 
-  disconnectGmail: (agentId) =>
+  disconnectGmail: (agentId?, boardId?) =>
     fetch(`${API_BASE}/gmail/disconnect`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(agentId ? { agentId } : {})
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) })
     }).then(handleResponse),
 
-  // Slack OAuth (supports optional agentId for per-agent auth)
-  getSlackStatus: (agentId?) =>
-    fetch(`${API_BASE}/slack/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  // Slack OAuth (supports agentId or boardId)
+  getSlackStatus: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/slack/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
-  getSlackAuthUrl: (agentId?) =>
-    fetch(`${API_BASE}/slack/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  getSlackAuthUrl: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/slack/auth-url${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
   slackCallback: (code, state) =>
     fetch(`${API_BASE}/slack/callback`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ code, state })
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ code, state })
     }).then(handleResponse),
 
-  disconnectSlack: (agentId?) =>
+  disconnectSlack: (agentId?, boardId?) =>
     fetch(`${API_BASE}/slack/disconnect`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(agentId ? { agentId } : {})
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) })
     }).then(handleResponse),
 
   // Realtime (Voice)
@@ -598,6 +619,25 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Board plugins
+  getBoardPlugins: (boardId) =>
+    fetch(`${API_BASE}/boards/${boardId}/plugins`, { headers: getHeaders() }).then(handleResponse),
+
+  assignBoardPlugin: (boardId, pluginId) =>
+    fetch(`${API_BASE}/boards/${boardId}/plugins/assign`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ pluginId })
+    }).then(handleResponse),
+
+  removeBoardPlugin: (boardId, pluginId) =>
+    fetch(`${API_BASE}/boards/${boardId}/plugins/remove`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ pluginId })
+    }).then(handleResponse),
+
+  updateBoardMcpAuth: (boardId, mcpAuth) =>
+    fetch(`${API_BASE}/boards/${boardId}/mcp-auth`, {
+      method: 'PUT', headers: getHeaders(), body: JSON.stringify(mcpAuth)
+    }).then(handleResponse),
+
   // Board sharing
   getBoardShares: (boardId) =>
     fetch(`${API_BASE}/boards/${boardId}/shares`, { headers: getHeaders() }).then(handleResponse),
@@ -644,30 +684,45 @@ export const api = {
   getGlobalAgentTime: (days = 30) =>
     fetch(`${API_BASE}/agents/tasks/stats/agent-time?days=${days}`, { headers: getHeaders() }).then(handleResponse),
 
-  // Jira (per-agent)
-  getJiraStatus: (agentId?: string) =>
-    fetch(`${API_BASE}/jira/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  // Jira (per-agent / per-board)
+  getJiraStatus: (agentId?: string, boardId?: string) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/jira/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
-  connectJira: (agentId: string, domain: string, email: string, apiToken: string) =>
+  connectJira: (agentId: string, domain: string, email: string, apiToken: string, boardId?: string) =>
     fetch(`${API_BASE}/jira/connect`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ agentId, domain, email, apiToken }),
+      body: JSON.stringify({ agentId, domain, email, apiToken, ...(boardId && { boardId }) }),
     }).then(handleResponse),
 
-  disconnectJira: (agentId?: string) =>
+  disconnectJira: (agentId?: string, boardId?: string) =>
     fetch(`${API_BASE}/jira/disconnect`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ agentId }),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
     }).then(handleResponse),
 
-  // GitHub OAuth (per-agent)
-  getGitHubStatus: (agentId?: string) =>
-    fetch(`${API_BASE}/github/status${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  // GitHub OAuth (per-agent / per-board)
+  getGitHubStatus: (agentId?: string, boardId?: string) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/github/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
-  getGitHubAuthUrl: (agentId?: string) =>
-    fetch(`${API_BASE}/github/auth-url${agentId ? `?agentId=${agentId}` : ''}`, { headers: getHeaders() }).then(handleResponse),
+  getGitHubAuthUrl: (agentId?: string, boardId?: string) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/github/auth-url${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
 
   githubCallback: (code: string, state: string) =>
     fetch(`${API_BASE}/github/callback`, {
@@ -676,11 +731,11 @@ export const api = {
       body: JSON.stringify({ code, state })
     }).then(handleResponse),
 
-  disconnectGitHub: (agentId?: string) =>
+  disconnectGitHub: (agentId?: string, boardId?: string) =>
     fetch(`${API_BASE}/github/disconnect`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(agentId ? { agentId } : {})
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
     }).then(handleResponse),
 
   // Users (admin only)

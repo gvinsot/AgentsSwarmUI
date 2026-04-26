@@ -10,7 +10,7 @@ import { api } from '../api';
  *   agentId       — (optional) when provided, authenticates Gmail for this specific agent
  *   onStatusChange — (optional) callback when connection status changes
  */
-export default function GmailConnect({ agentId, onStatusChange }) {
+export default function GmailConnect({ agentId, boardId, onStatusChange }) {
   const [status, setStatus] = useState({ configured: false, connected: false });
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -24,7 +24,7 @@ export default function GmailConnect({ agentId, onStatusChange }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api.getGmailStatus(agentId || undefined);
+      const data = await api.getGmailStatus(agentId || undefined, boardId || undefined);
       setStatus(data);
       onStatusChangeRef.current?.(data);
     } catch (err) {
@@ -32,7 +32,7 @@ export default function GmailConnect({ agentId, onStatusChange }) {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, boardId]);
 
   useEffect(() => {
     fetchStatus();
@@ -63,7 +63,7 @@ export default function GmailConnect({ agentId, onStatusChange }) {
     setError(null);
     setConnecting(true);
     try {
-      const { authUrl } = await api.getGmailAuthUrl(agentId || undefined);
+      const { authUrl } = await api.getGmailAuthUrl(agentId || undefined, boardId || undefined);
 
       // Open OAuth popup
       const width = 600;
@@ -101,7 +101,7 @@ export default function GmailConnect({ agentId, onStatusChange }) {
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await api.disconnectGmail(agentId || undefined);
+      await api.disconnectGmail(agentId || undefined, boardId || undefined);
       await fetchStatus();
     } catch (err) {
       setError(err.message);

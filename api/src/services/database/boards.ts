@@ -71,7 +71,7 @@ export async function getAllBoards() {
   if (!pool) return [];
   try {
     const result = await pool.query(
-      `SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.created_at, b.updated_at,
+      `SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.plugins, b.mcp_auth, b.created_at, b.updated_at,
               u.username, u.display_name
        FROM boards b LEFT JOIN users u ON b.user_id = u.id
        ORDER BY b.is_default DESC, u.username, b.position, b.created_at`
@@ -89,12 +89,12 @@ export async function getBoardsByUser(userId) {
   try {
     // Get user's own boards + shared boards + default board
     const result = await pool.query(
-      `SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.created_at, b.updated_at,
+      `SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.plugins, b.mcp_auth, b.created_at, b.updated_at,
               NULL AS share_permission, NULL AS owner_username
        FROM boards b
        WHERE b.user_id = $1
        UNION ALL
-       SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.created_at, b.updated_at,
+       SELECT b.id, b.user_id, b.name, b.workflow, b.filters, b.position, b.is_default, b.plugins, b.mcp_auth, b.created_at, b.updated_at,
               bs.permission AS share_permission, u.username AS owner_username
        FROM board_shares bs
        JOIN boards b ON bs.board_id = b.id
@@ -115,7 +115,7 @@ export async function getBoardById(id) {
   if (!pool) return null;
   try {
     const result = await pool.query(
-      'SELECT id, user_id, name, workflow, filters, position, is_default, created_at, updated_at FROM boards WHERE id = $1',
+      'SELECT id, user_id, name, workflow, filters, position, is_default, plugins, mcp_auth, created_at, updated_at FROM boards WHERE id = $1',
       [id]
     );
     return result.rows[0] || null;
@@ -138,7 +138,7 @@ export async function createBoard(userId, name, workflow = {}, filters = {}) {
     const result = await pool.query(
       `INSERT INTO boards (user_id, name, workflow, filters, position)
        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5)
-       RETURNING id, user_id, name, workflow, filters, position, is_default, created_at, updated_at`,
+       RETURNING id, user_id, name, workflow, filters, position, is_default, plugins, mcp_auth, created_at, updated_at`,
       [userId, name, JSON.stringify(workflow), JSON.stringify(filters), position]
     );
     return result.rows[0];
@@ -151,14 +151,15 @@ export async function createBoard(userId, name, workflow = {}, filters = {}) {
 export async function updateBoard(id, fields) {
   const pool = getPool();
   if (!pool) throw new Error('Database not connected');
-  const allowed = ['name', 'workflow', 'filters', 'position'];
+  const allowed = ['name', 'workflow', 'filters', 'position', 'plugins', 'mcp_auth'];
+  const jsonbFields = ['workflow', 'filters', 'plugins', 'mcp_auth'];
   const setClauses = [];
   const values = [];
   let idx = 1;
 
   for (const [key, value] of Object.entries(fields)) {
     if (!allowed.includes(key)) continue;
-    if (key === 'workflow' || key === 'filters') {
+    if (jsonbFields.includes(key)) {
       setClauses.push(`${key} = $${idx}::jsonb`);
       values.push(JSON.stringify(value));
     } else {
@@ -175,7 +176,7 @@ export async function updateBoard(id, fields) {
   try {
     const result = await pool.query(
       `UPDATE boards SET ${setClauses.join(', ')} WHERE id = $${idx}
-       RETURNING id, user_id, name, workflow, filters, position, is_default, created_at, updated_at`,
+       RETURNING id, user_id, name, workflow, filters, position, is_default, plugins, mcp_auth, created_at, updated_at`,
       values
     );
     return result.rows[0] || null;
