@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../api';
+import { WsEvents } from '../socketEvents';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
 import AddAgentModal from './AddAgentModal';
@@ -114,7 +115,7 @@ export default function Dashboard({
 
   const handleStopAgent = (agentId) => {
     if (socket) {
-      socket.emit('agent:stop', { agentId });
+      socket.emit(WsEvents.REQ_STOP, { agentId });
     }
   };
 

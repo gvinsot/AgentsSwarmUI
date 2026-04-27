@@ -3,6 +3,7 @@ import { X, Globe, Send, Loader2, FolderOpen, ChevronDown, ChevronRight, StopCir
 import ReactMarkdown from 'react-markdown';
 import { cleanToolSyntax } from './AgentDetail';
 import { api, deleteTask as deleteTaskById } from '../api';
+import { WsEvents } from '../socketEvents';
 import OneDriveConnect from './OneDriveConnect';
 import PluginEditor from './PluginEditor';
 
@@ -108,12 +109,12 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
       setSending(false);
     };
 
-    socket.on('broadcast:complete', handleComplete);
-    socket.on('broadcast:error', handleError);
+    socket.on(WsEvents.BROADCAST_COMPLETE, handleComplete);
+    socket.on(WsEvents.BROADCAST_ERROR, handleError);
 
     return () => {
-      socket.off('broadcast:complete', handleComplete);
-      socket.off('broadcast:error', handleError);
+      socket.off(WsEvents.BROADCAST_COMPLETE, handleComplete);
+      socket.off(WsEvents.BROADCAST_ERROR, handleError);
     };
   }, [socket]);
 
@@ -125,7 +126,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
     setMessage('');
     setSending(true);
     setResponses([]);
-    socket.emit('broadcast:message', { message: msg });
+    socket.emit(WsEvents.REQ_BROADCAST, { message: msg });
   };
 
   const handleProjectChange = async (project) => {
@@ -281,7 +282,7 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
 
   const handleStopAll = useCallback(() => {
     if (!socket) return;
-    agents.filter(a => a.status === 'busy').forEach(a => socket.emit('agent:stop', { agentId: a.id }));
+    agents.filter(a => a.status === 'busy').forEach(a => socket.emit(WsEvents.REQ_STOP, { agentId: a.id }));
   }, [agents, socket]);
 
   const currentProject = agents.length > 0 ? agents[0].project : null;

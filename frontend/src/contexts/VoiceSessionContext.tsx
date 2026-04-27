@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { WsEvents } from '../socketEvents';
 
 export const STATUS = {
   DISCONNECTED: 'disconnected',
@@ -279,8 +280,8 @@ export function VoiceSessionProvider({ socket, agents, children }) {
       sendFunctionOutput(callId, resultText);
     };
 
-    sock.on('voice:delegate:result', handler);
-    sock.emit('voice:delegate', { agentId, targetAgentName: agentName, task });
+    sock.on(WsEvents.VOICE_DELEGATE_RESULT, handler);
+    sock.emit(WsEvents.REQ_VOICE_DELEGATE, { agentId, targetAgentName: agentName, task });
   }, [addEvent, sendFunctionOutput]);
 
   const handleAsk = useCallback((callId, agentName, question) => {
@@ -301,7 +302,7 @@ export function VoiceSessionProvider({ socket, agents, children }) {
         return;
       }
 
-      sock.off('voice:ask:result', handler);
+      sock.off(WsEvents.VOICE_ASK_RESULT, handler);
       setDelegationTarget(null);
       setStatus(STATUS.CONNECTED);
 
@@ -313,8 +314,8 @@ export function VoiceSessionProvider({ socket, agents, children }) {
       sendFunctionOutput(callId, resultText);
     };
 
-    sock.on('voice:ask:result', handler);
-    sock.emit('voice:ask', { agentId, targetAgentName: agentName, question });
+    sock.on(WsEvents.VOICE_ASK_RESULT, handler);
+    sock.emit(WsEvents.REQ_VOICE_ASK, { agentId, targetAgentName: agentName, question });
   }, [addEvent, sendFunctionOutput]);
 
   const handleManagement = useCallback((callId, functionName, args) => {
@@ -333,7 +334,7 @@ export function VoiceSessionProvider({ socket, agents, children }) {
         return;
       }
 
-      sock.off('voice:management:result', handler);
+      sock.off(WsEvents.VOICE_MANAGEMENT_RESULT, handler);
 
       const resultText = data.error
         ? `Error: ${data.error}`
@@ -343,8 +344,8 @@ export function VoiceSessionProvider({ socket, agents, children }) {
       sendFunctionOutput(callId, resultText);
     };
 
-    sock.on('voice:management:result', handler);
-    sock.emit('voice:management', { agentId, functionName, args });
+    sock.on(WsEvents.VOICE_MANAGEMENT_RESULT, handler);
+    sock.emit(WsEvents.REQ_VOICE_MANAGEMENT, { agentId, functionName, args });
   }, [addEvent, sendFunctionOutput]);
 
   const handleToolCall = useCallback((event) => {

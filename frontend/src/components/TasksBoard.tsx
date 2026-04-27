@@ -7,6 +7,7 @@ import AllCommitsDiffModal from './AllCommitsDiffModal';
 import GitHubActivityModal from './GitHubActivityModal';
 import ShareBoardModal from './ShareBoardModal';
 import { getSocket } from '../socket';
+import { WsEvents } from '../socketEvents';
 
 import { buildColumns, buildStatusOptions, sortTasks, SORT_OPTIONS } from './tasks/taskConstants';
 import CreateTaskModal from './tasks/CreateTaskModal';
@@ -217,8 +218,8 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         return updated;
       });
     };
-    sock.on('task:updated', handler);
-    return () => sock.off('task:updated', handler);
+    sock.on(WsEvents.TASK_UPDATED, handler);
+    return () => sock.off(WsEvents.TASK_UPDATED, handler);
   }, []);
 
   // Wrap onRefresh to also reload tasks.
@@ -330,7 +331,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     const socket = getSocket();
     const agentId = task.agentId || task.assignee;
     if (!socket || !agentId) return;
-    socket.emit('agent:task:execute', { agentId, taskId: task.id });
+    socket.emit(WsEvents.REQ_TASK_EXECUTE, { agentId, taskId: task.id });
   }, []);
 
   const lastColId = columns[columns.length - 1]?.id;

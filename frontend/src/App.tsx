@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectSocket, disconnectSocket, getSocket } from './socket';
 import { api } from './api';
+import { WsEvents } from './socketEvents';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
 import { VoiceSessionProvider } from './contexts/VoiceSessionContext';
@@ -104,11 +105,10 @@ export default function App() {
   const showToastRef = useRef(showToast);
   useEffect(() => { showToastRef.current = showToast; }, [showToast]);
 
-  // All socket event names we register — used for cleanup
   const SOCKET_EVENTS = [
-    'agents:list', 'agent:created', 'agent:updated', 'agent:deleted',
-    'agent:status', 'agent:thinking', 'agent:stream:start', 'agent:stream:chunk',
-    'agent:stream:end', 'agent:stream:error', 'agent:error:report', 'agent:handoff'
+    WsEvents.AGENTS_LIST, WsEvents.AGENT_CREATED, WsEvents.AGENT_UPDATED, WsEvents.AGENT_DELETED,
+    WsEvents.AGENT_STATUS, WsEvents.AGENT_THINKING, WsEvents.STREAM_START, WsEvents.STREAM_CHUNK,
+    WsEvents.STREAM_END, WsEvents.STREAM_ERROR, WsEvents.AGENT_ERROR_REPORT, WsEvents.AGENT_HANDOFF
   ];
 
   const initSocket = useCallback((token) => {
@@ -117,9 +117,9 @@ export default function App() {
     // Remove any previously registered listeners to prevent duplicates
     SOCKET_EVENTS.forEach(ev => sock.off(ev));
 
-    sock.on('agents:list', (list) => setAgents(list));
-    sock.on('agent:created', (agent) => setAgents(prev => [...prev, agent]));
-    sock.on('agent:updated', (agent) => {
+    sock.on(WsEvents.AGENTS_LIST, (list) => setAgents(list));
+    sock.on(WsEvents.AGENT_CREATED, (agent) => setAgents(prev => [...prev, agent]));
+    sock.on(WsEvents.AGENT_UPDATED, (agent) => {
       // Dedup: skip if the payload is identical to the last one for this agent
       const json = JSON.stringify(agent);
       if (lastAgentJson.current.get(agent.id) === json) return;
@@ -148,8 +148,8 @@ export default function App() {
         });
       }
     });
-    sock.on('agent:deleted', ({ id }) => setAgents(prev => prev.filter(a => a.id !== id)));
-    sock.on('agent:status', ({ id, status }) => {
+    sock.on(WsEvents.AGENT_DELETED, ({ id }) => setAgents(prev => prev.filter(a => a.id !== id)));
+    sock.on(WsEvents.AGENT_STATUS, ({ id, status }) => {
       setAgents(prev => prev.map(a => a.id === id ? { ...a, status } : a));
       // When agent goes idle or error, clear stale thinking state so the
       // card doesn't keep showing "busy" after the agent has finished.
@@ -163,22 +163,22 @@ export default function App() {
       }
     });
 
-    sock.on('agent:thinking', ({ agentId, thinking }) => {
+    sock.on(WsEvents.AGENT_THINKING, ({ agentId, thinking }) => {
       setThinkingMap(prev => ({ ...prev, [agentId]: thinking }));
     });
 
-    sock.on('agent:stream:start', ({ agentId }) => {
+    sock.on(WsEvents.STREAM_START, ({ agentId }) => {
       setStreamBuffers(prev => ({ ...prev, [agentId]: '' }));
     });
 
-    sock.on('agent:stream:chunk', ({ agentId, chunk }) => {
+    sock.on(WsEvents.STREAM_CHUNK, ({ agentId, chunk }) => {
       setStreamBuffers(prev => ({
         ...prev,
         [agentId]: (prev[agentId] || '') + chunk
       }));
     });
 
-    sock.on('agent:stream:end', ({ agentId }) => {
+    sock.on(WsEvents.STREAM_END, ({ agentId }) => {
       setThinkingMap(prev => {
         const copy = { ...prev };
         delete copy[agentId];
@@ -201,7 +201,7 @@ export default function App() {
       }, 3000);
     });
 
-    sock.on('agent:stream:error', ({ agentId, error }) => {
+    sock.on(WsEvents.STREAM_ERROR, ({ agentId, error }) => {
       console.error(`Stream error for ${agentId}:`, error);
       const errorLower = (error || '').toLowerCase();
       const isModelError = [
@@ -227,12 +227,12 @@ export default function App() {
       });
     });
 
-    sock.on('agent:error:report', ({ agentName, description, isSystemError }) => {
+    sock.on(WsEvents.AGENT_ERROR_REPORT, ({ agentName, description, isSystemError }) => {
       const prefix = isSystemError ? '⚙️' : '🚨';
       showToastRef.current(`${prefix} ${agentName}: ${description.slice(0, 200)}`, 'error', 12000);
     });
 
-    sock.on('agent:handoff', (data) => {
+    sock.on(WsEvents.AGENT_HANDOFF, (data) => {
       console.log('Handoff:', data);
     });
 

@@ -4,6 +4,7 @@ import {
   StopCircle, FolderCode, Activity, Wrench, ArrowLeft, Layers, Shield,
 } from 'lucide-react';
 import { api } from '../api';
+import { WsEvents } from '../socketEvents';
 import VoiceChatTab from './VoiceChatTab';
 import ChatTab from './agentDetail/ChatTab';
 import PluginsTab from './agentDetail/PluginsTab';
@@ -119,7 +120,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
       const payload = { agentId: agent.id, message: msg, messageId };
       if (imagesToSend) payload.images = imagesToSend;
       // Use volatile.emit to prevent socket.io from buffering/replaying this event on reconnect
-      (socket.volatile || socket).emit('agent:chat', payload);
+      (socket.volatile || socket).emit(WsEvents.REQ_CHAT, payload);
       // Optimistically add user message to history
       const histEntry = { role: 'user', content: msg, timestamp: new Date().toISOString() };
       if (imagePreviewsForHistory) histEntry.images = imagePreviewsForHistory;
@@ -243,7 +244,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
           </div>
           {agent.status === 'busy' && socket && (
             <button
-              onClick={() => socket.emit('agent:stop', { agentId: agent.id })}
+              onClick={() => socket.emit(WsEvents.REQ_STOP, { agentId: agent.id })}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-sm font-medium"
               title="Stop agent"
             >
@@ -293,7 +294,7 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               sending={sending || agent.status === 'busy'}
               isBusy={agent.status === 'busy'}
               onSend={handleSend}
-              onStop={() => socket?.emit('agent:stop', { agentId: agent.id })}
+              onStop={() => socket?.emit(WsEvents.REQ_STOP, { agentId: agent.id })}
               onClear={handleClearHistory}
               onTruncate={handleTruncateHistory}
               chatEndRef={chatEndRef}

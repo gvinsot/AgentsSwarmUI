@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { updateTask, deleteTask, getCommitDiff, getBoards } from '../api';
 import { getSocket } from '../socket';
+import { WsEvents } from '../socketEvents';
 import RealtimeTaskModal from './RealtimeTaskModal';
 import AllCommitsDiffModal from './AllCommitsDiffModal';
 
@@ -307,7 +308,7 @@ export default function TaskModal({ task, onClose, columns, agents, onTaskUpdate
     const socket = getSocket();
     const agentId = task.agentId || task.assignee;
     if (!socket || !agentId) return;
-    socket.emit('agent:task:execute', { agentId, taskId: task.id });
+    socket.emit(WsEvents.REQ_TASK_EXECUTE, { agentId, taskId: task.id });
     onClose();
   }, [task.id, task.agentId, task.assignee, onClose]);
 

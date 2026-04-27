@@ -1,7 +1,7 @@
 import { getBoardsByUser } from '../services/database.js';
+import { WsEvents } from './events.js';
 
 // ── Per-socket rate limiter for mutating WebSocket events ────────────
-// Prevents a single client from flooding chat/broadcast/delegation events.
 function createSocketRateLimiter(maxEvents = 30, windowMs = 60_000) {
   const timestamps = [];
   return function checkLimit() {
@@ -15,24 +15,20 @@ function createSocketRateLimiter(maxEvents = 30, windowMs = 60_000) {
 }
 
 // Global dedup cache: stores recently processed messageIds to reject replays.
-// Each entry is auto-evicted after 60 seconds.
 const _recentMessageIds = new Map();
 function _trackMessageId(messageId) {
-  if (!messageId) return false; // no ID → cannot dedup, allow through
-  if (_recentMessageIds.has(messageId)) return true; // duplicate
+  if (!messageId) return false;
+  if (_recentMessageIds.has(messageId)) return true;
   _recentMessageIds.set(messageId, Date.now());
   setTimeout(() => _recentMessageIds.delete(messageId), 60_000);
-  return false; // first time
+  return false;
 }
 
 export function setupSocketHandlers(io, agentManager) {
   io.on('connection', async (socket) => {
     console.log(`⚡ Client connected: ${socket.user?.username}`);
 
-    // Per-socket rate limiter — 30 mutating events per minute
     const checkSocketRate = createSocketRateLimiter(30, 60_000);
-
-    // Track agents with in-flight chat requests on this socket to prevent duplicates
     const chatInFlight = new Set();
 
     // ── Per-user & per-board rooms for isolation ─────────────────────
@@ -41,7 +37,6 @@ export function setupSocketHandlers(io, agentManager) {
     if (userId) socket.join(`user:${userId}`);
     if (userRole === 'admin') socket.join('role:admin');
 
-    // Join board rooms — user sees agents from all boards they have access to
     let userBoardIds = new Set<string>();
     if (userId) {
       try {
@@ -53,51 +48,36 @@ export function setupSocketHandlers(io, agentManager) {
       } catch { /* no boards available */ }
     }
 
-    /** Emit an event scoped to users who can see the given agent (via board) */
-    function emitForAgent(agentId, event, data) {
-      const agent = agentManager.agents.get(agentId);
-      const boardId = agent?.boardId;
-      if (boardId) {
-        io.to(`board:${boardId}`).emit(event, data);
-      } else {
-        io.emit(event, data);
-      }
-    }
+    const ws = agentManager.wsEmitter;
 
-    // Send initial state — filtered by board access
-    socket.emit('agents:list', agentManager.getAllForUser(userId, userRole, userBoardIds));
+    socket.emit(WsEvents.AGENTS_LIST, agentManager.getAllForUser(userId, userRole, userBoardIds));
 
-    /** Check if the current socket user can access the given agent (via board) */
     function canAccessAgent(agentId) {
       const agent = agentManager.agents.get(agentId);
       if (!agent) return false;
-      // Agents without a board are accessible to everyone
       if (!agent.boardId) return true;
       return userBoardIds.has(agent.boardId);
     }
 
     // ── Chat with streaming ───────────────────────────────────────────
-    socket.on('agent:chat', async (data) => {
+    socket.on(WsEvents.REQ_CHAT, async (data) => {
       const { agentId, message, messageId, images } = data;
       if (!agentId || !message) return;
 
-      // Board access check
       if (!canAccessAgent(agentId)) {
-        socket.emit('error', { message: 'Access denied: you do not have access to this agent\'s board.' });
+        socket.emit(WsEvents.ERROR, { message: 'Access denied: you do not have access to this agent\'s board.' });
         return;
       }
       if (!checkSocketRate()) {
-        socket.emit('error', { message: 'Rate limit exceeded. Please wait before sending more messages.' });
+        socket.emit(WsEvents.ERROR, { message: 'Rate limit exceeded. Please wait before sending more messages.' });
         return;
       }
 
-      // Global dedup: reject replayed events (e.g. socket.io reconnect buffer)
       if (_trackMessageId(messageId)) {
         console.warn(`⚠️ Duplicate messageId ${messageId} rejected (replay)`);
         return;
       }
 
-      // Prevent duplicate concurrent requests for the same agent
       if (chatInFlight.has(agentId)) {
         console.warn(`⚠️ Duplicate chat request ignored for agent ${agentId} (already in-flight)`);
         return;
@@ -108,51 +88,43 @@ export function setupSocketHandlers(io, agentManager) {
       const project = agentData?.project || null;
 
       try {
-        socket.emit('agent:stream:start', { agentId, project });
+        socket.emit(WsEvents.STREAM_START, { agentId, project });
 
-        // Validate and sanitize images (max 5 images, max 10MB each)
         let sanitizedImages = null;
         if (Array.isArray(images) && images.length > 0) {
           sanitizedImages = images.slice(0, 5).filter(img =>
             img && typeof img.data === 'string' && typeof img.mediaType === 'string' &&
-            img.data.length < 10 * 1024 * 1024 && // ~10MB base64
+            img.data.length < 10 * 1024 * 1024 &&
             /^image\/(png|jpeg|gif|webp)$/.test(img.mediaType)
           ).map(img => ({ data: img.data, mediaType: img.mediaType }));
           if (sanitizedImages.length === 0) sanitizedImages = null;
         }
 
         await agentManager.sendMessage(agentId, message, (chunk) => {
-          socket.emit('agent:stream:chunk', { agentId, project, chunk });
-          // Also broadcast the thinking state to users who can see this agent
-          emitForAgent(agentId, 'agent:thinking', {
-            agentId,
-            project,
-            thinking: agentManager.agents.get(agentId)?.currentThinking || ''
-          });
+          socket.emit(WsEvents.STREAM_CHUNK, { agentId, project, chunk });
+          ws.thinking(agentId);
         }, 0, null, sanitizedImages);
 
-        socket.emit('agent:stream:end', { agentId, project });
-        // Note: agentManager.sendMessage() already emits agent:updated internally
+        socket.emit(WsEvents.STREAM_END, { agentId, project });
       } catch (err) {
-        socket.emit('agent:stream:error', { agentId, project, error: err.message });
+        socket.emit(WsEvents.STREAM_ERROR, { agentId, project, error: err.message });
       } finally {
         chatInFlight.delete(agentId);
       }
     });
 
     // ── Broadcast to all agents (tmux) ────────────────────────────────
-    socket.on('broadcast:message', async (data) => {
+    socket.on(WsEvents.REQ_BROADCAST, async (data) => {
       const { message } = data;
       if (!message) return;
       if (!checkSocketRate()) {
-        socket.emit('error', { message: 'Rate limit exceeded. Please wait before sending more messages.' });
+        socket.emit(WsEvents.ERROR, { message: 'Rate limit exceeded. Please wait before sending more messages.' });
         return;
       }
 
-      socket.emit('broadcast:start', { message });
+      socket.emit(WsEvents.BROADCAST_START, { message });
 
       try {
-        // Only broadcast to agents visible to this user (via board access)
         const visibleAgents = agentManager._agentsForUser(userId, userRole, userBoardIds);
         const visibleIds = new Set(visibleAgents.map(a => a.id));
         const results = await agentManager.broadcastMessage(
@@ -160,32 +132,28 @@ export function setupSocketHandlers(io, agentManager) {
           (agentId, chunk) => {
             if (!visibleIds.has(agentId)) return;
             const a = agentManager.agents.get(agentId);
-            socket.emit('agent:stream:chunk', { agentId, project: a?.project || null, chunk });
-            emitForAgent(agentId, 'agent:thinking', {
-              agentId,
-              project: a?.project || null,
-              thinking: a?.currentThinking || ''
-            });
+            socket.emit(WsEvents.STREAM_CHUNK, { agentId, project: a?.project || null, chunk });
+            ws.thinking(agentId);
           },
           visibleIds
         );
 
-        socket.emit('broadcast:complete', { results });
+        socket.emit(WsEvents.BROADCAST_COMPLETE, { results });
       } catch (err) {
-        socket.emit('broadcast:error', { error: err.message });
+        socket.emit(WsEvents.BROADCAST_ERROR, { error: err.message });
       }
     });
 
     // ── Handoff ───────────────────────────────────────────────────────
-    socket.on('agent:handoff', async (data) => {
+    socket.on(WsEvents.REQ_HANDOFF, async (data) => {
       const { fromId, toId, context } = data;
       if (!fromId || !toId || !context) return;
       if (!canAccessAgent(fromId) || !canAccessAgent(toId)) {
-        socket.emit('agent:handoff:error', { error: 'Access denied' });
+        socket.emit(WsEvents.HANDOFF_ERROR, { error: 'Access denied' });
         return;
       }
       if (!checkSocketRate()) {
-        socket.emit('error', { message: 'Rate limit exceeded.' });
+        socket.emit(WsEvents.ERROR, { message: 'Rate limit exceeded.' });
         return;
       }
 
@@ -193,81 +161,75 @@ export function setupSocketHandlers(io, agentManager) {
       const targetProject = targetAgent?.project || null;
 
       try {
-        // Stream the target agent's response in real-time
-        emitForAgent(toId, 'agent:stream:start', { agentId: toId, project: targetProject });
+        ws.emit(WsEvents.STREAM_START, { agentId: toId, project: targetProject });
 
         const response = await agentManager.handoff(fromId, toId, context, (chunk) => {
-          emitForAgent(toId, 'agent:stream:chunk', { agentId: toId, project: targetProject, chunk });
-          emitForAgent(toId, 'agent:thinking', {
-            agentId: toId,
-            project: targetProject,
-            thinking: agentManager.agents.get(toId)?.currentThinking || ''
-          });
+          ws.emit(WsEvents.STREAM_CHUNK, { agentId: toId, project: targetProject, chunk });
+          ws.thinking(toId);
         });
 
-        emitForAgent(toId, 'agent:stream:end', { agentId: toId, project: targetProject });
-        // Note: agentManager already emits agent:updated internally
+        ws.emit(WsEvents.STREAM_END, { agentId: toId, project: targetProject });
 
-        socket.emit('agent:handoff:complete', { fromId, toId, response });
+        socket.emit(WsEvents.HANDOFF_COMPLETE, { fromId, toId, response });
       } catch (err) {
-        emitForAgent(toId, 'agent:stream:error', { agentId: toId, project: targetProject, error: err.message });
-        socket.emit('agent:handoff:error', { error: err.message });
+        ws.streamError(toId, err.message);
+        socket.emit(WsEvents.HANDOFF_ERROR, { error: err.message });
       }
     });
 
     // ── Ping agent status ─────────────────────────────────────────────
-    socket.on('agents:refresh', () => {
-      socket.emit('agents:list', agentManager.getAllForUser(userId, userRole, userBoardIds));
+    socket.on(WsEvents.REQ_REFRESH, () => {
+      socket.emit(WsEvents.AGENTS_LIST, agentManager.getAllForUser(userId, userRole, userBoardIds));
     });
 
     // ── Get swarm status with project assignments ─────────────────────
-    socket.on('agents:swarm-status', () => {
-      socket.emit('agents:swarm-status', agentManager.getSwarmStatus(userId, userRole, userBoardIds));
+    socket.on(WsEvents.REQ_SWARM_STATUS, () => {
+      socket.emit(WsEvents.REQ_SWARM_STATUS, agentManager.getSwarmStatus(userId, userRole, userBoardIds));
     });
 
-    // ── Get lightweight status for ALL enabled agents (includes project) ─
-    socket.on('agents:statuses', () => {
-      socket.emit('agents:statuses', agentManager.getAllStatuses(userId, userRole, userBoardIds));
+    // ── Get lightweight status for ALL enabled agents ─────────────────
+    socket.on(WsEvents.REQ_STATUSES, () => {
+      socket.emit(WsEvents.REQ_STATUSES, agentManager.getAllStatuses(userId, userRole, userBoardIds));
     });
 
     // ── Get single agent detailed status ──────────────────────────────
-    socket.on('agent:status', (data) => {
+    socket.on(WsEvents.REQ_AGENT_STATUS, (data) => {
       const { agentId } = data || {};
       if (!agentId) return;
       if (!canAccessAgent(agentId)) return;
       const status = agentManager.getAgentStatus(agentId);
       if (status) {
-        socket.emit('agent:status', status);
+        socket.emit(WsEvents.AGENT_STATUS, status);
       }
     });
 
     // ── Get agents by project ────────────────────────────────────────
-    socket.on('agents:by-project', (data) => {
+    socket.on(WsEvents.REQ_BY_PROJECT, (data) => {
       const { project } = data || {};
       if (!project) return;
-      socket.emit('agents:by-project', agentManager.getAgentsByProject(project, userId, userRole, userBoardIds));
+      socket.emit(WsEvents.REQ_BY_PROJECT, agentManager.getAgentsByProject(project, userId, userRole, userBoardIds));
     });
 
     // ── Get project summary ──────────────────────────────────────────
-    socket.on('agents:project-summary', () => {
-      socket.emit('agents:project-summary', agentManager.getProjectSummary(userId, userRole, userBoardIds));
+    socket.on(WsEvents.REQ_PROJECT_SUMMARY, () => {
+      socket.emit(WsEvents.REQ_PROJECT_SUMMARY, agentManager.getProjectSummary(userId, userRole, userBoardIds));
     });
 
     // ── Stop agent ────────────────────────────────────────────────────
-    socket.on('agent:stop', (data) => {
+    socket.on(WsEvents.REQ_STOP, (data) => {
       const { agentId } = data;
       if (!agentId) return;
       if (!canAccessAgent(agentId)) return;
-      
+
       const stopped = agentManager.stopAgent(agentId);
       if (stopped) {
-        socket.emit('agent:stream:end', { agentId, stopped: true });
-        emitForAgent(agentId, 'agent:updated', agentManager.getById(agentId));
+        socket.emit(WsEvents.STREAM_END, { agentId, stopped: true });
+        ws.agentUpdated(agentId);
       }
     });
 
     // ── Execute single task ─────────────────────────────────────────
-    socket.on('agent:task:execute', async (data) => {
+    socket.on(WsEvents.REQ_TASK_EXECUTE, async (data) => {
       const { agentId, taskId } = data;
       if (!agentId || !taskId) return;
       if (!canAccessAgent(agentId)) return;
@@ -276,26 +238,21 @@ export function setupSocketHandlers(io, agentManager) {
       const taskProject = taskAgent?.project || null;
 
       try {
-        socket.emit('agent:stream:start', { agentId, project: taskProject });
+        socket.emit(WsEvents.STREAM_START, { agentId, project: taskProject });
 
         const result = await agentManager.executeTask(agentId, taskId, (chunk) => {
-          socket.emit('agent:stream:chunk', { agentId, project: taskProject, chunk });
-          emitForAgent(agentId, 'agent:thinking', {
-            agentId,
-            project: taskProject,
-            thinking: agentManager.agents.get(agentId)?.currentThinking || ''
-          });
+          socket.emit(WsEvents.STREAM_CHUNK, { agentId, project: taskProject, chunk });
+          ws.thinking(agentId);
         });
 
-        socket.emit('agent:stream:end', { agentId, project: taskProject });
-        // Note: agentManager.executeTask() already emits agent:updated internally
+        socket.emit(WsEvents.STREAM_END, { agentId, project: taskProject });
       } catch (err) {
-        socket.emit('agent:stream:error', { agentId, project: taskProject, error: err.message });
+        socket.emit(WsEvents.STREAM_ERROR, { agentId, project: taskProject, error: err.message });
       }
     });
 
     // ── Execute all pending tasks ─────────────────────────────────────
-    socket.on('agent:task:executeAll', async (data) => {
+    socket.on(WsEvents.REQ_TASK_EXECUTE_ALL, async (data) => {
       const { agentId } = data;
       if (!agentId) return;
       if (!canAccessAgent(agentId)) return;
@@ -304,40 +261,34 @@ export function setupSocketHandlers(io, agentManager) {
       const execProject = execAgent?.project || null;
 
       try {
-        socket.emit('agent:stream:start', { agentId, project: execProject });
+        socket.emit(WsEvents.STREAM_START, { agentId, project: execProject });
 
         await agentManager.executeAllTasks(agentId, (chunk) => {
-          socket.emit('agent:stream:chunk', { agentId, project: execProject, chunk });
-          emitForAgent(agentId, 'agent:thinking', {
-            agentId,
-            project: execProject,
-            thinking: agentManager.agents.get(agentId)?.currentThinking || ''
-          });
+          socket.emit(WsEvents.STREAM_CHUNK, { agentId, project: execProject, chunk });
+          ws.thinking(agentId);
         });
 
-        socket.emit('agent:stream:end', { agentId, project: execProject });
-        // Note: agentManager.executeAllTasks() already emits agent:updated internally
+        socket.emit(WsEvents.STREAM_END, { agentId, project: execProject });
       } catch (err) {
-        socket.emit('agent:stream:error', { agentId, project: execProject, error: err.message });
+        socket.emit(WsEvents.STREAM_ERROR, { agentId, project: execProject, error: err.message });
       }
     });
 
     // ── Voice delegation (Realtime API function call relay) ──────────
-    socket.on('voice:delegate', async (data) => {
+    socket.on(WsEvents.REQ_VOICE_DELEGATE, async (data) => {
       const { agentId, targetAgentName, task } = data;
       if (!agentId || !targetAgentName || !task) return;
       if (!checkSocketRate()) {
-        socket.emit('voice:delegate:result', { agentId, targetAgentName, error: 'Rate limit exceeded', result: null });
+        socket.emit(WsEvents.VOICE_DELEGATE_RESULT, { agentId, targetAgentName, error: 'Rate limit exceeded', result: null });
         return;
       }
 
       try {
-        // Find target agent by name
         const targetAgent = agentManager.getAllForUser(userId, userRole, userBoardIds).find(
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
-          socket.emit('voice:delegate:result', {
+          socket.emit(WsEvents.VOICE_DELEGATE_RESULT, {
             agentId,
             targetAgentName,
             error: `Agent "${targetAgentName}" not found in swarm`,
@@ -348,34 +299,25 @@ export function setupSocketHandlers(io, agentManager) {
 
         console.log(`🎙️ [Voice Delegate] "${targetAgentName}" ← task: ${task.slice(0, 80)}...`);
 
-        const voiceTargetProject = targetAgent.project || null;
-
-        // Stream to the sub-agent's own chat
-        emitForAgent(targetAgent.id, 'agent:stream:start', { agentId: targetAgent.id, project: voiceTargetProject });
+        ws.streamStart(targetAgent.id);
 
         const leader = agentManager.agents.get(agentId);
         const leaderName = leader?.name || 'Voice Leader';
 
-        // Create a task on the target agent
         agentManager.addTask(targetAgent.id, `[From ${leaderName}] ${task}`);
 
         const response = await agentManager.sendMessage(
           targetAgent.id,
           `[TASK from ${leaderName}]: ${task}`,
           (chunk) => {
-            emitForAgent(targetAgent.id, 'agent:stream:chunk', { agentId: targetAgent.id, project: voiceTargetProject, chunk });
-            emitForAgent(targetAgent.id, 'agent:thinking', {
-              agentId: targetAgent.id,
-              project: voiceTargetProject,
-              thinking: agentManager.agents.get(targetAgent.id)?.currentThinking || ''
-            });
+            ws.streamChunk(targetAgent.id, chunk);
+            ws.thinking(targetAgent.id);
           }
         );
 
-        emitForAgent(targetAgent.id, 'agent:stream:end', { agentId: targetAgent.id, project: voiceTargetProject });
-        // Note: agentManager.sendMessage() already emits agent:updated internally
+        ws.streamEnd(targetAgent.id);
 
-        socket.emit('voice:delegate:result', {
+        socket.emit(WsEvents.VOICE_DELEGATE_RESULT, {
           agentId,
           targetAgentName,
           error: null,
@@ -383,7 +325,7 @@ export function setupSocketHandlers(io, agentManager) {
         });
       } catch (err) {
         console.error(`🎙️ [Voice Delegate] Error: ${err.message}`);
-        socket.emit('voice:delegate:result', {
+        socket.emit(WsEvents.VOICE_DELEGATE_RESULT, {
           agentId,
           targetAgentName,
           error: err.message,
@@ -393,11 +335,11 @@ export function setupSocketHandlers(io, agentManager) {
     });
 
     // ── Voice ask (lightweight question to another agent) ────────────
-    socket.on('voice:ask', async (data) => {
+    socket.on(WsEvents.REQ_VOICE_ASK, async (data) => {
       const { agentId, targetAgentName, question } = data;
       if (!agentId || !targetAgentName || !question) return;
       if (!checkSocketRate()) {
-        socket.emit('voice:ask:result', { agentId, targetAgentName, error: 'Rate limit exceeded', result: null });
+        socket.emit(WsEvents.VOICE_ASK_RESULT, { agentId, targetAgentName, error: 'Rate limit exceeded', result: null });
         return;
       }
 
@@ -406,12 +348,12 @@ export function setupSocketHandlers(io, agentManager) {
           a => a.name.toLowerCase() === targetAgentName.toLowerCase()
         );
         if (!targetAgent) {
-          socket.emit('voice:ask:result', { agentId, targetAgentName, error: `Agent "${targetAgentName}" not found in swarm`, result: null });
+          socket.emit(WsEvents.VOICE_ASK_RESULT, { agentId, targetAgentName, error: `Agent "${targetAgentName}" not found in swarm`, result: null });
           return;
         }
 
         if (targetAgent.status === 'busy') {
-          socket.emit('voice:ask:result', { agentId, targetAgentName, error: `Agent "${targetAgentName}" is currently busy`, result: null });
+          socket.emit(WsEvents.VOICE_ASK_RESULT, { agentId, targetAgentName, error: `Agent "${targetAgentName}" is currently busy`, result: null });
           return;
         }
 
@@ -419,46 +361,43 @@ export function setupSocketHandlers(io, agentManager) {
 
         const voiceAgent = agentManager.agents.get(agentId);
         const voiceName = voiceAgent?.name || 'Voice Leader';
-        const targetProject = targetAgent.project || null;
 
-        emitForAgent(targetAgent.id, 'agent:stream:start', { agentId: targetAgent.id, project: targetProject });
+        ws.streamStart(targetAgent.id);
 
         const answer = await agentManager.sendMessage(
           targetAgent.id,
           `[QUESTION from ${voiceName}]: ${question}\n\nPlease provide a concise, direct answer.`,
           (chunk) => {
-            emitForAgent(targetAgent.id, 'agent:stream:chunk', { agentId: targetAgent.id, project: targetProject, chunk });
+            ws.streamChunk(targetAgent.id, chunk);
           },
           1,
           { type: 'ask-question', fromAgent: voiceName }
         );
 
-        emitForAgent(targetAgent.id, 'agent:stream:end', { agentId: targetAgent.id, project: targetProject });
-        // Note: agentManager.sendMessage() already emits agent:updated internally
+        ws.streamEnd(targetAgent.id);
 
-        socket.emit('voice:ask:result', { agentId, targetAgentName, error: null, result: answer });
+        socket.emit(WsEvents.VOICE_ASK_RESULT, { agentId, targetAgentName, error: null, result: answer });
       } catch (err) {
         console.error(`🎙️ [Voice Ask] Error: ${err.message}`);
-        socket.emit('voice:ask:result', { agentId, targetAgentName, error: err.message, result: null });
+        socket.emit(WsEvents.VOICE_ASK_RESULT, { agentId, targetAgentName, error: err.message, result: null });
       }
     });
 
     // ── Voice management tools (quick sync operations) ────────────────
-    socket.on('voice:management', async (data) => {
+    socket.on(WsEvents.REQ_VOICE_MANAGEMENT, async (data) => {
       const { agentId, functionName, args } = data;
       if (!agentId || !functionName) return;
       if (!canAccessAgent(agentId)) {
-        socket.emit('voice:management:result', { agentId, functionName, error: 'Access denied', result: null });
+        socket.emit(WsEvents.VOICE_MANAGEMENT_RESULT, { agentId, functionName, error: 'Access denied', result: null });
         return;
       }
 
       const voiceAgent = agentManager.agents.get(agentId);
       if (!voiceAgent) {
-        socket.emit('voice:management:result', { agentId, functionName, error: 'Voice agent not found', result: null });
+        socket.emit(WsEvents.VOICE_MANAGEMENT_RESULT, { agentId, functionName, error: 'Voice agent not found', result: null });
         return;
       }
 
-      // Helper to find an agent by name (excluding self) — scoped to user's visible agents
       const userAgents = agentManager.getAllForUser(userId, userRole, userBoardIds);
       const findAgent = (name) => userAgents.find(
         a => a.name.toLowerCase() === (name || '').toLowerCase() && a.id !== agentId && a.enabled !== false
@@ -472,7 +411,7 @@ export function setupSocketHandlers(io, agentManager) {
             const target = findAgent(args.agent_name);
             if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
             agentManager.update(target.id, { project: args.project_name });
-            emitForAgent(target.id, 'agent:updated', agentManager.getById(target.id));
+            ws.agentUpdated(target.id);
             result = `Assigned ${target.name} to project "${args.project_name}"`;
             console.log(`🎙️ [Voice] assign_project: ${target.name} → ${args.project_name}`);
             break;
@@ -529,7 +468,7 @@ export function setupSocketHandlers(io, agentManager) {
             target.conversationHistory = target.conversationHistory.slice(0, newLen);
             if (newLen === 0) delete target._compactionArmed;
             agentManager.update(target.id, {});
-            emitForAgent(target.id, 'agent:updated', agentManager.getById(target.id));
+            ws.agentUpdated(target.id);
             result = `Rolled back ${count} message(s) from ${target.name} (${histLen} → ${newLen})`;
             console.log(`🎙️ [Voice] rollback: ${target.name} -${count}`);
             break;
@@ -539,7 +478,7 @@ export function setupSocketHandlers(io, agentManager) {
             if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
             const stopped = agentManager.stopAgent(target.id);
             result = stopped ? `Stopped agent ${target.name}` : `${target.name} is not currently busy`;
-            if (stopped) emitForAgent(target.id, 'agent:updated', agentManager.getById(target.id));
+            if (stopped) ws.agentUpdated(target.id);
             console.log(`🎙️ [Voice] stop_agent: ${target.name} → ${stopped ? 'stopped' : 'not busy'}`);
             break;
           }
@@ -571,10 +510,10 @@ export function setupSocketHandlers(io, agentManager) {
             result = `Unknown management function: ${functionName}`;
         }
 
-        socket.emit('voice:management:result', { agentId, functionName, error: null, result });
+        socket.emit(WsEvents.VOICE_MANAGEMENT_RESULT, { agentId, functionName, error: null, result });
       } catch (err) {
         console.error(`🎙️ [Voice Management] ${functionName} error: ${err.message}`);
-        socket.emit('voice:management:result', { agentId, functionName, error: err.message, result: null });
+        socket.emit(WsEvents.VOICE_MANAGEMENT_RESULT, { agentId, functionName, error: err.message, result: null });
       }
     });
 

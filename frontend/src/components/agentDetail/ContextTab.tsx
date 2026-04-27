@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Plus, Trash2, FileText, ArrowRightLeft, AlertCircle, BarChart3, Globe, RefreshCw, Link } from 'lucide-react';
 import { api } from '../../api';
+import { WsEvents } from '../../socketEvents';
 
 function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -123,12 +124,12 @@ export default function ContextTab({ agent, agents, socket, onRefresh }) {
 
     try {
       if (socket) {
-        socket.emit('agent:handoff', { fromId: agent.id, toId: targetId, context: context.trim() });
-        socket.once('agent:handoff:complete', (data) => {
+        socket.emit(WsEvents.REQ_HANDOFF, { fromId: agent.id, toId: targetId, context: context.trim() });
+        socket.once(WsEvents.HANDOFF_COMPLETE, (data) => {
           setResult({ success: true, response: data.response });
           setSending(false);
         });
-        socket.once('agent:handoff:error', (data) => {
+        socket.once(WsEvents.HANDOFF_ERROR, (data) => {
           setResult({ success: false, error: data.error });
           setSending(false);
         });

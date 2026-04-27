@@ -368,7 +368,7 @@ export async function pollJira(agentManager) {
     if (_io) {
       for (const [, agent] of agentManager.agents) {
         if (agentManager._getAgentTasks(agent.id).some(t => t.jiraKey)) {
-          agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+          agentManager.wsEmitter.agentUpdated(agent.id);
         }
       }
     }
@@ -589,13 +589,7 @@ IMPORTANT: Reply with ONLY the comment text to post on the Jira ticket. Do not i
   try {
     let fullResponse = '';
 
-    if (_io) {
-      _io.emit('agent:stream:start', {
-        agentId: agent.id,
-        agentName: agent.name,
-        project: agent.project || null,
-      });
-    }
+    agentManager.wsEmitter.streamStart(agent.id);
 
     try {
       const result = await agentManager.sendMessage(
@@ -603,14 +597,7 @@ IMPORTANT: Reply with ONLY the comment text to post on the Jira ticket. Do not i
         `[Jira AI Analysis] ${prompt}`,
         (chunk) => {
           fullResponse += chunk;
-          if (_io) {
-            _io.emit('agent:stream:chunk', {
-              agentId: agent.id,
-              agentName: agent.name,
-              project: agent.project || null,
-              chunk,
-            });
-          }
+          agentManager.wsEmitter.streamChunk(agent.id, chunk);
         }
       );
 
@@ -625,14 +612,8 @@ IMPORTANT: Reply with ONLY the comment text to post on the Jira ticket. Do not i
         console.log(`[Jira] AI analysis returned empty response for ${jiraKey}`);
       }
     } finally {
-      if (_io) {
-        _io.emit('agent:stream:end', {
-          agentId: agent.id,
-          agentName: agent.name,
-          project: agent.project || null,
-        });
-        agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
-      }
+      agentManager.wsEmitter.streamEnd(agent.id);
+      agentManager.wsEmitter.agentUpdated(agent.id);
     }
   } catch (err) {
     console.error(`[Jira] AI analysis failed for ${jiraKey}:`, err.message);
@@ -844,7 +825,7 @@ export async function handleWebhook(payload, agentManager) {
         // Execute transition actions (change_status, run_agent, etc.)
         await executeTransitionActions(trigger, actualTask || task, creatorAgent.id, agentManager);
         if (_io) {
-          agentManager._emitToOwner('agent:updated', agentManager._sanitize(creatorAgent));
+          agentManager.wsEmitter.agentUpdated(creatorAgent.id);
         }
       }
       return;

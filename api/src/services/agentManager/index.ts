@@ -1,5 +1,6 @@
 // ─── AgentManager: class shell + constructor + mixin assembly ─────────────────
 import { getAllAgents, saveAgent, setAgentOwner, setAgentBoard, getAllLlmConfigs, recordTokenUsage, getTasksByAgent } from '../database.js';
+import { WsEmitter } from '../../ws/emitter.js';
 
 import { lifecycleMethods } from './lifecycle.js';
 import { chatMethods } from './chat.js';
@@ -138,6 +139,7 @@ export class AgentManager {
   _taskQueues: Map<string, Promise<any>>;
   _chatLocks: Map<string, string>;
   io: any;
+  wsEmitter: WsEmitter;
   skillManager: any;
   executionManager: any;
   sandboxManager: any;
@@ -175,6 +177,7 @@ export class AgentManager {
     this.codeIndexService = codeIndexService;
     this._updateTimers = new Map();
     this._updatePending = new Map();
+    this.wsEmitter = new WsEmitter(io, this.agents, this._sanitize.bind(this));
     this._conditionProcessing = new Map();
     this.llmConfigs = new Map();
     /** Centralized task store: Map<agentId, Task[]> — source of truth is the tasks DB table */
@@ -378,77 +381,15 @@ export class AgentManager {
   }
 
   _emit(event: string, data: any) {
-    if (!this.io) return;
-
-    if (event === 'agent:updated' && data?.id) {
-      const agentId = data.id;
-      // Mark that an update is pending — we always re-sanitize the current
-      // agent state when emitting to avoid sending stale snapshots.
-      this._updatePending.set(agentId, true);
-      if (this._updateTimers.has(agentId)) return;
-
-      const timer = setTimeout(() => {
-        this._updateTimers.delete(agentId);
-        const wasPending = this._updatePending.has(agentId);
-        this._updatePending.delete(agentId);
-        if (wasPending) {
-          const agent = this.agents.get(agentId);
-          if (agent) {
-            this._emitToOwner(event, this._sanitize(agent));
-          }
-        }
-      }, 300);
-      this._updateTimers.set(agentId, timer);
-      return;
-    }
-
-    if ((event === 'agent:created' || event === 'agent:deleted') && data?.boardId) {
-      this.io.to(`board:${data.boardId}`).emit(event, data);
-      return;
-    }
-
-    const agentId = data?.id || data?.agentId;
-    if (agentId) {
-      const agent = this.agents.get(agentId);
-      if (agent?.boardId) {
-        this.io.to(`board:${agent.boardId}`).emit(event, data);
-        return;
-      }
-    }
-
-    this.io.emit(event, data);
+    this.wsEmitter.emit(event, data);
   }
 
   _emitToBoard(event: string, data: any) {
-    if (!this.io) return;
-    const boardId = data?.boardId;
-    if (boardId) {
-      this.io.to(`board:${boardId}`).emit(event, data);
-    } else {
-      this.io.emit(event, data);
-    }
-  }
-
-  /** @deprecated Use _emitToBoard instead — kept for backward compat */
-  _emitToOwner(event: string, data: any) {
-    this._emitToBoard(event, data);
+    this.wsEmitter.emit(event, data);
   }
 
   _flushAgentUpdate(agentId: string) {
-    const timer = this._updateTimers.get(agentId);
-    if (timer) {
-      clearTimeout(timer);
-      this._updateTimers.delete(agentId);
-    }
-    const wasPending = this._updatePending.has(agentId);
-    this._updatePending.delete(agentId);
-    if (wasPending && this.io) {
-      // Always emit the CURRENT agent state to avoid stale snapshots
-      const agent = this.agents.get(agentId);
-      if (agent) {
-        this._emitToBoard('agent:updated', this._sanitize(agent));
-      }
-    }
+    this.wsEmitter.flush(agentId);
   }
 
   // ─── Task store helpers (replace agent.todoList) ─────────────────────

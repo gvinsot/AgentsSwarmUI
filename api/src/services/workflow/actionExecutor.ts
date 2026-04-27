@@ -500,7 +500,7 @@ async function _runTitleMode(agent, task, { agentManager, io, execStartMsgIdx, e
     console.error(`[ActionExecutor] title failed:`, err.message);
     agentManager._saveExecutionLog(task.agentId, task.id, agent.id, execStartMsgIdx, execStartedAt, false, 'title');
   } finally {
-    agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+    agentManager.wsEmitter.agentUpdated(agent.id);
   }
 
   return { executed: true };
@@ -525,7 +525,7 @@ async function _runSetTypeMode(agent, task, { agentManager, io, execStartMsgIdx,
     console.error(`[ActionExecutor] set_type failed:`, err.message);
     agentManager._saveExecutionLog(task.agentId, task.id, agent.id, execStartMsgIdx, execStartedAt, false, 'set_type');
   } finally {
-    agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+    agentManager.wsEmitter.agentUpdated(agent.id);
   }
 
   return { executed: true };
@@ -537,7 +537,7 @@ async function _runRefineMode(agent, task, instructions, { agentManager, io, exe
 
   let fullResponse = '';
 
-  io.emit('agent:stream:start', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
+  agentManager.wsEmitter.streamStart(agent.id);
   try {
     const workflowMeta = { type: 'workflow-action', mode: 'refine', taskId: task.id };
     const result = await agentManager.sendMessage(
@@ -545,8 +545,8 @@ async function _runRefineMode(agent, task, instructions, { agentManager, io, exe
       `[Auto-Transition] ${prompt}`,
       (chunk) => {
         fullResponse += chunk;
-        io.emit('agent:stream:chunk', { agentId: agent.id, agentName: agent.name, project: agent.project || null, chunk });
-        io.emit('agent:thinking', { agentId: agent.id, project: agent.project || null, thinking: agentManager.agents.get(agent.id)?.currentThinking || '' });
+        agentManager.wsEmitter.streamChunk(agent.id, chunk);
+        agentManager.wsEmitter.thinking(agent.id);
       },
       0,
       workflowMeta
@@ -560,8 +560,8 @@ async function _runRefineMode(agent, task, instructions, { agentManager, io, exe
       if (cleaned) agentManager.updateTaskText(task.agentId, task.id, cleaned);
     }
   } finally {
-    io.emit('agent:stream:end', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
-    agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+    agentManager.wsEmitter.streamEnd(agent.id);
+    agentManager.wsEmitter.agentUpdated(agent.id);
   }
 
   return { executed: true };
@@ -586,7 +586,7 @@ async function _runDecideMode(agent, task, instructions, columns, { agentManager
 
   let fullResponse = '';
 
-  io.emit('agent:stream:start', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
+  agentManager.wsEmitter.streamStart(agent.id);
   try {
     const workflowMeta = { type: 'workflow-action', mode: 'decide', taskId: task.id };
     await agentManager.sendMessage(
@@ -594,8 +594,8 @@ async function _runDecideMode(agent, task, instructions, columns, { agentManager
       prompt,
       (chunk) => {
         fullResponse += chunk;
-        io.emit('agent:stream:chunk', { agentId: agent.id, agentName: agent.name, project: agent.project || null, chunk });
-        io.emit('agent:thinking', { agentId: agent.id, project: agent.project || null, thinking: agentManager.agents.get(agent.id)?.currentThinking || '' });
+        agentManager.wsEmitter.streamChunk(agent.id, chunk);
+        agentManager.wsEmitter.thinking(agent.id);
       },
       0,
       workflowMeta
@@ -603,8 +603,8 @@ async function _runDecideMode(agent, task, instructions, columns, { agentManager
 
     agentManager._saveExecutionLog(task.agentId, task.id, agent.id, execStartMsgIdx, execStartedAt, true, 'decide');
   } finally {
-    io.emit('agent:stream:end', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
-    agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+    agentManager.wsEmitter.streamEnd(agent.id);
+    agentManager.wsEmitter.agentUpdated(agent.id);
   }
 
   // Verify the agent actually made a decision: status changed OR details appended.
@@ -629,7 +629,7 @@ async function _runExecuteMode(agent, task, instructions, columns, { agentManage
 
   let fullResponse = '';
 
-  io.emit('agent:stream:start', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
+  agentManager.wsEmitter.streamStart(agent.id);
   try {
     const workflowMeta = { type: 'workflow-action', mode: 'execute', taskId: task.id };
     const result = await agentManager.sendMessage(
@@ -637,8 +637,8 @@ async function _runExecuteMode(agent, task, instructions, columns, { agentManage
       prompt,
       (chunk) => {
         fullResponse += chunk;
-        io.emit('agent:stream:chunk', { agentId: agent.id, agentName: agent.name, project: agent.project || null, chunk });
-        io.emit('agent:thinking', { agentId: agent.id, project: agent.project || null, thinking: agentManager.agents.get(agent.id)?.currentThinking || '' });
+        agentManager.wsEmitter.streamChunk(agent.id, chunk);
+        agentManager.wsEmitter.thinking(agent.id);
       },
       0,
       workflowMeta
@@ -650,28 +650,22 @@ async function _runExecuteMode(agent, task, instructions, columns, { agentManage
     const freshTask = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
 
     if (freshTask?._executionCompleted) {
-      // Immediate completion — agent called @task_execution_complete in its response
       const comment = freshTask._executionComment || '';
       delete freshTask._executionCompleted;
       delete freshTask._executionComment;
       console.log(`✅ [ActionExecutor] execute: completed immediately${hasInstructions ? ' (with instructions)' : ''}${comment ? ` (${comment.slice(0, 80)})` : ''}`);
     } else if (freshTask && !agentManager._isActiveTaskStatus(freshTask.status)) {
-      // Task was already moved (e.g. via @update_task)
       console.log(`[ActionExecutor] execute: task already moved to "${freshTask.status}"${hasInstructions ? ' (with instructions)' : ''}`);
     } else if (!fullResponse || fullResponse.trim().length === 0) {
-      // Empty response (agent was stopped mid-stream or session returned no chunks).
-      // Don't enter the 10-min reminder loop — release the workflow lock now and
-      // let the task loop or a new user action retry when conditions change.
       console.warn(`⚠️ [ActionExecutor] execute: "${agent.name}" returned empty response for "${task.text?.slice(0, 60)}" — skipping reminder loop`);
       return { executed: false, skipped: true, reason: 'empty-response' };
     } else {
-      // Agent did not complete in first response — wait for @task_execution_complete via reminder loop
       console.log(`[ActionExecutor] execute: waiting for task_execution_complete${hasInstructions ? ' (with instructions)' : ''}`);
       await agentManager._waitForExecutionComplete(task.agentId, task.id, agent.id, agent.name, task.text);
     }
   } finally {
-    io.emit('agent:stream:end', { agentId: agent.id, agentName: agent.name, project: agent.project || null });
-    agentManager._emitToOwner('agent:updated', agentManager._sanitize(agent));
+    agentManager.wsEmitter.streamEnd(agent.id);
+    agentManager.wsEmitter.agentUpdated(agent.id);
   }
 
   return { executed: true };

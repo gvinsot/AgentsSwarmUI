@@ -2,6 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { ArrowRightLeft, AlertCircle } from 'lucide-react';
 import { api } from '../../api';
+import { WsEvents } from '../../socketEvents';
 
 export default function HandoffTab({ agent, agents, socket, onRefresh }) {
   const [targetId, setTargetId] = useState('');
@@ -18,12 +19,12 @@ export default function HandoffTab({ agent, agents, socket, onRefresh }) {
 
     try {
       if (socket) {
-        socket.emit('agent:handoff', { fromId: agent.id, toId: targetId, context: context.trim() });
-        socket.once('agent:handoff:complete', (data) => {
+        socket.emit(WsEvents.REQ_HANDOFF, { fromId: agent.id, toId: targetId, context: context.trim() });
+        socket.once(WsEvents.HANDOFF_COMPLETE, (data) => {
           setResult({ success: true, response: data.response });
           setSending(false);
         });
-        socket.once('agent:handoff:error', (data) => {
+        socket.once(WsEvents.HANDOFF_ERROR, (data) => {
           setResult({ success: false, error: data.error });
           setSending(false);
         });
