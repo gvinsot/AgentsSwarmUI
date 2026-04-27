@@ -45,6 +45,9 @@ services:
       - JIRA_WEBHOOK_SECRET=${JIRA_WEBHOOK_SECRET:-}
       - CODER_API_KEY=${CODER_API_KEY:-change-me-in-production}
       - CODER_SERVICE_URL=http://coder-service:8000
+      - OPENCLAW_SERVICE_URL=http://openclaw-service:8000
+      - HERMES_SERVICE_URL=http://hermes-service:8000
+      - OPENCODE_SERVICE_URL=http://opencode-service:8000
       - BROWSER_SERVICE_URL=http://mcp-browser:8000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker CLI for sandbox management
@@ -239,6 +242,159 @@ services:
         delay: 10s
         failure_action: rollback
 
+  openclaw-service:
+    image: registry.methodinfo.fr/openclaw-service:latest
+    build:
+      context: ..
+      dockerfile: openclaw-service/Dockerfile
+    networks:
+      proxy:
+        aliases:
+          - openclaw-service
+    environment:
+      - TZ=Europe/Paris
+      - LOG_LEVEL=info
+      - PORT=8000
+      - HOST=0.0.0.0
+      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - PUID=${CODER_PUID:-1000}
+      - PGID=${CODER_PGID:-1000}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /home/gildas/.ssh:/root/.ssh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - openclaw-data:/app/data
+    deploy:
+      replicas: 0
+      placement:
+        constraints:
+          - node.hostname == server-b
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        order: start-first
+        delay: 10s
+        failure_action: rollback
+      labels:
+        - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  hermes-service:
+    image: registry.methodinfo.fr/hermes-service:latest
+    build:
+      context: ..
+      dockerfile: hermes-service/Dockerfile
+    networks:
+      proxy:
+        aliases:
+          - hermes-service
+    environment:
+      - TZ=Europe/Paris
+      - LOG_LEVEL=info
+      - PORT=8000
+      - HOST=0.0.0.0
+      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - PUID=${CODER_PUID:-1000}
+      - PGID=${CODER_PGID:-1000}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /home/gildas/.ssh:/root/.ssh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hermes-data:/app/data
+    deploy:
+      replicas: 0
+      placement:
+        constraints:
+          - node.hostname == server-b
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        order: start-first
+        delay: 10s
+        failure_action: rollback
+      labels:
+        - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  opencode-service:
+    image: registry.methodinfo.fr/opencode-service:latest
+    build:
+      context: ..
+      dockerfile: opencode-service/Dockerfile
+    networks:
+      proxy:
+        aliases:
+          - opencode-service
+    environment:
+      - TZ=Europe/Paris
+      - LOG_LEVEL=info
+      - PORT=8000
+      - HOST=0.0.0.0
+      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - PUID=${CODER_PUID:-1000}
+      - PGID=${CODER_PGID:-1000}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /home/gildas/.ssh:/root/.ssh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - opencode-data:/app/data
+    deploy:
+      replicas: 0
+      placement:
+        constraints:
+          - node.hostname == server-b
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        order: start-first
+        delay: 10s
+        failure_action: rollback
+      labels:
+        - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
   flaresolverr:
     image: 21hsmw/flaresolverr:nodriver
     networks:
@@ -316,6 +472,12 @@ volumes:
   coder-android-cache:
     driver: local
   coder-auth-data:
+    driver: local
+  openclaw-data:
+    driver: local
+  hermes-data:
+    driver: local
+  opencode-data:
     driver: local
 
 networks:

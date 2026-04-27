@@ -16,6 +16,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
     costPerInputToken: agent.costPerInputToken ?? '',
     costPerOutputToken: agent.costPerOutputToken ?? '',
     boardId: agent.boardId || '',
+    runner: agent.runner || '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -43,6 +44,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
       costPerInputToken: agent.costPerInputToken ?? '',
       costPerOutputToken: agent.costPerOutputToken ?? '',
       boardId: agent.boardId || '',
+      runner: agent.runner || '',
     });
     setSaved(false);
   }, [agent.id]);
@@ -62,6 +64,7 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
       payload.costPerOutputToken = payload.costPerOutputToken !== '' ? parseFloat(payload.costPerOutputToken) || null : null;
       payload.llmConfigId = payload.llmConfigId || null;
       payload.boardId = payload.boardId || null;
+      payload.runner = payload.runner || null;
       await api.updateAgent(agent.id, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -193,6 +196,23 @@ export default function SettingsTab({ agent, projects, currentProject, onRefresh
             ) : null;
           })()}
           <p className="text-[11px] text-dark-500 mt-1">LLM configurations are managed in Admin Settings</p>
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-xs text-dark-400 mb-1.5">Runner (execution backend)</label>
+          <select
+            value={form.runner}
+            onChange={(e) => updateField('runner', e.target.value)}
+            className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="">Auto (based on LLM config)</option>
+            <option value="sandbox">Pulsar Agent (sandbox)</option>
+            <option value="coder">Claude Code Agent (coder service)</option>
+            <option value="openclaw">OpenClaw Agent</option>
+            <option value="hermes">Hermes Agent</option>
+            <option value="opencode">OpenCode Agent</option>
+          </select>
+          <p className="text-[11px] text-dark-500 mt-1">Choose the container runtime for this agent. "Auto" selects based on the LLM configuration.</p>
         </div>
 
         <div>

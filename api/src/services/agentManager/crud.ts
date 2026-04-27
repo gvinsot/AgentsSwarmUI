@@ -51,6 +51,7 @@ export const crudMethods = {
       llmConfigId: config.llmConfigId || null,
       ownerId: config.ownerId || null,
       boardId: config.boardId || null,
+      runner: config.runner || null,
       color: config.color || this._randomColor(),
       icon: config.icon || '🤖',
       createdAt: new Date().toISOString(),
@@ -78,7 +79,7 @@ export const crudMethods = {
       'name', 'role', 'description', 'instructions', 'temperature',
       'maxTokens', 'contextLength', 'ragDocuments', 'skills', 'mcpServers', 'mcpAuth', 'handoffTargets',
       'color', 'icon', 'provider', 'model', 'endpoint', 'apiKey', 'project', 'isLeader', 'isVoice', 'isReasoning', 'voice', 'enabled',
-      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId', 'boardId', 'credentials'
+      'costPerInputToken', 'costPerOutputToken', 'llmConfigId', 'ownerId', 'boardId', 'credentials', 'runner'
     ];
 
     for (const key of allowed) {

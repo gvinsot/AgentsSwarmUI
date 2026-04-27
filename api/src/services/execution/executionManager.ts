@@ -11,11 +11,14 @@ import { SandboxExecutionProvider } from './sandboxExecutionProvider.js';
 import { CoderExecutionProvider } from './coderExecutionProvider.js';
 import { ExecutionProvider } from './executionProvider.js';
 
-type ProviderType = 'coder' | 'sandbox';
+type ProviderType = 'coder' | 'sandbox' | 'openclaw' | 'hermes' | 'opencode';
 
 interface ExecutionManagerOptions {
   resolveProvider?: (agentId: string) => ProviderType;
   coderOptions?: { baseUrl?: string; apiKey?: string };
+  openclawOptions?: { baseUrl?: string; apiKey?: string };
+  hermesOptions?: { baseUrl?: string; apiKey?: string };
+  opencodeOptions?: { baseUrl?: string; apiKey?: string };
 }
 
 interface BindAgentMeta {
@@ -25,21 +28,29 @@ interface BindAgentMeta {
 export class ExecutionManager {
   sandbox: SandboxExecutionProvider;
   coder: CoderExecutionProvider;
+  openclaw: CoderExecutionProvider;
+  hermes: CoderExecutionProvider;
+  opencode: CoderExecutionProvider;
   _resolveProvider: (agentId: string) => ProviderType;
   _agentProviders: Map<string, ProviderType>;
 
-  /**
-   * @param options
-   *
-   * resolveProvider is called to decide which backend an agent should use.
-   * It receives the agentId and must return 'coder' or 'sandbox'.
-   */
   constructor(options: ExecutionManagerOptions = {}) {
     this.sandbox = new SandboxExecutionProvider();
     this.coder = new CoderExecutionProvider(options.coderOptions || {});
+    this.openclaw = new CoderExecutionProvider({
+      baseUrl: options.openclawOptions?.baseUrl || process.env.OPENCLAW_SERVICE_URL || 'http://openclaw-service:8000',
+      apiKey: options.openclawOptions?.apiKey || process.env.CODER_API_KEY || '',
+    });
+    this.hermes = new CoderExecutionProvider({
+      baseUrl: options.hermesOptions?.baseUrl || process.env.HERMES_SERVICE_URL || 'http://hermes-service:8000',
+      apiKey: options.hermesOptions?.apiKey || process.env.CODER_API_KEY || '',
+    });
+    this.opencode = new CoderExecutionProvider({
+      baseUrl: options.opencodeOptions?.baseUrl || process.env.OPENCODE_SERVICE_URL || 'http://opencode-service:8000',
+      apiKey: options.opencodeOptions?.apiKey || process.env.CODER_API_KEY || '',
+    });
     this._resolveProvider = options.resolveProvider || (() => 'sandbox');
-    // Track which provider each agent was last routed to
-    this._agentProviders = new Map(); // agentId -> 'sandbox' | 'coder'
+    this._agentProviders = new Map();
   }
 
   // ── Provider resolution ───────────────────────────────────────────────
@@ -51,15 +62,23 @@ export class ExecutionManager {
    * no current binding.
    */
   _providerFor(agentId: string): ExecutionProvider {
-    // If already bound, reuse
     const bound = this._agentProviders.get(agentId);
     if (bound) {
-      return bound === 'coder' ? this.coder : this.sandbox;
+      return this._getProvider(bound);
     }
-    // Resolve and bind
     const choice = this._resolveProvider(agentId);
     this._agentProviders.set(agentId, choice);
-    return choice === 'coder' ? this.coder : this.sandbox;
+    return this._getProvider(choice);
+  }
+
+  _getProvider(type: ProviderType): ExecutionProvider {
+    switch (type) {
+      case 'coder': return this.coder;
+      case 'openclaw': return this.openclaw;
+      case 'hermes': return this.hermes;
+      case 'opencode': return this.opencode;
+      default: return this.sandbox;
+    }
   }
 
   /**
@@ -74,14 +93,12 @@ export class ExecutionManager {
     const previous = this._agentProviders.get(agentId);
     if (previous && previous !== providerType) {
       console.log(`🔄 [Execution] Agent ${agentId.slice(0, 8)} switching provider: ${previous} → ${providerType}`);
-      // Clean up old provider
-      const oldProvider = previous === 'coder' ? this.coder : this.sandbox;
+      const oldProvider = this._getProvider(previous);
       oldProvider.destroySandbox(agentId).catch(() => {});
     }
     this._agentProviders.set(agentId, providerType);
-    // Forward owner info to coder provider for X-Owner-Id header
-    if (providerType === 'coder' && meta.ownerId) {
-      this.coder.setOwner(agentId, meta.ownerId);
+    if (providerType !== 'sandbox' && meta.ownerId) {
+      (this._getProvider(providerType) as CoderExecutionProvider).setOwner(agentId, meta.ownerId);
     }
   }
 
@@ -112,6 +129,9 @@ export class ExecutionManager {
     await Promise.all([
       this.sandbox.destroyAll(),
       this.coder.destroyAll(),
+      this.openclaw.destroyAll(),
+      this.hermes.destroyAll(),
+      this.opencode.destroyAll(),
     ]);
     this._agentProviders.clear();
   }

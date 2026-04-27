@@ -73,9 +73,9 @@ export const chatMethods = {
 
       if (!this.executionManager.getFileTree(id)) {
         try {
-          // Bind agent to the correct execution provider based on LLM config
+          // Bind agent to the correct execution provider based on runner field or LLM config
           const earlyLlm = this.resolveLlmConfig(agent);
-          const providerType = earlyLlm.managesContext ? 'coder' : 'sandbox';
+          const providerType = agent.runner || (earlyLlm.managesContext ? 'coder' : 'sandbox');
           this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null });
 
           const gitUrl = await getProjectGitUrl(agent.project);

@@ -45,6 +45,7 @@ export const statusMethods = {
       model: agent.model || null,
       enabled: agent.enabled !== false,
       isLeader: agent.isLeader || false,
+      runner: agent.runner || null,
       sandbox: hasSandbox ? 'running' : 'not running',
       tasks: {
         waiting: waitingTasks,

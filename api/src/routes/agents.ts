@@ -60,6 +60,7 @@ const createAgentSchema = z.object({
     }).optional(),
   }).optional(),
   credentials: z.record(z.string().max(100), z.string().max(2000)).optional(),
+  runner: z.enum(['sandbox', 'coder', 'openclaw', 'hermes', 'opencode']).optional(),
 });
 
 // Schema for updating an agent (all fields optional)
