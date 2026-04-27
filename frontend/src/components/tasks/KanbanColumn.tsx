@@ -3,7 +3,7 @@ import { Trash2, Edit3, Plus, ArrowRight } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import TaskCard from './TaskCard';
 
-export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits, columns, onBatchMove }) {
+export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onDrop, onOpen, onClearAll, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits, columns, onBatchMove, onBatchDelete }) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
@@ -11,6 +11,7 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
   const [dropIndex, setDropIndex] = useState(-1);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [batchMoving, setBatchMoving] = useState(false);
+  const [confirmTrash, setConfirmTrash] = useState(false);
   const batchMenuRef = useRef(null);
   const dropZoneRef = useRef(null);
 
@@ -20,6 +21,7 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
     const handleClick = (e) => {
       if (batchMenuRef.current && !batchMenuRef.current.contains(e.target)) {
         setShowBatchMenu(false);
+        setConfirmTrash(false);
       }
     };
     document.addEventListener('mousedown', handleClick);
@@ -36,6 +38,18 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
       setBatchMoving(false);
     }
   }, [onBatchMove, col.id, tasks, batchMoving]);
+
+  const handleBatchDelete = useCallback(async () => {
+    if (!onBatchDelete || batchMoving) return;
+    setBatchMoving(true);
+    setShowBatchMenu(false);
+    setConfirmTrash(false);
+    try {
+      await onBatchDelete(col.id, tasks);
+    } finally {
+      setBatchMoving(false);
+    }
+  }, [onBatchDelete, col.id, tasks, batchMoving]);
 
   // Compute which index the dragged item should be inserted at
   const computeDropIndex = useCallback((e) => {
@@ -87,9 +101,9 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
           )}
           <div className="relative" ref={batchMenuRef}>
             <button
-              onClick={() => { if (tasks.length > 0 && columns && onBatchMove) setShowBatchMenu(!showBatchMenu); }}
-              className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${isLight ? col.countClsLight : col.countCls} ${tasks.length > 0 && columns && onBatchMove ? 'cursor-pointer hover:ring-1 hover:ring-white/30' : ''}`}
-              title={tasks.length > 0 && columns && onBatchMove ? 'Move all tasks to another column' : ''}
+              onClick={() => { if (tasks.length > 0 && columns && (onBatchMove || onBatchDelete)) setShowBatchMenu(!showBatchMenu); }}
+              className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${isLight ? col.countClsLight : col.countCls} ${tasks.length > 0 && columns && (onBatchMove || onBatchDelete) ? 'cursor-pointer hover:ring-1 hover:ring-white/30' : ''}`}
+              title={tasks.length > 0 && columns && (onBatchMove || onBatchDelete) ? 'Batch actions on tasks' : ''}
             >
               {batchMoving ? '...' : tasks.length}
             </button>
@@ -109,6 +123,28 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
                     <ArrowRight className="w-3 h-3 ml-auto opacity-40" />
                   </button>
                 ))}
+                {onBatchDelete && (
+                  <>
+                    <div className={`my-1 border-t ${isLight ? 'border-gray-200' : 'border-dark-600'}`} />
+                    {!confirmTrash ? (
+                      <button
+                        onClick={() => setConfirmTrash(true)}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${isLight ? 'hover:bg-red-50 text-red-600' : 'hover:bg-red-900/20 text-red-400'}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Trash all ({tasks.length})</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleBatchDelete}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left font-semibold transition-colors ${isLight ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-red-900/30 text-red-300 hover:bg-red-900/50'}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Confirm delete {tasks.length} tasks?</span>
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>

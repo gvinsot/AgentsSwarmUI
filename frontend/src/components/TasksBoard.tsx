@@ -482,6 +482,19 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     }
   }, [columns, refreshAll, isReadOnly]);
 
+  const handleBatchDelete = useCallback(async (colId, tasks) => {
+    if (isReadOnly || !tasks.length) return;
+    const taskIds = tasks.map(t => t.id);
+    setDbTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+    try {
+      await Promise.all(tasks.map(t => deleteTaskById(t.id)));
+      refreshAll();
+    } catch (err) {
+      console.error('[TasksBoard] Batch delete failed:', err.message);
+      refreshAll();
+    }
+  }, [refreshAll, isReadOnly]);
+
   const totalByStatus = useMemo(() => {
     const lastColId = columns[columns.length - 1]?.id;
     return {
@@ -740,6 +753,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
               onOpenCommits={setCommitModalTask}
               columns={columns}
               onBatchMove={isReadOnly ? undefined : handleBatchMove}
+              onBatchDelete={isReadOnly ? undefined : handleBatchDelete}
             />
           ))}
         </div>
