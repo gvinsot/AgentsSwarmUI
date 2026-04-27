@@ -46,21 +46,25 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
     if (!touchDragRef.current) return;
     if (!touchDragRef.current.started) { isDraggingRef.current = false; touchDragRef.current = null; return; }
 
-    // Remove ghost
+    // Determine target column BEFORE removing the ghost (ghost has pointerEvents:none
+    // so it doesn't interfere, but we want all DOM state stable during lookup).
+    //
+    // Priority: lastColumnId (updated reliably on every touchmove) > changedTouches
+    // coordinates (which can be stale/wrong on mobile — some browsers report the
+    // touchstart position instead of the final finger position).
+    let dropColId = touchDragRef.current.lastColumnId || null;
+    if (!dropColId) {
+      const fx = touchX ?? touchDragRef.current.lastTouchX ?? null;
+      const fy = touchY ?? touchDragRef.current.lastTouchY ?? null;
+      if (fx != null && fy != null) {
+        const col = getColumnAtPoint(fx, fy);
+        if (col) dropColId = col.getAttribute('data-column-id');
+      }
+    }
+
+    // Now clean up visuals
     if (touchDragRef.current.ghost) touchDragRef.current.ghost.remove();
     highlightColumn(null);
-
-    // Determine target column.
-    // Prefer fresh touch coordinates at drop time (most accurate on touchend).
-    // Fall back to lastColumnId stored during touchmove (used by touchcancel which has no coordinates).
-    let dropColId = null;
-    if (touchX != null && touchY != null) {
-      const col = getColumnAtPoint(touchX, touchY);
-      if (col) dropColId = col.getAttribute('data-column-id');
-    }
-    if (!dropColId) {
-      dropColId = touchDragRef.current.lastColumnId || null;
-    }
 
     if (dropColId) {
       onTouchDropRef.current(t.agentId, t.id, dropColId);
@@ -110,10 +114,14 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
           started: false,
           ghost: null,
           lastColumnId: null,
+          lastTouchX: startX,
+          lastTouchY: startY,
         };
         // Block scrolling at the document level — this is the key fix:
         // per-element touchAction changes mid-gesture are ignored by the browser.
         installDocTouchBlocker();
+        // Haptic feedback on drag arm
+        if (navigator.vibrate) navigator.vibrate(30);
         if (cardRef.current) {
           cardRef.current.style.transform = 'scale(0.97)';
           cardRef.current.style.transition = 'transform 0.15s ease';
@@ -132,6 +140,10 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
       const touch = e.touches[0];
       const dx = touch.clientX - touchDragRef.current.startX;
       const dy = touch.clientY - touchDragRef.current.startY;
+
+      // Always track latest touch position for reliable drop detection
+      touchDragRef.current.lastTouchX = touch.clientX;
+      touchDragRef.current.lastTouchY = touch.clientY;
 
       e.preventDefault();
 
