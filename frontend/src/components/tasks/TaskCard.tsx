@@ -74,8 +74,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
   }
 
   // Document-level touchmove blocker — active only while drag is armed.
-  // Must live on the document so it fires even if the browser re-targets the touch
-  // to the scroll container (which would bypass per-element listeners).
   const docTouchBlocker = useRef(null);
   function installDocTouchBlocker() {
     if (docTouchBlocker.current) return;
@@ -93,9 +91,56 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
     docTouchBlocker.current = null;
   }
 
-  // Attach native touch listeners so preventDefault() works AND events fire
-  // even when the browser's scroll container intercepts the gesture.
-  // React synthetic onTouchEnd/onTouchCancel can be silently swallowed on mobile.
+  // Document-level touchend/touchcancel — registered when the long-press arms.
+  // This guarantees drop detection even if the finger is released far from the card.
+  const docTouchEndRef = useRef(null);
+  function installDocTouchEnd() {
+    if (docTouchEndRef.current) return;
+    const handleEnd = (e) => {
+      if (!touchDragRef.current) return;
+      const wasDragging = touchDragRef.current.started;
+      const originEl = touchDragRef.current.originEl;
+      cleanupTouchState();
+      if (wasDragging) e.preventDefault();
+      const touch = e.changedTouches?.[0];
+      finalizeTouchDrop(touch?.clientX ?? null, touch?.clientY ?? null);
+      if (originEl) originEl.style.opacity = '';
+    };
+    const handleCancel = () => {
+      if (!touchDragRef.current) return;
+      const originEl = touchDragRef.current.originEl;
+      cleanupTouchState();
+      finalizeTouchDrop(null, null);
+      if (originEl) originEl.style.opacity = '';
+    };
+    document.addEventListener('touchend', handleEnd, { passive: false });
+    document.addEventListener('touchcancel', handleCancel);
+    docTouchEndRef.current = { handleEnd, handleCancel };
+  }
+  function removeDocTouchEnd() {
+    if (!docTouchEndRef.current) return;
+    document.removeEventListener('touchend', docTouchEndRef.current.handleEnd);
+    document.removeEventListener('touchcancel', docTouchEndRef.current.handleCancel);
+    docTouchEndRef.current = null;
+  }
+
+  function cleanupTouchState() {
+    if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    removeDocTouchBlocker();
+    removeDocTouchEnd();
+    if (cardRef.current) {
+      cardRef.current.style.transform = '';
+      cardRef.current.style.transition = '';
+      cardRef.current.style.opacity = '';
+    }
+    longPressArmedRef.current = false;
+  }
+
+  // Attach native touch listeners for drag-and-drop.
+  // touchstart/touchmove on the card element; touchend/touchcancel on DOCUMENT
+  // to guarantee they fire even when the finger is released far from the card
+  // (mobile browsers sometimes don't deliver touchend to the original element).
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
@@ -116,11 +161,10 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
           lastColumnId: null,
           lastTouchX: startX,
           lastTouchY: startY,
+          originEl: el,
         };
-        // Block scrolling at the document level — this is the key fix:
-        // per-element touchAction changes mid-gesture are ignored by the browser.
         installDocTouchBlocker();
-        // Haptic feedback on drag arm
+        installDocTouchEnd();
         if (navigator.vibrate) navigator.vibrate(30);
         if (cardRef.current) {
           cardRef.current.style.transform = 'scale(0.97)';
@@ -130,7 +174,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
     };
 
     const handleTouchMove = (e) => {
-      // If long-press timer is still pending, cancel it if user moves (they're scrolling)
       if (longPressTimerRef.current && !longPressArmedRef.current) {
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
@@ -141,7 +184,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
       const dx = touch.clientX - touchDragRef.current.startX;
       const dy = touch.clientY - touchDragRef.current.startY;
 
-      // Always track latest touch position for reliable drop detection
       touchDragRef.current.lastTouchX = touch.clientX;
       touchDragRef.current.lastTouchY = touch.clientY;
 
@@ -152,7 +194,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         touchDragRef.current.started = true;
         isDraggingRef.current = true;
 
-        // Create ghost element
         const ghost = el.cloneNode(true);
         ghost.style.position = 'fixed';
         ghost.style.zIndex = '9999';
@@ -164,20 +205,15 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         document.body.appendChild(ghost);
         touchDragRef.current.ghost = ghost;
 
-        // Find and store the scroll container for auto-scroll
         touchDragRef.current.scrollContainer = el.closest('.overflow-auto');
-
-        // Dim the original card
         el.style.opacity = '0.4';
       }
 
-      // Move ghost
       if (touchDragRef.current.ghost) {
         touchDragRef.current.ghost.style.left = (touch.clientX - el.offsetWidth / 2) + 'px';
         touchDragRef.current.ghost.style.top = (touch.clientY - 30) + 'px';
       }
 
-      // Auto-scroll the board when dragging near edges
       const scrollEl = touchDragRef.current.scrollContainer;
       if (scrollEl) {
         const rect = scrollEl.getBoundingClientRect();
@@ -211,7 +247,6 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
         }
       }
 
-      // Highlight the column under the touch point
       const colUnder = getColumnAtPoint(touch.clientX, touch.clientY);
       highlightColumn(colUnder);
       if (colUnder) {
@@ -219,41 +254,12 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onO
       }
     };
 
-    const cleanupTouchState = () => {
-      if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
-      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-      removeDocTouchBlocker();
-      if (cardRef.current) {
-        cardRef.current.style.transform = '';
-        cardRef.current.style.transition = '';
-        cardRef.current.style.opacity = '';
-      }
-      longPressArmedRef.current = false;
-    };
-
-    const handleTouchEnd = (e) => {
-      const wasDragging = touchDragRef.current?.started;
-      cleanupTouchState();
-      if (wasDragging) e.preventDefault();
-      const touch = e.changedTouches?.[0];
-      finalizeTouchDrop(touch?.clientX ?? null, touch?.clientY ?? null);
-    };
-
-    const handleTouchCancel = () => {
-      cleanupTouchState();
-      finalizeTouchDrop(null, null);
-    };
-
     el.addEventListener('touchstart', handleTouchStart, { passive: true });
     el.addEventListener('touchmove', handleTouchMove, { passive: false });
-    el.addEventListener('touchend', handleTouchEnd, { passive: false });
-    el.addEventListener('touchcancel', handleTouchCancel);
     return () => {
       el.removeEventListener('touchstart', handleTouchStart);
       el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
-      el.removeEventListener('touchcancel', handleTouchCancel);
-      removeDocTouchBlocker();
+      cleanupTouchState();
     };
   }, []);
 
