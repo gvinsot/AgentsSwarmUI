@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   team-api:
     image: registry.methodinfo.fr/pulsarteam-server:latest
@@ -46,12 +45,11 @@ services:
       - CODER_API_KEY=${CODER_API_KEY:-change-me-in-production}
       - CODER_SERVICE_URL=http://coder-service:8000
       - OPENCLAW_SERVICE_URL=http://openclaw-service:8000
-      - HERMES_SERVICE_URL=http://hermes-service:8000
       - OPENCODE_SERVICE_URL=http://opencode-service:8000
       - BROWSER_SERVICE_URL=http://mcp-browser:8000
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker CLI for sandbox management
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro  # SSH keys (also mounted into sandboxes)
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
     networks:
       proxy:
         aliases:
@@ -74,22 +72,14 @@ services:
         delay: 10s
         failure_action: rollback
       labels:
-        # Enable Traefik
         - "traefik.enable=true"
-
-        # Service port
         - "traefik.http.services.pulsarteam-api.loadbalancer.server.port=3001"
-
-        # HTTPS Router — API + WebSocket (/api and /socket.io)
-        # Using realtime-global (no WAF) to avoid blocking AI chat content with code patterns
         - "traefik.http.routers.pulsarteam-api.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
         - "traefik.http.routers.pulsarteam-api.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-api.tls.certresolver=letsencrypt"
         - "traefik.http.routers.pulsarteam-api.middlewares=realtime-global@file"
         - "traefik.http.routers.pulsarteam-api.service=pulsarteam-api"
         - "traefik.http.routers.pulsarteam-api.priority=100"
-
-        # HTTP redirect
         - "traefik.http.routers.pulsarteam-api-http.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
         - "traefik.http.routers.pulsarteam-api-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-api-http.middlewares=redirect-to-https@file"
@@ -114,21 +104,14 @@ services:
         delay: 10s
         failure_action: rollback
       labels:
-        # Enable Traefik
         - "traefik.enable=true"
-
-        # Service port
         - "traefik.http.services.pulsarteam-frontend.loadbalancer.server.port=80"
-
-        # HTTPS Router — Frontend (catch-all for www.pulsarteam.io)
         - "traefik.http.routers.pulsarteam-frontend.rule=Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)"
         - "traefik.http.routers.pulsarteam-frontend.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-frontend.tls.certresolver=letsencrypt"
         - "traefik.http.routers.pulsarteam-frontend.middlewares=global@file"
         - "traefik.http.routers.pulsarteam-frontend.service=pulsarteam-frontend"
         - "traefik.http.routers.pulsarteam-frontend.priority=1"
-
-        # HTTP redirect
         - "traefik.http.routers.pulsarteam-frontend-http.rule=Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)"
         - "traefik.http.routers.pulsarteam-frontend-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-frontend-http.middlewares=redirect-to-https@file"
@@ -146,38 +129,26 @@ services:
     environment:
       - TZ=Europe/Paris
       - LOG_LEVEL=info
-      # Claude Code authentication (OAuth token uses subscription plan, API key uses credits)
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-4-6}
       - CLAUDE_MAX_TURNS=${CLAUDE_MAX_TURNS:-50}
-      # Execution settings
       - VERBOSE=${CODER_VERBOSE:-false}
       - TIMEOUT=600
       - PORT=8000
       - HOST=0.0.0.0
-      # Security - API key authentication
       - API_KEY=${CODER_API_KEY:-change-me-in-production}
-      # Run as host user (match /projects owner for file permissions)
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
-      # MCP servers (same cluster services as agents in sandbox)
       - SWARM_API_BASE_URL=http://team-api:3001
       - JWT_SECRET=${JWT_SECRET}
       - MCP_ENDPOINT=${MCP_ENDPOINT:-http://swarm-manager:8000/ai/mcp}
-      # Python settings
       - PYTHONUNBUFFERED=1
       - PYTHONFAULTHANDLER=1
     volumes:
-      # Mount project directories
-      # - /home/gildas:/projects
-      # SSH keys for Git access (read-only)
       - /home/gildas/.ssh:/root/.ssh:ro
-      # Docker socket for Docker-in-Docker
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persistent auth data (OAuth tokens survive container restarts)
       - coder-auth-data:/app/data
-      # JDK setup for Android development
       - coder-android-cache:/opt/android-sdk
     deploy:
       replicas: 1
@@ -200,9 +171,7 @@ services:
         delay: 10s
         failure_action: rollback
       labels:
-        # Activer Traefik
         - "traefik.enable=false"
-
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
@@ -216,9 +185,9 @@ services:
       context: ..
       dockerfile: api/Dockerfile
       target: test
-    volumes: []  # No volumes for test service - prevents Docker socket mount
+    volumes: []
     deploy:
-      replicas: 0  # Only used for CI — never deployed as a service
+      replicas: 0
 
   sandbox:
     image: ${DOCKER_REGISTRY_URL}/pulsarteam-sandbox:latest
@@ -264,57 +233,6 @@ services:
       - /home/gildas/.ssh:/root/.ssh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - openclaw-data:/app/data
-    deploy:
-      replicas: 0
-      placement:
-        constraints:
-          - node.hostname == server-b
-      resources:
-        limits:
-          cpus: '4'
-          memory: 8G
-        reservations:
-          cpus: '1'
-          memory: 2G
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-      update_config:
-        order: start-first
-        delay: 10s
-        failure_action: rollback
-      labels:
-        - "traefik.enable=false"
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-
-  hermes-service:
-    image: registry.methodinfo.fr/hermes-service:latest
-    build:
-      context: ..
-      dockerfile: hermes-service/Dockerfile
-    networks:
-      proxy:
-        aliases:
-          - hermes-service
-    environment:
-      - TZ=Europe/Paris
-      - LOG_LEVEL=info
-      - PORT=8000
-      - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
-      - PUID=${CODER_PUID:-1000}
-      - PGID=${CODER_PGID:-1000}
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - /home/gildas/.ssh:/root/.ssh:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - hermes-data:/app/data
     deploy:
       replicas: 0
       placement:
@@ -399,9 +317,7 @@ services:
     image: 21hsmw/flaresolverr:nodriver
     networks:
       proxy:
-        # Internet access for solving Cloudflare challenges
       backend:
-        # Internal network for mcp-browser → flaresolverr communication
         aliases:
           - flaresolverr
     environment:
@@ -433,18 +349,15 @@ services:
     image: registry.methodinfo.fr/mcp-browser:latest
     networks:
       proxy:
-        # Internet access for web search (DuckDuckGo) and crawling
         aliases:
           - mcp-browser
       backend:
-        # Internal network for talking to flaresolverr
         aliases:
           - mcp-browser
     environment:
       - TZ=Europe/Paris
       - NODE_ENV=production
       - LOG_LEVEL=info
-      # Use FlareSolverr to bypass Cloudflare / bot protections
       - FLARESOLVERR_URL=http://flaresolverr:8191/v1
       - MAX_SEARCH_RESULT=5
     depends_on:
@@ -474,8 +387,6 @@ volumes:
   coder-auth-data:
     driver: local
   openclaw-data:
-    driver: local
-  hermes-data:
     driver: local
   opencode-data:
     driver: local
