@@ -1,8 +1,11 @@
-// ─── CoderExecutionProvider: Claude Code / coder-service HTTP backend ───────
+// ─── RunnerExecutionProvider: HTTP-based execution backend ──────────────────
 //
-// Implements the ExecutionProvider interface by calling the coder-service
-// FastAPI endpoints (exec-shell, projects/ensure, etc.) over HTTP.
-// This provider is used for agents whose LLM config has managesContext=true.
+// Generic HTTP provider that talks to a runner-service instance (any
+// RUNNER_TYPE — claude-code, openclaw, hermes, opencode, sandbox).
+//
+// All backend-specific logic (CLI flags, stream parsing, OAuth, etc.) is
+// handled by the runner-service itself; this provider is a thin HTTP shim
+// over /exec-shell, /projects/ensure, /reset, ...
 
 import { ExecutionProvider } from './executionProvider.js';
 
@@ -17,33 +20,29 @@ interface FileTreeCacheEntry {
   timestamp: number;
 }
 
-interface CoderOptions {
+interface RunnerOptions {
   baseUrl?: string;
   apiKey?: string;
 }
 
-export class CoderExecutionProvider extends ExecutionProvider {
+export class RunnerExecutionProvider extends ExecutionProvider {
   baseUrl: string;
   apiKey: string;
   _agents: Map<string, AgentEntry>;
   _fileTreeCache: Map<string, FileTreeCacheEntry>;
   ownerIds: Map<string, string>;
 
-  /**
-   * @param options
-   */
-  constructor(options: CoderOptions = {}) {
+  constructor(options: RunnerOptions = {}) {
     super();
-    this.baseUrl = options.baseUrl || process.env.CODER_SERVICE_URL || 'http://coder-service:8000';
+    this.baseUrl = options.baseUrl || '';
     this.apiKey = options.apiKey || process.env.CODER_API_KEY || '';
-    this._agents = new Map(); // agentId -> { project, ready }
-    this._fileTreeCache = new Map(); // agentId -> { project, tree, timestamp }
-    this.ownerIds = new Map(); // agentId -> ownerId
+    this._agents = new Map();
+    this._fileTreeCache = new Map();
+    this.ownerIds = new Map();
   }
 
   /**
    * Associate an owner ID with an agent so all HTTP requests include X-Owner-Id.
-   * Called by agentManager when it knows the owner for a coder agent.
    */
   setOwner(agentId: string, ownerId: string): void {
     if (ownerId) this.ownerIds.set(agentId, ownerId);
@@ -52,7 +51,7 @@ export class CoderExecutionProvider extends ExecutionProvider {
   // ── ExecutionProvider interface ───────────────────────────────────────
 
   async ensureProject(agentId: string, project: string | null = null, gitUrl: string | null = null): Promise<void> {
-    console.log(`🤖 [Coder] ensureProject(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
+    console.log(`🤖 [Runner] ensureProject(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
 
     if (!project || !gitUrl) {
       this._agents.set(agentId, { project: null, ready: true });
@@ -70,12 +69,11 @@ export class CoderExecutionProvider extends ExecutionProvider {
         throw new Error(data.error || 'Project ensure failed');
       }
       this._agents.set(agentId, { project, ready: true });
-      console.log(`🤖 [Coder] Project "${project}" ready for agent ${agentId.slice(0, 8)}`);
+      console.log(`🤖 [Runner] Project "${project}" ready for agent ${agentId.slice(0, 8)}`);
 
-      // Generate file tree after project setup
       await this.refreshFileTree(agentId);
     } catch (err: any) {
-      console.error(`🤖 [Coder] ensureProject failed: ${err.message}`);
+      console.error(`🤖 [Runner] ensureProject failed: ${err.message}`);
       throw err;
     }
   }
@@ -83,14 +81,11 @@ export class CoderExecutionProvider extends ExecutionProvider {
   async switchProject(agentId: string, newProject: string, gitUrl: string | null = null): Promise<void> {
     this._fileTreeCache.delete(agentId);
     await this.ensureProject(agentId, newProject, gitUrl);
-    // Reset the Claude Code session so the next invocation starts fresh
-    // with the new project's working directory (cwd). Without this, the
-    // resumed session would keep the old project's cwd.
     await this.resetSession(agentId);
   }
 
   /**
-   * Reset the Claude Code CLI session for an agent.
+   * Reset the runner CLI session for an agent.
    * Forces a new session on the next invocation so it picks up the current project cwd.
    */
   async resetSession(agentId: string): Promise<void> {
@@ -100,9 +95,9 @@ export class CoderExecutionProvider extends ExecutionProvider {
         headers: this._headers(agentId),
       });
       const data: any = await res.json();
-      console.log(`🔄 [Coder] Session reset for agent ${agentId.slice(0, 8)}: ${data.message || 'ok'}`);
+      console.log(`🔄 [Runner] Session reset for agent ${agentId.slice(0, 8)}: ${data.message || 'ok'}`);
     } catch (err: any) {
-      console.warn(`⚠️  [Coder] Failed to reset session for ${agentId.slice(0, 8)}: ${err.message}`);
+      console.warn(`⚠️  [Runner] Failed to reset session for ${agentId.slice(0, 8)}: ${err.message}`);
     }
   }
 
@@ -110,14 +105,14 @@ export class CoderExecutionProvider extends ExecutionProvider {
     this._agents.delete(agentId);
     this._fileTreeCache.delete(agentId);
     this.ownerIds.delete(agentId);
-    console.log(`🗑️  [Coder] Cleared state for agent ${agentId.slice(0, 8)}`);
+    console.log(`🗑️  [Runner] Cleared state for agent ${agentId.slice(0, 8)}`);
   }
 
   async destroyAll(): Promise<void> {
     this._agents.clear();
     this._fileTreeCache.clear();
     this.ownerIds.clear();
-    console.log('🗑️  [Coder] Cleared all agent states');
+    console.log('🗑️  [Runner] Cleared all agent states');
   }
 
   hasEnvironment(agentId: string): boolean {
@@ -149,9 +144,9 @@ export class CoderExecutionProvider extends ExecutionProvider {
       }
       const tree = lines.join('\n');
       this._fileTreeCache.set(agentId, { project: entry.project, tree, timestamp: Date.now() });
-      console.log(`🌳 [Coder] File tree cached for agent ${agentId.slice(0, 8)} (${lines.length} entries)`);
+      console.log(`🌳 [Runner] File tree cached for agent ${agentId.slice(0, 8)} (${lines.length} entries)`);
     } catch (err: any) {
-      console.warn(`⚠️  [Coder] Failed to generate file tree for ${agentId.slice(0, 8)}: ${err.message}`);
+      console.warn(`⚠️  [Runner] Failed to generate file tree for ${agentId.slice(0, 8)}: ${err.message}`);
     }
   }
 
@@ -167,7 +162,6 @@ export class CoderExecutionProvider extends ExecutionProvider {
     if (dirPath) {
       await this._execShell(agentId, `mkdir -p ${this._sh(dirPath)}`, 10);
     }
-    // Use base64 to safely transfer file contents with arbitrary characters
     const b64 = Buffer.from(content).toString('base64');
     await this._execShell(agentId, `echo '${b64}' | base64 -d > ${this._sh(filePath)}`, 30);
   }
@@ -233,8 +227,7 @@ export class CoderExecutionProvider extends ExecutionProvider {
   }
 
   /**
-   * Execute a shell command on the coder-service via /exec-shell.
-   * Returns { stdout, stderr } to match the sandbox exec interface.
+   * Execute a shell command on the runner-service via /exec-shell.
    */
   async _execShell(agentId: string, command: string, timeoutSecs: number = 60): Promise<{ stdout: string; stderr: string }> {
     const res = await fetch(`${this.baseUrl}/exec-shell`, {

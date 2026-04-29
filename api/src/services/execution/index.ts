@@ -1,15 +1,10 @@
-// ─── Execution module: unified API for code execution backends ──────────────
+// ─── Execution module: unified API for runner-service backends ─────────────
 //
-// This module provides a single, consistent API for executing code regardless
-// of the underlying backend (Docker sandbox or Coder Service / Claude Code).
-//
-// Usage:
-//   import { ExecutionManager } from './services/execution/index.js';
-//   const executionManager = new ExecutionManager({ resolveProvider: ... });
-//   await executionManager.ensureProject(agentId, project, gitUrl);
-//   await executionManager.exec(agentId, 'npm test');
+// All execution backends (claude-code, openclaw, hermes, opencode, sandbox)
+// are served by the same generic runner-service over HTTP. This module
+// exposes a single ExecutionManager that routes per-agent calls to the
+// right runner-service URL based on the agent's runner / llmConfig.
 
 export { ExecutionProvider } from './executionProvider.js';
-export { SandboxExecutionProvider } from './sandboxExecutionProvider.js';
-export { CoderExecutionProvider } from './coderExecutionProvider.js';
+export { RunnerExecutionProvider } from './runnerExecutionProvider.js';
 export { ExecutionManager } from './executionManager.js';

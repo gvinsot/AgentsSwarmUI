@@ -1,66 +1,75 @@
-// ─── ExecutionManager: unified facade routing agents to execution providers ──
+// ─── ExecutionManager: unified facade routing agents to runner-service ──────
 //
-// The rest of the codebase interacts with ExecutionManager exclusively.
-// It delegates to SandboxExecutionProvider or CoderExecutionProvider based on
-// a per-agent resolver function (typically checking llmConfig.managesContext).
-//
-// The API surface mirrors ExecutionProvider exactly, so consumers don't need
-// to know which backend is active for a given agent.
+// All execution backends (claude-code, openclaw, hermes, opencode, sandbox)
+// are now served by the same generic runner-service, configured per
+// deployment via RUNNER_TYPE. ExecutionManager keeps one HTTP client per
+// backend hostname and routes per-agent calls based on a resolver function
+// (typically inspecting agent.runner or llmConfig.managesContext).
 
-import { SandboxExecutionProvider } from './sandboxExecutionProvider.js';
-import { CoderExecutionProvider } from './coderExecutionProvider.js';
+import { RunnerExecutionProvider } from './runnerExecutionProvider.js';
 import { ExecutionProvider } from './executionProvider.js';
 
 type ProviderType = 'coder' | 'sandbox' | 'openclaw' | 'hermes' | 'opencode';
 
+interface RunnerOpts { baseUrl?: string; apiKey?: string }
+
 interface ExecutionManagerOptions {
   resolveProvider?: (agentId: string) => ProviderType;
-  coderOptions?: { baseUrl?: string; apiKey?: string };
-  openclawOptions?: { baseUrl?: string; apiKey?: string };
-  hermesOptions?: { baseUrl?: string; apiKey?: string };
-  opencodeOptions?: { baseUrl?: string; apiKey?: string };
+  coderOptions?: RunnerOpts;
+  sandboxOptions?: RunnerOpts;
+  openclawOptions?: RunnerOpts;
+  hermesOptions?: RunnerOpts;
+  opencodeOptions?: RunnerOpts;
 }
 
 interface BindAgentMeta {
   ownerId?: string;
 }
 
+const DEFAULT_URLS: Record<ProviderType, string> = {
+  coder: 'http://coder-service:8000',
+  sandbox: 'http://sandbox-service:8000',
+  openclaw: 'http://openclaw-service:8000',
+  hermes: 'http://hermes-service:8000',
+  opencode: 'http://opencode-service:8000',
+};
+
+const URL_ENV_VARS: Record<ProviderType, string> = {
+  coder: 'CODER_SERVICE_URL',
+  sandbox: 'SANDBOX_SERVICE_URL',
+  openclaw: 'OPENCLAW_SERVICE_URL',
+  hermes: 'HERMES_SERVICE_URL',
+  opencode: 'OPENCODE_SERVICE_URL',
+};
+
 export class ExecutionManager {
-  sandbox: SandboxExecutionProvider;
-  coder: CoderExecutionProvider;
-  openclaw: CoderExecutionProvider;
-  hermes: CoderExecutionProvider;
-  opencode: CoderExecutionProvider;
+  coder: RunnerExecutionProvider;
+  sandbox: RunnerExecutionProvider;
+  openclaw: RunnerExecutionProvider;
+  hermes: RunnerExecutionProvider;
+  opencode: RunnerExecutionProvider;
   _resolveProvider: (agentId: string) => ProviderType;
   _agentProviders: Map<string, ProviderType>;
 
   constructor(options: ExecutionManagerOptions = {}) {
-    this.sandbox = new SandboxExecutionProvider();
-    this.coder = new CoderExecutionProvider(options.coderOptions || {});
-    this.openclaw = new CoderExecutionProvider({
-      baseUrl: options.openclawOptions?.baseUrl || process.env.OPENCLAW_SERVICE_URL || 'http://openclaw-service:8000',
-      apiKey: options.openclawOptions?.apiKey || process.env.CODER_API_KEY || '',
+    const sharedKey = process.env.CODER_API_KEY || '';
+    const make = (type: ProviderType, opts?: RunnerOpts) => new RunnerExecutionProvider({
+      baseUrl: opts?.baseUrl || process.env[URL_ENV_VARS[type]] || DEFAULT_URLS[type],
+      apiKey: opts?.apiKey || sharedKey,
     });
-    this.hermes = new CoderExecutionProvider({
-      baseUrl: options.hermesOptions?.baseUrl || process.env.HERMES_SERVICE_URL || 'http://hermes-service:8000',
-      apiKey: options.hermesOptions?.apiKey || process.env.CODER_API_KEY || '',
-    });
-    this.opencode = new CoderExecutionProvider({
-      baseUrl: options.opencodeOptions?.baseUrl || process.env.OPENCODE_SERVICE_URL || 'http://opencode-service:8000',
-      apiKey: options.opencodeOptions?.apiKey || process.env.CODER_API_KEY || '',
-    });
+
+    this.coder = make('coder', options.coderOptions);
+    this.sandbox = make('sandbox', options.sandboxOptions);
+    this.openclaw = make('openclaw', options.openclawOptions);
+    this.hermes = make('hermes', options.hermesOptions);
+    this.opencode = make('opencode', options.opencodeOptions);
+
     this._resolveProvider = options.resolveProvider || (() => 'sandbox');
     this._agentProviders = new Map();
   }
 
   // ── Provider resolution ───────────────────────────────────────────────
 
-  /**
-   * Get the correct provider for an agent.
-   * Once an agent is assigned to a provider via ensureProject, that binding
-   * is cached and reused. The resolver is only called when the agent has
-   * no current binding.
-   */
   _providerFor(agentId: string): ExecutionProvider {
     const bound = this._agentProviders.get(agentId);
     if (bound) {
@@ -71,7 +80,7 @@ export class ExecutionManager {
     return this._getProvider(choice);
   }
 
-  _getProvider(type: ProviderType): ExecutionProvider {
+  _getProvider(type: ProviderType): RunnerExecutionProvider {
     switch (type) {
       case 'coder': return this.coder;
       case 'openclaw': return this.openclaw;
@@ -83,28 +92,19 @@ export class ExecutionManager {
 
   /**
    * Explicitly bind an agent to a specific provider.
-   * Called by agentManager when it knows the llmConfig for an agent.
-   *
-   * @param agentId
-   * @param providerType
-   * @param meta - optional metadata (e.g. ownerId for coder-service)
    */
   bindAgent(agentId: string, providerType: ProviderType, meta: BindAgentMeta = {}): void {
     const previous = this._agentProviders.get(agentId);
     if (previous && previous !== providerType) {
       console.log(`🔄 [Execution] Agent ${agentId.slice(0, 8)} switching provider: ${previous} → ${providerType}`);
-      const oldProvider = this._getProvider(previous);
-      oldProvider.destroySandbox(agentId).catch(() => {});
+      this._getProvider(previous).destroySandbox(agentId).catch(() => {});
     }
     this._agentProviders.set(agentId, providerType);
-    if (providerType !== 'sandbox' && meta.ownerId) {
-      (this._getProvider(providerType) as CoderExecutionProvider).setOwner(agentId, meta.ownerId);
+    if (meta.ownerId) {
+      this._getProvider(providerType).setOwner(agentId, meta.ownerId);
     }
   }
 
-  /**
-   * Get the provider type currently bound to an agent.
-   */
   getProviderType(agentId: string): ProviderType | undefined {
     return this._agentProviders.get(agentId);
   }
@@ -127,8 +127,8 @@ export class ExecutionManager {
 
   async destroyAll(): Promise<void> {
     await Promise.all([
-      this.sandbox.destroyAll(),
       this.coder.destroyAll(),
+      this.sandbox.destroyAll(),
       this.openclaw.destroyAll(),
       this.hermes.destroyAll(),
       this.opencode.destroyAll(),
@@ -177,7 +177,6 @@ export class ExecutionManager {
   }
 
   // ── Backward compatibility aliases ────────────────────────────────────
-  // Allow drop-in replacement where code still calls sandboxManager methods.
 
   /** @deprecated Use ensureProject() */
   async ensureSandbox(agentId: string, project: string | null = null, gitUrl: string | null = null): Promise<void> {
@@ -194,7 +193,12 @@ export class ExecutionManager {
     return this.getProject(agentId);
   }
 
+  /**
+   * @deprecated The new sandbox is a regular runner-service container managed by
+   * Docker Compose / Swarm — there are no orphan docker-exec users to clean up.
+   * Kept as a no-op so callers (e.g. index.ts) don't break.
+   */
   async cleanupOrphans(): Promise<void> {
-    await this.sandbox.cleanupOrphans();
+    // no-op
   }
 }
