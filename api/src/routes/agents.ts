@@ -60,6 +60,18 @@ const createAgentSchema = z.object({
     }).optional(),
   }).optional(),
   credentials: z.record(z.string().max(100), z.string().max(2000)).optional(),
+  toolHooks: z.object({
+    enabled: z.boolean().optional(),
+    rules: z.array(z.object({
+      id: z.string().max(100),
+      name: z.string().max(200),
+      enabled: z.boolean(),
+      pattern: z.string().max(2000),
+      action: z.enum(['block', 'warn']),
+      tools: z.array(z.string().max(50)),
+      description: z.string().max(500).optional(),
+    })).optional(),
+  }).optional(),
   // 'coder' is a deprecated alias for 'claudecode' (kept for backward compat with stored agents)
   runner: z.enum(['sandbox', 'claudecode', 'coder', 'openclaw', 'hermes', 'opencode']).optional(),
 });

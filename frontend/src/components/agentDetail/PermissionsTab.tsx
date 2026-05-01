@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Shield, Globe, HardDrive, Terminal, User, FolderLock, KeyRound, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Save, Shield, Globe, HardDrive, Terminal, User, FolderLock, KeyRound, Eye, EyeOff, Trash2, ShieldCheck, Plus, AlertTriangle, Ban } from 'lucide-react';
 import { api } from '../../api';
 
 const DEFAULT_PERMISSIONS = {
@@ -165,6 +165,21 @@ function CredentialInput({ name, hasValue, onSave, onDelete }) {
   );
 }
 
+const BUILTIN_RULES = [
+  { id: 'block-drop-database', name: 'Block DROP DATABASE', enabled: true, pattern: 'DROP\\s+DATABASE', action: 'block' as const, tools: ['run_command', 'mcp_call'], description: 'Prevents dropping entire databases' },
+  { id: 'block-drop-table', name: 'Block DROP TABLE', enabled: true, pattern: 'DROP\\s+TABLE', action: 'block' as const, tools: ['run_command', 'mcp_call'], description: 'Prevents dropping database tables' },
+  { id: 'block-truncate-table', name: 'Block TRUNCATE TABLE', enabled: true, pattern: 'TRUNCATE\\s+TABLE', action: 'block' as const, tools: ['run_command', 'mcp_call'], description: 'Prevents truncating database tables' },
+  { id: 'block-rm-rf-root', name: 'Block rm -rf /', enabled: true, pattern: 'rm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|--recursive)\\s+(/|/\\*|~|\\$HOME)', action: 'block' as const, tools: ['run_command'], description: 'Prevents recursive deletion of root or home directory' },
+  { id: 'block-format-disk', name: 'Block disk formatting', enabled: true, pattern: '(mkfs|fdisk|dd\\s+if=|wipefs)', action: 'block' as const, tools: ['run_command'], description: 'Prevents disk formatting operations' },
+  { id: 'block-delete-all-rows', name: 'Block DELETE without WHERE', enabled: true, pattern: 'DELETE\\s+FROM\\s+\\S+\\s*;', action: 'block' as const, tools: ['run_command', 'mcp_call'], description: 'Prevents DELETE statements without a WHERE clause' },
+  { id: 'warn-sudo', name: 'Warn on sudo usage', enabled: false, pattern: '\\bsudo\\b', action: 'warn' as const, tools: ['run_command'], description: 'Warns when commands use sudo' },
+  { id: 'block-docker-system-prune', name: 'Block docker system prune', enabled: false, pattern: 'docker\\s+(system|volume)\\s+prune', action: 'block' as const, tools: ['run_command'], description: 'Prevents docker system/volume prune operations' },
+  { id: 'block-git-force-push', name: 'Block git force push', enabled: false, pattern: 'git\\s+push\\s+.*--force', action: 'block' as const, tools: ['run_command'], description: 'Prevents force-pushing to git remotes' },
+  { id: 'block-chmod-777', name: 'Block chmod 777', enabled: false, pattern: 'chmod\\s+777', action: 'warn' as const, tools: ['run_command'], description: 'Warns when setting world-writable permissions' },
+];
+
+const TOOL_OPTIONS = ['run_command', 'write_file', 'append_file', 'mcp_call'];
+
 export default function PermissionsTab({ agent, onRefresh }) {
   const [perms, setPerms] = useState(() => ({
     ...DEFAULT_PERMISSIONS,
@@ -181,6 +196,17 @@ export default function PermissionsTab({ agent, onRefresh }) {
   const [credentials, setCredentials] = useState<Record<string, { hasValue: boolean }>>(() => agent.credentials || {});
   const [newCredName, setNewCredName] = useState('');
 
+  const [hooksEnabled, setHooksEnabled] = useState(() => agent.toolHooks?.enabled ?? false);
+  const [hookRules, setHookRules] = useState(() => {
+    const existing = agent.toolHooks?.rules || [];
+    return BUILTIN_RULES.map(builtin => {
+      const override = existing.find((r: any) => r.id === builtin.id);
+      return override ? { ...builtin, ...override } : { ...builtin };
+    }).concat(existing.filter((r: any) => !BUILTIN_RULES.find(b => b.id === r.id)));
+  });
+  const [showNewRule, setShowNewRule] = useState(false);
+  const [newRule, setNewRule] = useState({ name: '', pattern: '', action: 'block' as 'block' | 'warn', tools: ['run_command'], description: '' });
+
   useEffect(() => {
     setPerms({
       ...DEFAULT_PERMISSIONS,
@@ -191,6 +217,14 @@ export default function PermissionsTab({ agent, onRefresh }) {
       execution: { ...DEFAULT_PERMISSIONS.execution, ...agent.permissions?.execution },
     });
     setCredentials(agent.credentials || {});
+    setHooksEnabled(agent.toolHooks?.enabled ?? false);
+    const existing = agent.toolHooks?.rules || [];
+    setHookRules(
+      BUILTIN_RULES.map(builtin => {
+        const override = existing.find((r: any) => r.id === builtin.id);
+        return override ? { ...builtin, ...override } : { ...builtin };
+      }).concat(existing.filter((r: any) => !BUILTIN_RULES.find(b => b.id === r.id)))
+    );
     setHasChanges(false);
     setSaved(false);
   }, [agent.id]);
@@ -207,7 +241,10 @@ export default function PermissionsTab({ agent, onRefresh }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateAgent(agent.id, { permissions: perms });
+      await api.updateAgent(agent.id, {
+        permissions: perms,
+        toolHooks: { enabled: hooksEnabled, rules: hookRules },
+      });
       setSaved(true);
       setHasChanges(false);
       setTimeout(() => setSaved(false), 2000);
@@ -237,6 +274,30 @@ export default function PermissionsTab({ agent, onRefresh }) {
     } catch (err) {
       console.error('Failed to delete credential:', err);
     }
+  };
+
+  const toggleHookRule = (id: string) => {
+    setHookRules(prev => prev.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r));
+    setHasChanges(true); setSaved(false);
+  };
+
+  const deleteHookRule = (id: string) => {
+    setHookRules(prev => prev.filter(r => r.id !== id));
+    setHasChanges(true); setSaved(false);
+  };
+
+  const addCustomRule = () => {
+    if (!newRule.name.trim() || !newRule.pattern.trim()) return;
+    const id = `custom-${Date.now()}`;
+    setHookRules(prev => [...prev, { ...newRule, id, enabled: true }]);
+    setNewRule({ name: '', pattern: '', action: 'block', tools: ['run_command'], description: '' });
+    setShowNewRule(false);
+    setHasChanges(true); setSaved(false);
+  };
+
+  const toggleHooksEnabled = (v: boolean) => {
+    setHooksEnabled(v);
+    setHasChanges(true); setSaved(false);
   };
 
   const handleAddCredential = () => {
@@ -394,6 +455,131 @@ export default function PermissionsTab({ agent, onRefresh }) {
         )}
       </PermissionCard>
 
+      {/* Tool Hooks */}
+      <PermissionCard
+        icon={ShieldCheck}
+        title="Tool Hooks"
+        description="Security rules that intercept tool calls before execution. Rules use regex patterns to detect dangerous operations like database drops, destructive shell commands, etc."
+      >
+        <PermissionRow
+          label="Enable tool hooks"
+          description="When enabled, all tool calls are checked against the rules below"
+        >
+          <ToggleSwitch
+            enabled={hooksEnabled}
+            onChange={toggleHooksEnabled}
+          />
+        </PermissionRow>
+
+        {hooksEnabled && (
+          <div className="space-y-2 mt-2">
+            {hookRules.map(rule => (
+              <div key={rule.id} className={`flex items-start gap-2 p-2.5 rounded-lg border ${rule.enabled ? 'bg-dark-800 border-dark-600/50' : 'bg-dark-800/30 border-dark-700/30 opacity-60'}`}>
+                <div className="mt-0.5">
+                  <ToggleSwitch enabled={rule.enabled} onChange={() => toggleHookRule(rule.id)} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {rule.action === 'block' ? (
+                      <Ban className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    )}
+                    <span className="text-sm text-dark-200 font-medium">{rule.name}</span>
+                    <span className={`px-1.5 py-0.5 text-[10px] rounded ${rule.action === 'block' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                      {rule.action}
+                    </span>
+                  </div>
+                  {rule.description && (
+                    <p className="text-[11px] text-dark-500 mt-0.5">{rule.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-[10px] text-dark-400 bg-dark-700/50 px-1.5 py-0.5 rounded font-mono">{rule.pattern}</code>
+                    <span className="text-[10px] text-dark-500">on {rule.tools.join(', ')}</span>
+                  </div>
+                </div>
+                {!BUILTIN_RULES.find(b => b.id === rule.id) && (
+                  <button onClick={() => deleteHookRule(rule.id)} className="p-1 text-dark-500 hover:text-red-400 transition-colors flex-shrink-0">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {showNewRule ? (
+              <div className="p-3 bg-dark-800 rounded-lg border border-indigo-500/30 space-y-2">
+                <input
+                  type="text"
+                  value={newRule.name}
+                  onChange={(e) => setNewRule(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Rule name"
+                  className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200 focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="text"
+                  value={newRule.pattern}
+                  onChange={(e) => setNewRule(prev => ({ ...prev, pattern: e.target.value }))}
+                  placeholder="Regex pattern (e.g. DROP\s+INDEX)"
+                  className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200 font-mono focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="text"
+                  value={newRule.description}
+                  onChange={(e) => setNewRule(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Description (optional)"
+                  className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200 focus:outline-none focus:border-indigo-500"
+                />
+                <div className="flex gap-2">
+                  <select
+                    value={newRule.action}
+                    onChange={(e) => setNewRule(prev => ({ ...prev, action: e.target.value as 'block' | 'warn' }))}
+                    className="px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-xs text-dark-200 focus:outline-none"
+                  >
+                    <option value="block">Block</option>
+                    <option value="warn">Warn</option>
+                  </select>
+                  <div className="flex-1 flex flex-wrap gap-1">
+                    {TOOL_OPTIONS.map(tool => (
+                      <label key={tool} className="flex items-center gap-1 text-[11px] text-dark-400">
+                        <input
+                          type="checkbox"
+                          checked={newRule.tools.includes(tool)}
+                          onChange={(e) => {
+                            setNewRule(prev => ({
+                              ...prev,
+                              tools: e.target.checked ? [...prev.tools, tool] : prev.tools.filter(t => t !== tool),
+                            }));
+                          }}
+                          className="rounded border-dark-600"
+                        />
+                        {tool}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-1.5 justify-end">
+                  <button onClick={() => setShowNewRule(false)} className="px-2.5 py-1 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded transition-colors">Cancel</button>
+                  <button
+                    onClick={addCustomRule}
+                    disabled={!newRule.name.trim() || !newRule.pattern.trim() || newRule.tools.length === 0}
+                    className="px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white text-xs rounded disabled:opacity-40 transition-colors"
+                  >
+                    Add Rule
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowNewRule(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded-lg transition-colors w-full justify-center"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add custom rule
+              </button>
+            )}
+          </div>
+        )}
+      </PermissionCard>
+
       {/* Credentials */}
       <PermissionCard
         icon={KeyRound}
@@ -459,6 +645,12 @@ export default function PermissionsTab({ agent, onRefresh }) {
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${perms.execution.shellAccess ? 'bg-emerald-500' : 'bg-red-500'}`} />
             <span className="text-dark-400">Shell: {perms.execution.shellAccess ? 'enabled' : 'disabled'}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${hooksEnabled ? 'bg-emerald-500' : 'bg-dark-500'}`} />
+            <span className="text-dark-400">
+              Tool hooks: {hooksEnabled ? `${hookRules.filter(r => r.enabled).length} active rules` : 'disabled'}
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${Object.keys(credentials).length > 0 ? 'bg-emerald-500' : 'bg-dark-500'}`} />

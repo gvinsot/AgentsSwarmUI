@@ -4,6 +4,7 @@ import { getProjectGitUrl } from '../githubProjects.js';
 import { saveAgent, searchAgentSkills, getAgentSkillById, saveAgentSkill, deleteAgentSkillFromDb, getAllBoards, getBoardById, getTasksByStatusAndBoard, saveTaskToDb } from '../database.js';
 import { getWorkflowForBoard } from '../configManager.js';
 import { setTaskSignal } from './tasks.js';
+import { checkToolHooks } from '../toolHooks.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Commit detection helpers ────────────────────────────────────────────────
@@ -896,6 +897,15 @@ export const toolsMethods = {
           continue;
         }
 
+        // ── Tool Hooks: check MCP calls ──
+        const mcpHookResult = checkToolHooks(agent.toolHooks, 'mcp_call', call.args);
+        if (!mcpHookResult.allowed) {
+          console.log(`🛡️ [ToolHook] Blocked mcp_call for agent "${agent.name}": ${mcpHookResult.message}`);
+          results.push({ tool: 'mcp_call', args: call.args, success: false, error: mcpHookResult.message });
+          if (streamCallback) streamCallback(`\n✗ mcp_call — blocked by security rule\n`);
+          continue;
+        }
+
         const mcpLabel = `MCP: ${serverName} → ${toolName}`;
         agent.currentThinking = mcpLabel;
         this._emit('agent:thinking', { agentId, thinking: mcpLabel });
@@ -990,6 +1000,20 @@ export const toolsMethods = {
           tool: call.tool,
           args: call.args
         });
+
+        // ── Tool Hooks: pre-execution check ──
+        const hookResult = checkToolHooks(agent.toolHooks, call.tool, call.args);
+        if (!hookResult.allowed) {
+          console.log(`🛡️ [ToolHook] Blocked ${call.tool} for agent "${agent.name}": ${hookResult.message}`);
+          results.push({ tool: call.tool, args: call.args, success: false, error: hookResult.message });
+          if (streamCallback) {
+            streamCallback(`\n✗ ${call.tool} — blocked by security rule\n`);
+          }
+          continue;
+        }
+        if (hookResult.matchedRule && hookResult.message) {
+          console.log(`🛡️ ${hookResult.message}`);
+        }
 
         const llmConfig = this.resolveLlmConfig(agent);
         const toolOptions: any = {};
