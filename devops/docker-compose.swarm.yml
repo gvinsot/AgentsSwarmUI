@@ -337,6 +337,62 @@ services:
       retries: 3
       start_period: 120s
 
+  hermes-service:
+    image: registry.methodinfo.fr/hermes-service:latest
+    build:
+      context: ..
+      dockerfile: runner-service/Dockerfile
+    networks:
+      proxy:
+        aliases:
+          - hermes-service
+    environment:
+      - RUNNER_TYPE=hermes
+      - TZ=Europe/Paris
+      - LOG_LEVEL=info
+      - RUNNER_MODEL=${HERMES_MODEL:-claude-opus-4-6}
+      - TIMEOUT=600
+      - PORT=8000
+      - HOST=0.0.0.0
+      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - PUID=${CODER_PUID:-1000}
+      - PGID=${CODER_PGID:-1000}
+      - SWARM_API_BASE_URL=http://team-api:3001
+      - JWT_SECRET=${JWT_SECRET}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /home/gildas/.ssh:/root/.ssh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hermes-data:/app/data
+    deploy:
+      replicas: 0
+      placement:
+        constraints:
+          - node.hostname == server-b
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        order: start-first
+        delay: 10s
+        failure_action: rollback
+      labels:
+        - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
   flaresolverr:
     image: 21hsmw/flaresolverr:nodriver
     networks:
@@ -415,6 +471,8 @@ volumes:
   openclaw-data:
     driver: local
   opencode-data:
+    driver: local
+  hermes-data:
     driver: local
 
 networks:
