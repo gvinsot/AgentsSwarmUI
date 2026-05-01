@@ -289,12 +289,13 @@ services:
     image: registry.methodinfo.fr/opencode-service:latest
     build:
       context: ..
-      dockerfile: opencode-service/Dockerfile
+      dockerfile: runner-service/Dockerfile
     networks:
       proxy:
         aliases:
           - opencode-service
     environment:
+      - RUNNER_TYPE=opencode
       - TZ=Europe/Paris
       - LOG_LEVEL=info
       - PORT=8000
