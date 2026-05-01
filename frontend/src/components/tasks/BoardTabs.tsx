@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Trash2, Edit3, ChevronDown, Plus, KanbanSquare, Users, Share2,
 } from 'lucide-react';
@@ -7,8 +8,10 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
   const [renaming, setRenaming] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [contextMenu, setContextMenu] = useState(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const renameRef = useRef(null);
   const contextRef = useRef(null);
+  const triggerRefs = useRef({});
 
   useEffect(() => {
     if (renaming && renameRef.current) {
@@ -34,6 +37,18 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
     setRenaming(null);
   };
 
+  const openContextMenu = (boardId, triggerEl) => {
+    if (contextMenu === boardId) {
+      setContextMenu(null);
+      return;
+    }
+    if (triggerEl) {
+      const rect = triggerEl.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setContextMenu(boardId);
+  };
+
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-b border-dark-700/50 bg-dark-900/50 overflow-x-auto scrollbar-hide relative z-20">
       {boards.map(board => (
@@ -53,10 +68,11 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
             />
           ) : (
             <button
+              ref={el => { triggerRefs.current[board.id] = el; }}
               onClick={() => onSelect(board.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setContextMenu(board.id);
+                openContextMenu(board.id, e.currentTarget);
               }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all
                 ${activeBoardId === board.id
@@ -73,13 +89,14 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
               )}
               <ChevronDown
                 className="w-3.5 h-3.5 opacity-50 hover:opacity-100"
-                onClick={(e) => { e.stopPropagation(); setContextMenu(contextMenu === board.id ? null : board.id); }}
+                onClick={(e) => { e.stopPropagation(); openContextMenu(board.id, triggerRefs.current[board.id]); }}
               />
             </button>
           )}
-          {contextMenu === board.id && (
+          {contextMenu === board.id && createPortal(
             <div ref={contextRef}
-              className="absolute left-0 top-full mt-1 z-50 bg-dark-800 border border-dark-600 rounded-lg shadow-xl py-1 min-w-[140px]">
+              style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}
+              className="z-[200] bg-dark-800 border border-dark-600 rounded-lg shadow-xl py-1 min-w-[140px]">
               <button
                 onClick={() => {
                   setRenameValue(board.name);
@@ -104,7 +121,8 @@ export default function BoardTabs({ boards, activeBoardId, onSelect, onCreate, o
                   <Trash2 className="w-3 h-3" /> Delete
                 </button>
               )}
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       ))}
