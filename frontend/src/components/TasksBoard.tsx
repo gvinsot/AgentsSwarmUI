@@ -21,7 +21,7 @@ import BoardPluginsTab from './tasks/BoardPluginsTab';
 
 // ── TasksBoard (multi-board) ────────────────────────────────────────────────
 
-export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent, githubProjects = [], projectContexts = [] }) {
+export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent, githubProjects = [], projectContexts = [], onBoardChange }) {
   const [projectFilter, setProjectFilter] = useState(() => localStorage.getItem('tasks_projectFilter') || '');
   const [agentFilter, setAgentFilter] = useState(() => localStorage.getItem('tasks_agentFilter') || '');
   const [search, setSearch] = useState(() => localStorage.getItem('tasks_search') || '');
@@ -82,10 +82,13 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     return () => { cancelled = true; };
   }, []);
 
-  // Persist active board selection
+  // Persist active board selection and notify parent
   useEffect(() => {
-    if (activeBoardId) localStorage.setItem('activeBoardId', activeBoardId);
-  }, [activeBoardId]);
+    if (activeBoardId) {
+      localStorage.setItem('activeBoardId', activeBoardId);
+      onBoardChange?.(activeBoardId);
+    }
+  }, [activeBoardId, onBoardChange]);
 
   // Persist filter state
   useEffect(() => { localStorage.setItem('tasks_projectFilter', projectFilter); }, [projectFilter]);

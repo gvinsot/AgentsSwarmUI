@@ -44,7 +44,12 @@ export default function Dashboard({
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [boards, setBoards] = useState([]);
-  const [boardFilter, setBoardFilter] = useState('');
+  const [boardFilter, setBoardFilterRaw] = useState(() => localStorage.getItem('activeBoardId') || '');
+  const setBoardFilter = useCallback((val) => {
+    setBoardFilterRaw(val);
+    if (val) localStorage.setItem('activeBoardId', val);
+    else localStorage.removeItem('activeBoardId');
+  }, []);
   const mobileMenuRef = useRef(null);
   const userMenuRef = useRef(null);
   const { theme, toggleTheme } = useTheme();
@@ -324,7 +329,7 @@ export default function Dashboard({
         <div className="flex-1 flex max-w-[1800px] mx-auto w-full min-h-0 overflow-hidden">
           {activeView === 'tasks' && (
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} onNavigateToAgent={handleNavigateToAgent} githubProjects={projects || []} projectContexts={projectContexts || []} />
+              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} onNavigateToAgent={handleNavigateToAgent} githubProjects={projects || []} projectContexts={projectContexts || []} onBoardChange={setBoardFilter} />
             </div>
           )}
           {activeView === 'projects' && (
