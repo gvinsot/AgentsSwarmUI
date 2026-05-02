@@ -71,12 +71,9 @@ export const actionLogsMethods = {
 
     const rawMessages = executor.conversationHistory.slice(startMsgIdx);
 
-    const MAX_MSG_LENGTH = 5000;
     const executionMessages = rawMessages.map((m: any) => ({
       role: m.role,
-      content: (m.content || '').length > MAX_MSG_LENGTH
-        ? m.content.slice(0, MAX_MSG_LENGTH) + '\n\n... (truncated)'
-        : m.content,
+      content: m.content || '',
       timestamp: m.timestamp,
     }));
 
