@@ -53,22 +53,34 @@ export function contactRoutes(agentManager: any) {
       taskText += `\n\nEmail: ${sEmail}\nPhone: ${sPhone}`;
       if (sMessage) taskText += `\n\nMessage:\n${sMessage}`;
 
-      // Find the PulsarTeam board from the database
+      // Find the "Support" board
       const boards = await getAllBoards();
-      let targetBoardId: string | null = null;
+      let targetBoard: any = null;
 
-      // Strategy: find a board whose name contains "pulsar" (case-insensitive)
       for (const board of boards) {
-        if (board.name && board.name.toLowerCase().includes('pulsar')) {
-          targetBoardId = board.id;
+        if (board.name && board.name.toLowerCase() === 'support') {
+          targetBoard = board;
           break;
         }
       }
 
-      // Fallback: use the default board
-      if (!targetBoardId) {
-        const defaultBoard = boards.find((b: any) => b.is_default);
-        if (defaultBoard) targetBoardId = defaultBoard.id;
+      // Fallback: board containing "support", then default board
+      if (!targetBoard) {
+        targetBoard = boards.find((b: any) => b.name && b.name.toLowerCase().includes('support'));
+      }
+      if (!targetBoard) {
+        targetBoard = boards.find((b: any) => b.is_default);
+      }
+
+      const targetBoardId = targetBoard?.id || null;
+
+      // Resolve the "Tickets" column from the board's workflow
+      let targetColumn = 'backlog';
+      if (targetBoard?.workflow?.columns) {
+        const ticketsCol = targetBoard.workflow.columns.find(
+          (c: any) => c.label && c.label.toLowerCase() === 'tickets'
+        );
+        if (ticketsCol) targetColumn = ticketsCol.id;
       }
 
       // Find an agent assigned to the target board (or any agent)
@@ -98,7 +110,7 @@ export function contactRoutes(agentManager: any) {
         taskText,
         'PulsarTeam',
         source,
-        'backlog',
+        targetColumn,
         { boardId: targetBoardId, skipAutoRefine: true, taskType: type === 'contact' ? 'feature' : 'bug' }
       );
 
