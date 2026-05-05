@@ -100,6 +100,16 @@ export const BUILTIN_MCP_SERVERS = [
     enabled: true,
   },
   {
+    id: 'mcp-aws-s3',
+    name: 'AWS S3',
+    url: '__internal__aws_s3',
+    description: 'Amazon S3 — list buckets, browse/read/upload/delete objects, presigned URLs, copy objects',
+    icon: '🪣',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'mcp-auto-learn',
     name: 'Auto Learn',
     url: '__internal__auto_learn',

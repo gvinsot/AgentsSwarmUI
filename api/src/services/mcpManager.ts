@@ -19,6 +19,7 @@ export function resolveInternalMcpConfig(serverUrl: string, {
     '__internal__slack': `http://localhost:${port}/api/slack/mcp`,
     '__internal__jira': `http://localhost:${port}/api/jira/mcp`,
     '__internal__github': `http://localhost:${port}/api/github/mcp`,
+    '__internal__aws_s3': `http://localhost:${port}/api/s3/mcp`,
     '__internal__auto_learn': `http://localhost:${port}/api/auto-learn/mcp`,
     '__internal__browser': `http://localhost:${port}/api/browser/mcp`,
   };

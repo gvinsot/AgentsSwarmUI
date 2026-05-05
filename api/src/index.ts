@@ -43,6 +43,8 @@ import { jiraRoutes } from './routes/jira.js';
 import { createJiraMcpHandler } from './services/jiraMcp.js';
 import { githubRoutes, githubOAuthRedirectRouter } from './routes/github.js';
 import { createGitHubMcpHandler } from './services/githubMcp.js';
+import { s3Routes } from './routes/s3.js';
+import { createS3McpHandler } from './services/s3Mcp.js';
 import budgetRoutes from './routes/budget.js';
 import { userRoutes } from './routes/users.js';
 import { llmConfigRoutes } from './routes/llmConfigs.js';
@@ -158,6 +160,7 @@ app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 app.use('/api/llm-configs', authenticateToken, llmConfigRoutes(agentManager));
 app.use('/api/settings/general', authenticateToken, settingsRoutes());
 app.use('/api/jira', authenticateToken, jiraRoutes());
+app.use('/api/s3', authenticateToken, s3Routes());
 app.use('/api/github', authenticateToken, githubRoutes());
 app.use('/api/boards', authenticateToken, boardRoutes(agentManager));
 app.use('/api/tasks', authenticateToken, taskRoutes);
@@ -177,6 +180,9 @@ app.all('/api/jira/mcp', authenticateToken, (req, res) => jiraMcpHandler(req, re
 
 const githubMcpHandler = createGitHubMcpHandler();
 app.all('/api/github/mcp', authenticateToken, (req, res) => githubMcpHandler(req, res));
+
+const s3McpHandler = createS3McpHandler();
+app.all('/api/s3/mcp', authenticateToken, (req, res) => s3McpHandler(req, res));
 
 const codeIndexMcpHandler = createCodeIndexMcpHandler(codeIndexService);
 app.all('/api/code-index/mcp', authenticateToken, (req, res) => codeIndexMcpHandler(req, res));

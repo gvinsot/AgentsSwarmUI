@@ -9,6 +9,7 @@ import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
 import GitHubConnect from '../GitHubConnect';
+import S3Connect from '../S3Connect';
 
 export default function PluginsTab({ agent, plugins, onRefresh }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -84,6 +85,12 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasGitHubMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === GITHUB_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(GITHUB_MCP_ID)
+  );
+
+  const S3_MCP_ID = 'mcp-aws-s3';
+  const hasS3Mcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === S3_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(S3_MCP_ID)
   );
 
   const handleSaveAuth = async () => {
@@ -278,6 +285,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasGitHubMcp && (
           <div className="mt-3">
             <GitHubConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasS3Mcp && (
+          <div className="mt-3">
+            <S3Connect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
       </div>
