@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { connectSocket, disconnectSocket, getSocket } from './socket';
 import { api } from './api';
 import { WsEvents } from './socketEvents';
-import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
-import TermsPage from './components/TermsPage';
-import PrivacyPage from './components/PrivacyPage';
 import { VoiceSessionProvider } from './contexts/VoiceSessionContext';
 import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
+
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const TermsPage = lazy(() => import('./components/TermsPage'));
+const PrivacyPage = lazy(() => import('./components/PrivacyPage'));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -40,61 +41,81 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  const loadedRef = useRef({ templates: false, projects: false, skills: false, mcpServers: false, projectContexts: false });
+
   const loadData = useCallback(async () => {
     try {
-      const [agentsResult, templatesResult, projectsResult, skillsResult, mcpResult, projectContextsResult] = await Promise.allSettled([
-        api.getAgents(),
-        api.getTemplates(),
-        api.getProjects(),
-        api.getPlugins(),
-        api.getMcpServers(),
-        api.getProjectContexts()
-      ]);
-
-      if (agentsResult.status === 'fulfilled') {
-        setAgents(agentsResult.value);
-      } else {
-        console.error('Failed to load agents:', agentsResult.reason);
-      }
-
-      if (templatesResult.status === 'fulfilled') {
-        setTemplates(templatesResult.value);
-      } else {
-        console.error('Failed to load templates:', templatesResult.reason);
-      }
-
-      if (projectsResult.status === 'fulfilled') {
-        setProjects(projectsResult.value);
-      } else {
-        console.error('Failed to load projects:', projectsResult.reason);
-        setProjects([]);
-      }
-
-      if (skillsResult.status === 'fulfilled') {
-        setSkills(skillsResult.value);
-      } else {
-        console.error('Failed to load skills:', skillsResult.reason);
-        setSkills([]);
-      }
-
-      if (mcpResult.status === 'fulfilled') {
-        setMcpServers(mcpResult.value);
-      } else {
-        console.error('Failed to load MCP servers:', mcpResult.reason);
-        setMcpServers([]);
-      }
-
-      if (projectContextsResult.status === 'fulfilled') {
-        setProjectContexts(projectContextsResult.value);
-      } else {
-        setProjectContexts([]);
-      }
+      const result = await api.getAgents();
+      setAgents(result);
     } catch (err) {
-      console.error('Failed to load data:', err);
+      console.error('Failed to load agents:', err);
     }
   }, []);
 
-  // Auto-refresh when the browser tab regains focus
+  const loadTemplates = useCallback(async (force = false) => {
+    if (loadedRef.current.templates && !force) return;
+    loadedRef.current.templates = true;
+    try {
+      setTemplates(await api.getTemplates());
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+      loadedRef.current.templates = false;
+    }
+  }, []);
+
+  const loadProjects = useCallback(async (force = false) => {
+    if (loadedRef.current.projects && !force) return;
+    loadedRef.current.projects = true;
+    try {
+      setProjects(await api.getProjects());
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+      setProjects([]);
+      loadedRef.current.projects = false;
+    }
+  }, []);
+
+  const loadSkills = useCallback(async (force = false) => {
+    if (loadedRef.current.skills && !force) return;
+    loadedRef.current.skills = true;
+    try {
+      setSkills(await api.getPlugins());
+    } catch (err) {
+      console.error('Failed to load skills:', err);
+      setSkills([]);
+      loadedRef.current.skills = false;
+    }
+  }, []);
+
+  const loadMcpServers = useCallback(async (force = false) => {
+    if (loadedRef.current.mcpServers && !force) return;
+    loadedRef.current.mcpServers = true;
+    try {
+      setMcpServers(await api.getMcpServers());
+    } catch (err) {
+      console.error('Failed to load MCP servers:', err);
+      setMcpServers([]);
+      loadedRef.current.mcpServers = false;
+    }
+  }, []);
+
+  const loadProjectContexts = useCallback(async (force = false) => {
+    if (loadedRef.current.projectContexts && !force) return;
+    loadedRef.current.projectContexts = true;
+    try {
+      setProjectContexts(await api.getProjectContexts());
+    } catch (err) {
+      setProjectContexts([]);
+      loadedRef.current.projectContexts = false;
+    }
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    loadedRef.current = { templates: false, projects: false, skills: false, mcpServers: false, projectContexts: false };
+    await loadData();
+  }, [loadData]);
+
+  // Auto-refresh agents when the browser tab regains focus
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && user) loadData();
@@ -360,7 +381,7 @@ export default function App() {
     setUser({ username: data.username, role: data.role, userId: data.userId, displayName: data.displayName });
     await loadData();
     initSocket(data.token);
-    await checkDbHealth();
+    checkDbHealth();
   };
 
   const handleLogout = () => {
@@ -405,8 +426,8 @@ export default function App() {
   };
 
   const pathname = window.location.pathname;
-  if (pathname === '/terms') return <TermsPage />;
-  if (pathname === '/privacy') return <PrivacyPage />;
+  if (pathname === '/terms') return <Suspense fallback={null}><TermsPage /></Suspense>;
+  if (pathname === '/privacy') return <Suspense fallback={null}><PrivacyPage /></Suspense>;
 
   if (loading) {
     return (
@@ -420,7 +441,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={handleLogin} googleLoading={googleLoading} />;
+    return <Suspense fallback={null}><LoginPage onLogin={handleLogin} googleLoading={googleLoading} /></Suspense>;
   }
 
   return (
@@ -436,11 +457,16 @@ export default function App() {
         thinkingMap={thinkingMap}
         streamBuffers={streamBuffers}
         onLogout={handleLogout}
-        onRefresh={loadData}
+        onRefresh={refreshAll}
         socket={getSocket()}
         showToast={showToast}
         onImpersonate={handleImpersonate}
         onStopImpersonation={handleStopImpersonation}
+        loadTemplates={loadTemplates}
+        loadProjects={loadProjects}
+        loadSkills={loadSkills}
+        loadMcpServers={loadMcpServers}
+        loadProjectContexts={loadProjectContexts}
       />
 
       {dbUnavailable && (

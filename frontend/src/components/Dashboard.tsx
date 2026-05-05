@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import {
   LogOut, Plus, Globe, LayoutGrid, List,
   Zap, Settings, MessageSquare, Key, Users, KanbanSquare, Tag, Menu, DollarSign, Eye, ChevronDown,
@@ -9,20 +9,22 @@ import { api } from '../api';
 import { WsEvents } from '../socketEvents';
 import AgentCard from './AgentCard';
 import AgentDetail from './AgentDetail';
-import AddAgentModal from './AddAgentModal';
-import BroadcastPanel from './BroadcastPanel';
 import SwarmOverview from './SwarmOverview';
 import ActiveVoiceIndicator from './ActiveVoiceIndicator';
 import ApiKeyModal from './ApiKeyModal';
-import TasksBoard from './TasksBoard';
-import ProjectsView from './ProjectsView';
-import BudgetDashboard from './BudgetDashboard';
-import AdminPanel from './AdminPanel';
 import { Crown, UserCheck } from 'lucide-react';
+
+const TasksBoard = lazy(() => import('./TasksBoard'));
+const AddAgentModal = lazy(() => import('./AddAgentModal'));
+const BroadcastPanel = lazy(() => import('./BroadcastPanel'));
+const ProjectsView = lazy(() => import('./ProjectsView'));
+const BudgetDashboard = lazy(() => import('./BudgetDashboard'));
+const AdminPanel = lazy(() => import('./AdminPanel'));
 
 export default function Dashboard({
   user, agents, templates, projects, skills, mcpServers, projectContexts, thinkingMap, streamBuffers,
-  onLogout, onRefresh, socket, showToast, onImpersonate, onStopImpersonation
+  onLogout, onRefresh, socket, showToast, onImpersonate, onStopImpersonation,
+  loadTemplates, loadProjects, loadSkills, loadMcpServers, loadProjectContexts
 }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -58,6 +60,20 @@ export default function Dashboard({
   useEffect(() => {
     api.getBoards().then(setBoards).catch(() => {});
   }, []);
+
+  // Lazy-load data based on active view
+  useEffect(() => {
+    if (activeView === 'tasks') {
+      loadProjects();
+      loadProjectContexts();
+    } else if (activeView === 'projects') {
+      loadProjects();
+      loadProjectContexts();
+    } else if (activeView === 'agents') {
+      loadProjects();
+      loadSkills();
+    }
+  }, [activeView, loadProjects, loadProjectContexts, loadSkills]);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -234,7 +250,7 @@ export default function Dashboard({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowBroadcast(!showBroadcast)}
+              onClick={() => { if (!showBroadcast) { loadProjects(); loadSkills(); loadMcpServers(); } setShowBroadcast(!showBroadcast); }}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 showBroadcast
                   ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
@@ -299,39 +315,47 @@ export default function Dashboard({
 
         {/* Broadcast Panel */}
         {showBroadcast && (
-          <BroadcastPanel
-            agents={sortedAgents}
-            projects={projects}
-            skills={skills}
-            mcpServers={mcpServers}
-            socket={socket}
-            onClose={() => setShowBroadcast(false)}
-            onRefresh={onRefresh}
-            user={user}
-          />
+          <Suspense fallback={null}>
+            <BroadcastPanel
+              agents={sortedAgents}
+              projects={projects}
+              skills={skills}
+              mcpServers={mcpServers}
+              socket={socket}
+              onClose={() => setShowBroadcast(false)}
+              onRefresh={onRefresh}
+              user={user}
+            />
+          </Suspense>
         )}
 
         {/* Main content */}
         <div className="flex-1 flex max-w-[1800px] mx-auto w-full min-h-0 overflow-hidden">
           {activeView === 'tasks' && (
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} onNavigateToAgent={handleNavigateToAgent} githubProjects={projects || []} projectContexts={projectContexts || []} onBoardChange={setBoardFilter} />
-            </div>
+            <Suspense fallback={null}>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <TasksBoard agents={sortedAgents} onRefresh={onRefresh} user={user} onNavigateToAgent={handleNavigateToAgent} githubProjects={projects || []} projectContexts={projectContexts || []} onBoardChange={setBoardFilter} />
+              </div>
+            </Suspense>
           )}
           {activeView === 'projects' && (
-            <div className="flex-1 min-h-0 flex flex-col overflow-auto p-4 sm:p-6">
-              <ProjectsView
-                agents={sortedAgents}
-                githubProjects={projects || []}
-                projectContexts={projectContexts || []}
-                onRefresh={onRefresh}
-              />
-            </div>
+            <Suspense fallback={null}>
+              <div className="flex-1 min-h-0 flex flex-col overflow-auto p-4 sm:p-6">
+                <ProjectsView
+                  agents={sortedAgents}
+                  githubProjects={projects || []}
+                  projectContexts={projectContexts || []}
+                  onRefresh={onRefresh}
+                />
+              </div>
+            </Suspense>
           )}
           {activeView === 'budget' && (
-            <div className="flex-1 min-h-0 flex flex-col overflow-auto">
-              <BudgetDashboard agents={sortedAgents} />
-            </div>
+            <Suspense fallback={null}>
+              <div className="flex-1 min-h-0 flex flex-col overflow-auto">
+                <BudgetDashboard agents={sortedAgents} />
+              </div>
+            </Suspense>
           )}
           {/* Agent list */}
           {activeView === 'agents' && (
@@ -371,7 +395,7 @@ export default function Dashboard({
                   </div>
                   {!isBasic && (
                     <button
-                      onClick={() => setShowAddModal(true)}
+                      onClick={() => { loadTemplates(); loadProjects(); setShowAddModal(true); }}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-indigo-500/20"
                     >
                       <Plus className="w-4 h-4" />
@@ -390,7 +414,7 @@ export default function Dashboard({
                   <p className="text-dark-500 text-sm mb-4">{boardFilter ? 'Try selecting a different board' : isBasic ? 'No agents are available for you' : 'Create your first agent to get started'}</p>
                   {!isBasic && !boardFilter && (
                     <button
-                      onClick={() => setShowAddModal(true)}
+                      onClick={() => { loadTemplates(); loadProjects(); setShowAddModal(true); }}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       <Plus className="w-4 h-4" />
@@ -447,16 +471,18 @@ export default function Dashboard({
 
       {/* Add Agent Modal */}
       {showAddModal && (
-        <AddAgentModal
-          templates={templates}
-          projects={projects}
-          agents={agents}
-          onClose={() => setShowAddModal(false)}
-          onCreated={(agent) => {
-            setShowAddModal(false);
-            setSelectedAgent(agent.id);
-          }}
-        />
+        <Suspense fallback={null}>
+          <AddAgentModal
+            templates={templates}
+            projects={projects}
+            agents={agents}
+            onClose={() => setShowAddModal(false)}
+            onCreated={(agent) => {
+              setShowAddModal(false);
+              setSelectedAgent(agent.id);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* API Key Modal */}
@@ -477,11 +503,13 @@ export default function Dashboard({
 
       {/* Admin Panel */}
       {showAdminPanel && (
-        <AdminPanel
-          onClose={() => setShowAdminPanel(false)}
-          onImpersonate={onImpersonate}
-          showToast={showToast}
-        />
+        <Suspense fallback={null}>
+          <AdminPanel
+            onClose={() => setShowAdminPanel(false)}
+            onImpersonate={onImpersonate}
+            showToast={showToast}
+          />
+        </Suspense>
       )}
     </div>
   );
