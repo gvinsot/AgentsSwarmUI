@@ -531,7 +531,7 @@ export function setupSocketHandlers(io, agentManager) {
       console.log(`🔌 Client disconnected: ${socket.user?.username}`);
       if (userId) {
         const still = Array.from(io.sockets.sockets.values())
-          .some(s => (s as any).user?.userId === userId && s.id !== socket.id);
+          .some(s => (s as any).user?.userId === userId && (s as any).id !== socket.id);
         if (!still) {
           connectedUserIds.delete(userId);
           updateLastSeen(userId).catch(() => {});
