@@ -185,6 +185,20 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
   const agentRevision = agents.map(a => `${a.id}:${a.status}`).join(',');
   useEffect(() => { loadTasks(); }, [agentRevision]);
 
+  // Re-fetch tasks and board data when the browser tab becomes visible again
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadTasks();
+        api.getBoards().then(boardList => {
+          if (boardList.length > 0) setBoards(boardList);
+        }).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [loadTasks]);
+
   // Keep a ref to activeBoardId so the WebSocket handler can filter new tasks
   // without re-subscribing on every board change.
   const activeBoardIdRef = useRef(activeBoardId);
