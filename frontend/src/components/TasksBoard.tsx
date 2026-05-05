@@ -787,7 +787,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         <InstructionsEditModal
           columnLabel={columns.find(c => c.id === editInstructionsCol)?.label || editInstructionsCol}
           instructions={columnInstructionsMap[editInstructionsCol]}
-          agents={agents}
+          agents={agents.filter(a => a.boardId === activeBoardId)}
           onClose={() => setEditInstructionsCol(null)}
           onSave={async (updatedEntries) => {
             if (!workflow) return;
@@ -839,7 +839,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
       {showWorkflowEditor && workflow && (
         <WorkflowEditor
           workflow={workflow}
-          agents={agents}
+          agents={agents.filter(a => a.boardId === activeBoardId)}
           jiraStatus={jiraStatus}
           onClose={() => setShowWorkflowEditor(false)}
           onSave={handleSaveWorkflow}
