@@ -111,28 +111,34 @@ export async function getGmailAccessTokenForAgent(agentId, boardId = null) {
  * We exchange the code server-side then return a minimal HTML page
  * that notifies the opener via postMessage and closes the popup.
  */
+function sendOAuthResult(res, success: boolean, error?: string | null, email?: string | null) {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'`);
+  res.send(oauthResultPage(success, error, email, nonce));
+}
+
 async function handleOAuthCallback(req, res) {
   const error = req.query.error as string | undefined;
   if (error) {
     const desc = req.query.error_description || error;
-    return res.send(oauthResultPage(false, String(desc)));
+    return sendOAuthResult(res, false, String(desc));
   }
 
   const code = req.query.code as string | undefined;
   const state = req.query.state as string | undefined;
 
   if (!code || !state) {
-    return res.send(oauthResultPage(false, 'Missing code or state parameter'));
+    return sendOAuthResult(res, false, 'Missing code or state parameter');
   }
 
   const config = getConfig();
   if (!config) {
-    return res.send(oauthResultPage(false, 'Gmail not configured on server'));
+    return sendOAuthResult(res, false, 'Gmail not configured on server');
   }
 
   const stateData = consumeOAuthState(state);
   if (!stateData) {
-    return res.send(oauthResultPage(false, 'Invalid or expired state. Please try again.'));
+    return sendOAuthResult(res, false, 'Invalid or expired state. Please try again.');
   }
 
   try {
@@ -153,7 +159,7 @@ async function handleOAuthCallback(req, res) {
     const data = await response.json();
     if (!response.ok) {
       console.error('[Gmail] Token exchange failed:', data);
-      return res.send(oauthResultPage(false, 'Token exchange failed: ' + (data.error_description || data.error || 'unknown')));
+      return sendOAuthResult(res, false, 'Token exchange failed: ' + (data.error_description || data.error || 'unknown'));
     }
 
     let email = null;
@@ -182,10 +188,10 @@ async function handleOAuthCallback(req, res) {
     });
 
     console.log(`✅ [Gmail] OAuth tokens stored for ${scopeType}:${scopeId} (${email || 'unknown'}) via redirect`);
-    return res.send(oauthResultPage(true, null, email));
+    return sendOAuthResult(res, true, null, email);
   } catch (err) {
     console.error('[Gmail] OAuth redirect error:', err);
-    return res.send(oauthResultPage(false, 'Internal error during token exchange'));
+    return sendOAuthResult(res, false, 'Internal error during token exchange');
   }
 }
 
@@ -199,7 +205,7 @@ export function gmailCallbackHandler() {
   return handleOAuthCallback;
 }
 
-function oauthResultPage(success: boolean, error?: string | null, email?: string | null): string {
+function oauthResultPage(success: boolean, error?: string | null, email?: string | null, nonce?: string): string {
   const statusClass = success ? 'success' : 'error';
   const message = success
     ? 'Connected! This window will close...'
@@ -216,10 +222,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 <div class="container">
   <p class="${statusClass}">${message}</p>
 </div>
-<script>
+<script nonce="${nonce}">
 if (window.opener) {
   window.opener.postMessage({ type: 'gmail-oauth-callback', success: ${success}, email: ${JSON.stringify(email || null)}, error: ${JSON.stringify(error || null)} }, '*');
-  ${success ? 'setTimeout(() => window.close(), 1500);' : ''}
+  ${success ? 'setTimeout(function() { window.close(); }, 1500);' : ''}
 }
 </script></body></html>`;
 }

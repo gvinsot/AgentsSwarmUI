@@ -36,36 +36,6 @@
     <div class="spinner" id="spinner"></div>
     <p id="message">Connecting to Gmail...</p>
   </div>
-  <script>
-    // This page is the OAuth redirect target.
-    // It captures the auth code from the URL and sends it back to the parent window.
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    const error = params.get('error');
-    const errorDesc = params.get('error_description');
-
-    if (error) {
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('message').className = 'error';
-      document.getElementById('message').textContent = `Error: ${errorDesc || error}`;
-    } else if (code) {
-      // Send code and state to opener via postMessage
-      if (window.opener) {
-        window.opener.postMessage({ type: 'gmail-oauth-callback', code, state }, '*');
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('message').className = 'success';
-        document.getElementById('message').textContent = 'Connected! This window will close...';
-        setTimeout(() => window.close(), 1500);
-      } else {
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('message').textContent = 'Authorization successful. You can close this window.';
-      }
-    } else {
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('message').className = 'error';
-      document.getElementById('message').textContent = 'No authorization code received.';
-    }
-  </script>
+  <script src="gmail-callback.js"></script>
 </body>
 </html>

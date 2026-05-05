@@ -36,32 +36,6 @@
     <div class="spinner" id="spinner"></div>
     <p id="message">Connecting to Slack...</p>
   </div>
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    const error = params.get('error');
-
-    if (error) {
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('message').className = 'error';
-      document.getElementById('message').textContent = `Error: ${error}`;
-    } else if (code) {
-      if (window.opener) {
-        window.opener.postMessage({ type: 'slack-oauth-callback', code, state }, '*');
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('message').className = 'success';
-        document.getElementById('message').textContent = 'Connected! This window will close...';
-        setTimeout(() => window.close(), 1500);
-      } else {
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('message').textContent = 'Authorization successful. You can close this window.';
-      }
-    } else {
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('message').className = 'error';
-      document.getElementById('message').textContent = 'No authorization code received.';
-    }
-  </script>
+  <script src="slack-callback.js"></script>
 </body>
 </html>
