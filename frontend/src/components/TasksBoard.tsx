@@ -580,7 +580,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         <BoardTabs
           boards={boards}
           activeBoardId={activeBoardId}
-          onSelect={setActiveBoardId}
+          onSelect={(id) => { setActiveBoardId(id); setAgentFilter(''); }}
           onCreate={handleCreateBoard}
           onRename={handleRenameBoard}
           onDelete={handleDeleteBoard}
@@ -617,7 +617,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
             focus:outline-none focus:border-indigo-500 transition-colors flex-shrink-0"
         >
           <option value="">All agents</option>
-          {agents.filter(a => a.enabled !== false).map(a => (
+          {agents.filter(a => a.enabled !== false && a.boardId === activeBoardId).map(a => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
         </select>
