@@ -312,7 +312,8 @@ export const chatMethods = {
   },
 
   async _buildSystemPrompt(this: any, agent: any, id: string, delegationDepth: number): Promise<string> {
-    let systemContent = `Your name is "${agent.name}".${agent.role ? ` Your role: ${agent.role}.` : ''}\n\n${agent.instructions || 'You are a helpful AI assistant.'}`;
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
+    let systemContent = `Your name is "${agent.name}".${agent.role ? ` Your role: ${agent.role}.` : ''}\n\nToday's date is ${todayStr}.\n\n${agent.instructions || 'You are a helpful AI assistant.'}`;
 
     if (agent.isLeader && delegationDepth === 0) {
       const availableAgents = Array.from(this.agents.values())
