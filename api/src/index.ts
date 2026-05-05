@@ -27,7 +27,7 @@ import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase, isDatabaseConnected } from './services/database.js';
 import { onedriveRoutes } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
-import { gmailRoutes } from './routes/gmail.js';
+import { gmailRoutes, gmailOAuthRedirectRouter } from './routes/gmail.js';
 import { createGmailMcpHandler } from './services/gmailMcp.js';
 import { slackRoutes } from './routes/slack.js';
 import { createSlackMcpHandler } from './services/slackMcp.js';
@@ -126,6 +126,9 @@ app.use('/api/users', authenticateToken, requireRole('admin'), userRoutes());
 
 // Public contact form — rate-limited, no auth required
 app.use('/api/contact', contactRoutes(agentManager));
+
+// Public Gmail OAuth redirect — Google redirects here after consent (no auth needed)
+app.use('/api/gmail', gmailOAuthRedirectRouter());
 
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());

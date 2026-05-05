@@ -146,11 +146,11 @@ ONEDRIVE_TENANT_ID=xxx
 ```env
 GMAIL_CLIENT_ID=xxx
 GMAIL_CLIENT_SECRET=xxx
-GMAIL_REDIRECT_URI=https://your-domain.com/gmail-callback.html
+GMAIL_REDIRECT_URI=https://your-domain.com/api/gmail/oauth-redirect
 ```
 
-> Same principle as OneDrive: the redirect URI is the frontend callback
-> page (`/gmail-callback.html`). Register it in Google Cloud Console →
+> The redirect URI points to the API endpoint which handles the token
+> exchange server-side. Register it in Google Cloud Console →
 > Credentials → OAuth 2.0 Client → "Authorized redirect URIs".
 > For local dev use `http://localhost/gmail-callback.html` (frontend on
 > port 80) or `http://localhost:5173/gmail-callback.html` (Vite dev server).

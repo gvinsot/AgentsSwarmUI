@@ -41,7 +41,21 @@ export default function GmailConnect({ agentId, boardId, onStatusChange }) {
   // Listen for OAuth callback messages from the popup window
   useEffect(() => {
     const handleMessage = async (event) => {
-      if (event.data?.type === 'gmail-oauth-callback' && event.data?.code) {
+      if (event.data?.type !== 'gmail-oauth-callback') return;
+
+      // New server-side flow: tokens already exchanged, just refresh status
+      if ('success' in event.data) {
+        if (event.data.success) {
+          await fetchStatus();
+        } else {
+          setError(event.data.error || 'OAuth failed');
+        }
+        setConnecting(false);
+        return;
+      }
+
+      // Legacy popup flow (gmail-callback.html): exchange code via API
+      if (event.data?.code) {
         setConnecting(true);
         setError(null);
         try {
