@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../api';
 
-export default function GitHubActivityModal({ owner, repo, onClose }) {
+export default function GitHubActivityModal({ owner, repo, boardId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
@@ -25,12 +25,12 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api.getGitHubActivity(owner, repo)
+    api.getGitHubActivity(owner, repo, boardId)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [owner, repo]);
+  }, [owner, repo, boardId]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
@@ -200,7 +200,7 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
           )}
 
           {tab === 'explorer' && (
-            <RepoExplorer owner={owner} repo={repo} />
+            <RepoExplorer owner={owner} repo={repo} boardId={boardId} />
           )}
 
           {tab !== 'explorer' && data?.fetchedAt && (
@@ -216,7 +216,7 @@ export default function GitHubActivityModal({ owner, repo, onClose }) {
 
 /* ── Repo Explorer sub-component ─────────────────────────────────────────── */
 
-function RepoExplorer({ owner, repo }) {
+function RepoExplorer({ owner, repo, boardId }) {
   const [branches, setBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [tree, setTree] = useState(null);
@@ -232,7 +232,7 @@ function RepoExplorer({ owner, repo }) {
   useEffect(() => {
     let cancelled = false;
     setLoadingBranches(true);
-    api.getGitHubBranches(owner, repo)
+    api.getGitHubBranches(owner, repo, boardId)
       .then(data => {
         if (cancelled) return;
         setBranches(data);
@@ -243,7 +243,7 @@ function RepoExplorer({ owner, repo }) {
       .catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoadingBranches(false); });
     return () => { cancelled = true; };
-  }, [owner, repo]);
+  }, [owner, repo, boardId]);
 
   // Load tree when branch changes
   useEffect(() => {
@@ -255,12 +255,12 @@ function RepoExplorer({ owner, repo }) {
     setFileContent(null);
     setExpandedDirs(new Set());
     setError(null);
-    api.getGitHubTree(owner, repo, selectedBranch)
+    api.getGitHubTree(owner, repo, selectedBranch, boardId)
       .then(data => { if (!cancelled) setTree(data); })
       .catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoadingTree(false); });
     return () => { cancelled = true; };
-  }, [owner, repo, selectedBranch]);
+  }, [owner, repo, selectedBranch, boardId]);
 
   // Build nested tree structure from flat list
   const nestedTree = useMemo(() => {
@@ -281,11 +281,11 @@ function RepoExplorer({ owner, repo }) {
     setSelectedFile(filePath);
     setFileContent(null);
     setLoadingFile(true);
-    api.getGitHubFile(owner, repo, selectedBranch, filePath)
+    api.getGitHubFile(owner, repo, selectedBranch, filePath, boardId)
       .then(data => setFileContent(data))
       .catch(err => setFileContent({ error: err.message }))
       .finally(() => setLoadingFile(false));
-  }, [owner, repo, selectedBranch]);
+  }, [owner, repo, selectedBranch, boardId]);
 
   const goBackToTree = useCallback(() => {
     setSelectedFile(null);

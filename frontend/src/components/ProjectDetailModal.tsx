@@ -290,6 +290,7 @@ function ReposTab({ project }) {
         <GitHubActivityModal
           owner={activityTarget.owner}
           repo={activityTarget.repo}
+          boardId={boards[0]?.id}
           onClose={() => setActivityTarget(null)}
         />
       )}

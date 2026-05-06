@@ -153,6 +153,38 @@ class ClaudeCodeBackend(RunnerBackend):
 
     # ── Command builder ───────────────────────────────────────────────────
 
+    def _select_session(
+        self, agent_id: Optional[str], task_id: Optional[str],
+    ) -> tuple[Optional[str], bool, Optional[str]]:
+        """Pick session_id for this run without persisting new ones yet.
+
+        Returns (session_id, is_new, session_key). New sessions are NOT stored
+        in self._sessions until _commit_session is called — this avoids leaving
+        a poisoned session id behind when a brand-new run produces no output.
+        """
+        if not agent_id:
+            return None, False, None
+        session_key = f"{agent_id}:{task_id}" if task_id else agent_id
+
+        if task_id:
+            prev_task = self._current_task.get(agent_id)
+            if prev_task and prev_task != task_id:
+                old_key = f"{agent_id}:{prev_task}"
+                if old_key in self._sessions:
+                    old_session = self._sessions.pop(old_key)
+                    logger.info(f"[Session] Task changed for agent {agent_id[:12]}: {prev_task[:12]}→{task_id[:12]}, discarding old session {old_session[:12]}")
+                self._sessions.pop(agent_id, None)
+            self._current_task[agent_id] = task_id
+
+        existing = self._sessions.get(session_key)
+        if existing:
+            return existing, False, session_key
+        return str(uuid.uuid4()), True, session_key
+
+    def _commit_session(self, session_key: Optional[str], session_id: Optional[str]) -> None:
+        if session_key and session_id:
+            self._sessions[session_key] = session_id
+
     def _build_cmd(
         self,
         output_format: str = "json",
@@ -160,7 +192,7 @@ class ClaudeCodeBackend(RunnerBackend):
         agent_id: Optional[str] = None,
         task_id: Optional[str] = None,
         permissions: Optional[dict] = None,
-    ) -> tuple[list[str], str]:
+    ) -> tuple[list[str], str, Optional[str], bool, Optional[str]]:
         exec_perms = (permissions or {}).get("execution", {})
         skip_permissions = exec_perms.get("dangerousSkipPermissions", True)
 
@@ -175,28 +207,14 @@ class ClaudeCodeBackend(RunnerBackend):
         if skip_permissions:
             cmd.append("--dangerously-skip-permissions")
 
-        if agent_id:
-            session_key = f"{agent_id}:{task_id}" if task_id else agent_id
-
-            if task_id:
-                prev_task = self._current_task.get(agent_id)
-                if prev_task and prev_task != task_id:
-                    old_key = f"{agent_id}:{prev_task}"
-                    if old_key in self._sessions:
-                        old_session = self._sessions.pop(old_key)
-                        logger.info(f"[Session] Task changed for agent {agent_id[:12]}: {prev_task[:12]}→{task_id[:12]}, discarding old session {old_session[:12]}")
-                    self._sessions.pop(agent_id, None)
-                self._current_task[agent_id] = task_id
-
-            session_id = self._sessions.get(session_key)
-            if session_id:
-                cmd.extend(["--resume", session_id])
-                logger.info(f"[Session] Resuming session {session_id[:12]}... for agent {agent_id[:12]} (task={task_id[:12] if task_id else 'none'})")
-            else:
-                session_id = str(uuid.uuid4())
-                self._sessions[session_key] = session_id
+        session_id, is_new, session_key = self._select_session(agent_id, task_id)
+        if agent_id and session_id:
+            if is_new:
                 cmd.extend(["--session-id", session_id])
                 logger.info(f"[Session] New session {session_id[:12]}... for agent {agent_id[:12]} (task={task_id[:12] if task_id else 'none'})")
+            else:
+                cmd.extend(["--resume", session_id])
+                logger.info(f"[Session] Resuming session {session_id[:12]}... for agent {agent_id[:12]} (task={task_id[:12] if task_id else 'none'})")
 
         sp = system_prompt or SYSTEM_PROMPT
         if sp:
@@ -219,7 +237,7 @@ class ClaudeCodeBackend(RunnerBackend):
             if os.path.isdir(PROJECTS_DIR):
                 cmd.extend(["--add-dir", PROJECTS_DIR])
 
-        return cmd, cwd
+        return cmd, cwd, session_id, is_new, session_key
 
     # ── Synchronous execution ─────────────────────────────────────────────
 
@@ -273,13 +291,18 @@ class ClaudeCodeBackend(RunnerBackend):
 
         agent_label = f" (user={agent_user['username']})" if agent_user else ""
 
+        pending_session: dict = {"key": None, "id": None, "is_new": False}
+
         async def _run_sync_proc(aid: Optional[str]):
-            cmd, proc_cwd = self._build_cmd(
+            cmd, proc_cwd, sid, is_new, skey = self._build_cmd(
                 output_format="json", system_prompt=system_prompt,
                 agent_id=aid, task_id=task_id,
                 permissions=self._get_permissions(aid),
             )
-            logger.info(f"Executing Claude Code{agent_label}: {prompt[:100]}...")
+            pending_session["key"] = skey
+            pending_session["id"] = sid
+            pending_session["is_new"] = is_new
+            logger.info(f"Executing Claude Code{agent_label} (prompt={len(prompt)}B): {prompt[:100]}...")
             logger.debug(f"Command: {' '.join(cmd)} (cwd={proc_cwd})")
             p = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -390,6 +413,16 @@ class ClaudeCodeBackend(RunnerBackend):
             logger.error(f"Claude Code error: {error_msg}")
             return {"status": "error", "output": "", "error": error_msg}
 
+        if proc.returncode == 0 and not stdout:
+            logger.warning(
+                f"[Sync] Empty stdout from Claude CLI (rc=0, was_resume={not pending_session['is_new']}, "
+                f"prompt={len(prompt)}B). stderr: {stderr[:300] if stderr else '<empty>'}"
+            )
+            if pending_session["is_new"] and pending_session["key"]:
+                # Don't poison future calls with a session that produced nothing
+                self._sessions.pop(pending_session["key"], None)
+            return {"status": "error", "output": "", "error": "Empty response from Claude CLI"}
+
         try:
             parsed = json.loads(stdout)
             output_text = parsed.get("result", stdout)
@@ -403,6 +436,9 @@ class ClaudeCodeBackend(RunnerBackend):
             if VERBOSE:
                 logger.info(f"Claude Code completed: cost=${cost:.4f}, duration={duration}ms, tokens={total_tokens} (in={input_tokens}, out={output_tokens})")
 
+            # Run produced output — safe to commit a freshly minted session id
+            self._commit_session(pending_session["key"], pending_session["id"])
+
             return {
                 "status": "success",
                 "output": output_text,
@@ -413,6 +449,7 @@ class ClaudeCodeBackend(RunnerBackend):
                 "output_tokens": output_tokens,
             }
         except json.JSONDecodeError:
+            self._commit_session(pending_session["key"], pending_session["id"])
             return {"status": "success", "output": stdout}
 
     # ── Streaming execution ───────────────────────────────────────────────
@@ -488,14 +525,18 @@ class ClaudeCodeBackend(RunnerBackend):
                     logger.warning("[Auth] Proactive global token refresh failed, continuing with existing token...")
 
         agent_label = f" (user={agent_user['username']})" if agent_user else ""
+        pending_session: dict = {"key": None, "id": None, "is_new": False}
 
         async def _start_stream_proc(aid: Optional[str]):
-            cmd, proc_cwd = self._build_cmd(
+            cmd, proc_cwd, sid, is_new, skey = self._build_cmd(
                 output_format="stream-json", system_prompt=system_prompt,
                 agent_id=aid, task_id=task_id,
                 permissions=self._get_permissions(aid),
             )
-            logger.info(f"Streaming Claude Code{agent_label}: {prompt[:100]}...")
+            pending_session["key"] = skey
+            pending_session["id"] = sid
+            pending_session["is_new"] = is_new
+            logger.info(f"Streaming Claude Code{agent_label} (prompt={len(prompt)}B): {prompt[:100]}...")
             p = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -544,6 +585,8 @@ class ClaudeCodeBackend(RunnerBackend):
                 raise
 
         has_content = False
+        last_event_types: list[str] = []
+        last_result_event: Optional[dict] = None
 
         try:
             async for line in proc.stdout:
@@ -558,6 +601,14 @@ class ClaudeCodeBackend(RunnerBackend):
                     is_json_event = True
                 except json.JSONDecodeError:
                     pass
+
+                if is_json_event and isinstance(event, dict):
+                    etype = event.get("type", "")
+                    last_event_types.append(etype or "?")
+                    if len(last_event_types) > 20:
+                        last_event_types = last_event_types[-20:]
+                    if etype == "result":
+                        last_result_event = event
 
                 check_auth = not is_json_event
                 if is_json_event and isinstance(event, dict):
@@ -725,28 +776,60 @@ class ClaudeCodeBackend(RunnerBackend):
             except asyncio.CancelledError:
                 pass
 
+        # Read any stderr once after process completion (used by both branches below)
+        try:
+            stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace").strip()
+        except Exception:
+            stderr_text = ""
+
         if proc.returncode != 0:
-            stderr = await proc.stderr.read()
-            stderr_text = stderr.decode("utf-8", errors="replace").strip()
             if stderr_text:
                 yield {"type": "error", "content": stderr_text}
 
+        if has_content:
+            # Stream produced real content — safe to persist a freshly minted session id
+            self._commit_session(pending_session["key"], pending_session["id"])
+
         if not has_content and proc.returncode == 0 and agent_id:
-            session_key = f"{agent_id}:{task_id}" if agent_id and task_id else agent_id
-            was_resume = session_key and session_key in self._sessions
-            try:
-                stderr_out = (await proc.stderr.read()).decode("utf-8", errors="replace").strip()
-            except Exception:
-                stderr_out = ""
-            if stderr_out:
-                logger.warning(f"[Session] Empty response stderr: {stderr_out[:300]}")
+            was_resume = not pending_session["is_new"]
+            # Surface every diagnostic we have so the cause is visible in logs.
+            result_summary = ""
+            if last_result_event:
+                usage = (last_result_event.get("usage") or {})
+                result_summary = (
+                    f" result={{subtype={last_result_event.get('subtype')}, "
+                    f"is_error={last_result_event.get('is_error')}, "
+                    f"num_turns={last_result_event.get('num_turns')}, "
+                    f"in_tokens={usage.get('input_tokens', 0)}, "
+                    f"out_tokens={usage.get('output_tokens', 0)}, "
+                    f"result_text_len={len(str(last_result_event.get('result') or ''))}}}"
+                )
+            logger.warning(
+                f"[Session] Empty response from Claude CLI for agent {agent_id[:12]} "
+                f"(rc=0, was_resume={was_resume}, prompt={len(prompt)}B, "
+                f"events={last_event_types or '<none>'}){result_summary}"
+            )
+            if stderr_text:
+                logger.warning(f"[Session] Empty response stderr: {stderr_text[:500]}")
+
             if was_resume and _auth_retry < 1:
-                logger.warning(f"[Session] Empty response from resumed session for agent {agent_id[:12]} — resetting session and retrying")
-                self._sessions.pop(session_key, None)
+                logger.warning(f"[Session] Resetting resumed session for agent {agent_id[:12]} and retrying with a fresh session")
+                if pending_session["key"]:
+                    self._sessions.pop(pending_session["key"], None)
                 async for ev in self.stream_events(prompt, system_prompt, agent_id=agent_id, owner_id=owner_id, task_id=task_id, _auth_retry=_auth_retry + 1):
                     yield ev
             else:
-                logger.warning(f"[Session] Empty response from Claude CLI for agent {agent_id[:12] if agent_id else 'none'} (rc=0, was_resume={was_resume})")
+                # Brand-new session that produced nothing — do NOT poison future calls
+                if pending_session["is_new"] and pending_session["key"]:
+                    self._sessions.pop(pending_session["key"], None)
+                yield {
+                    "type": "error",
+                    "content": (
+                        "Claude CLI returned no output (possible silent rate limit or upstream issue). "
+                        f"Last events: {last_event_types or '<none>'}."
+                        + (f" stderr: {stderr_text[:200]}" if stderr_text else "")
+                    ),
+                }
 
     # ── Auth ──────────────────────────────────────────────────────────────
 

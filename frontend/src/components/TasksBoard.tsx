@@ -896,6 +896,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
         <GitHubActivityModal
           owner={activityTarget.owner}
           repo={activityTarget.repo}
+          boardId={activeBoardId}
           onClose={() => setActivityTarget(null)}
         />
       )}

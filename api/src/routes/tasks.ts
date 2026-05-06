@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
-import { getPool, getBoardById, getBoardShare, getBoardsByUser, rowToTask } from '../services/database.js';
+import { getPool, getBoardById, getBoardShare, getBoardsByUser, rowToTask, getOAuthToken } from '../services/database.js';
 import { setTaskSignal, clearTaskSignal } from '../services/agentManager/tasks.js';
 import { updateTaskExecutionStatus } from '../services/database.js';
-import { readSecret } from '../secrets.js';
 
 async function getUserBoardIds(userId: string): Promise<string[]> {
   try {
@@ -827,14 +826,19 @@ async function resolveOwnerRepo(task, mgr) {
 // ── GET /tasks/:id/commits/:hash/diff — fetch commit diff from GitHub ───────
 router.get('/:id/commits/:hash/diff', async (req, res) => {
   try {
-    const token = readSecret('GITHUB_TOKEN');
-    if (!token) return res.status(501).json({ error: 'GITHUB_TOKEN not configured' });
-
     const mgr = req.app.get('agentManager');
     const task = mgr.getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     if (!await requireTaskAccess(mgr, task, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!task.boardId) {
+      return res.status(400).json({ error: 'Task has no board — cannot resolve GitHub credentials' });
+    }
+    const tok = getOAuthToken('github', 'board', task.boardId);
+    if (!tok || !tok.accessToken) {
+      return res.status(400).json({ error: 'No GitHub plugin connected on this board', code: 'GITHUB_NOT_CONNECTED' });
     }
 
     const ownerRepo = await resolveOwnerRepo(task, mgr);
@@ -844,7 +848,7 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
 
     const resp = await fetch(
       `https://api.github.com/repos/${ownerRepo.owner}/${ownerRepo.repo}/commits/${req.params.hash}`,
-      { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } }
+      { headers: { Authorization: `Bearer ${tok.accessToken}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'PulsarTeam' } }
     );
     if (!resp.ok) {
       if (resp.status === 404) return res.status(404).json({ error: 'Commit not found on GitHub' });

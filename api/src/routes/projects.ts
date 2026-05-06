@@ -7,7 +7,6 @@ import {
   getStoragesForBoard, getStoragesForProject,
   getBoardById, getOAuthToken,
 } from '../services/database.js';
-import { readSecret } from '../secrets.js';
 
 // ── In-memory caches for GitHub explorer endpoints ─────────────────────────
 const ACTIVITY_CACHE_TTL = 60 * 60 * 1000;
@@ -293,27 +292,45 @@ export function projectRoutes() {
   });
 
   // ── GitHub repo explorer (used by repo detail UI) ────────────────────────
+  // All endpoints authenticate via the board's GitHub plugin OAuth token,
+  // passed as a `?boardId=` query parameter.
 
-  const ghHeaders = () => ({
-    Authorization: `Bearer ${readSecret('GITHUB_TOKEN')}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  });
+  function resolveBoardGitHubAuth(req: any, res: any): { ok: true; headers: Record<string, string> } | { ok: false } {
+    const boardId = (req.query?.boardId as string | undefined) || '';
+    if (!boardId) {
+      res.status(400).json({ error: 'boardId query parameter required' });
+      return { ok: false };
+    }
+    const tok = getOAuthToken('github', 'board', boardId);
+    if (!tok || !tok.accessToken) {
+      res.status(400).json({ error: 'No GitHub plugin connected on this board', code: 'GITHUB_NOT_CONNECTED' });
+      return { ok: false };
+    }
+    return {
+      ok: true,
+      headers: {
+        Authorization: `Bearer ${tok.accessToken}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'PulsarTeam',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    };
+  }
 
   router.get('/github-activity/:owner/:repo', async (req, res) => {
-    const token = readSecret('GITHUB_TOKEN');
-    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+    const auth = resolveBoardGitHubAuth(req, res);
+    if (!auth.ok) return;
 
     const { owner, repo } = req.params;
-    const cacheKey = `${owner}/${repo}`;
+    const cacheKey = `${req.query.boardId}:${owner}/${repo}`;
     const cached = _activityCache.get(cacheKey);
     if (cached && Date.now() - cached.time < ACTIVITY_CACHE_TTL) return res.json(cached.data);
 
     try {
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const [commitsRes, tagsRes] = await Promise.all([
-        fetch(`https://api.github.com/repos/${owner}/${repo}/commits?since=${since}&per_page=50`, { headers: ghHeaders() }),
-        fetch(`https://api.github.com/repos/${owner}/${repo}/tags?per_page=20`, { headers: ghHeaders() }),
+        fetch(`https://api.github.com/repos/${owner}/${repo}/commits?since=${since}&per_page=50`, { headers: auth.headers }),
+        fetch(`https://api.github.com/repos/${owner}/${repo}/tags?per_page=20`, { headers: auth.headers }),
       ]);
 
       let commits: any[] = [];
@@ -352,16 +369,16 @@ export function projectRoutes() {
   });
 
   router.get('/github-branches/:owner/:repo', async (req, res) => {
-    const token = readSecret('GITHUB_TOKEN');
-    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+    const auth = resolveBoardGitHubAuth(req, res);
+    if (!auth.ok) return;
 
     const { owner, repo } = req.params;
-    const cacheKey = `branches:${owner}/${repo}`;
+    const cacheKey = `branches:${req.query.boardId}:${owner}/${repo}`;
     const cached = _branchesCache.get(cacheKey);
     if (cached && Date.now() - cached.time < BRANCHES_CACHE_TTL) return res.json(cached.data);
 
     try {
-      const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`, { headers: ghHeaders() });
+      const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`, { headers: auth.headers });
       if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
       const data = await ghRes.json();
       const branches = data.map((b: any) => ({ name: b.name, sha: b.commit.sha }));
@@ -375,16 +392,16 @@ export function projectRoutes() {
   });
 
   router.get('/github-tree/:owner/:repo/:ref', async (req, res) => {
-    const token = readSecret('GITHUB_TOKEN');
-    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+    const auth = resolveBoardGitHubAuth(req, res);
+    if (!auth.ok) return;
 
     const { owner, repo, ref } = req.params;
-    const cacheKey = `tree:${owner}/${repo}:${ref}`;
+    const cacheKey = `tree:${req.query.boardId}:${owner}/${repo}:${ref}`;
     const cached = _treeCache.get(cacheKey);
     if (cached && Date.now() - cached.time < TREE_CACHE_TTL) return res.json(cached.data);
 
     try {
-      const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`, { headers: ghHeaders() });
+      const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`, { headers: auth.headers });
       if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
       const data = await ghRes.json();
       const tree = (data.tree || []).map((item: any) => ({
@@ -404,21 +421,21 @@ export function projectRoutes() {
   });
 
   router.get('/github-file/:owner/:repo/:ref/*', async (req, res) => {
-    const token = readSecret('GITHUB_TOKEN');
-    if (!token) return res.status(400).json({ error: 'GITHUB_TOKEN not configured' });
+    const auth = resolveBoardGitHubAuth(req, res);
+    if (!auth.ok) return;
 
     const { owner, repo, ref } = req.params;
     const filePath = (req.params as any)[0];
     if (!filePath) return res.status(400).json({ error: 'File path required' });
 
-    const cacheKey = `file:${owner}/${repo}:${ref}:${filePath}`;
+    const cacheKey = `file:${req.query.boardId}:${owner}/${repo}:${ref}:${filePath}`;
     const cached = _fileCache.get(cacheKey);
     if (cached && Date.now() - cached.time < FILE_CACHE_TTL) return res.json(cached.data);
 
     try {
       const ghRes = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`,
-        { headers: ghHeaders() }
+        { headers: auth.headers }
       );
       if (!ghRes.ok) throw new Error(`GitHub API ${ghRes.status}`);
       const data = await ghRes.json();

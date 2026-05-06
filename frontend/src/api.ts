@@ -572,25 +572,24 @@ export const api = {
       body: JSON.stringify({ projectName })
     }).then(handleResponse),
 
-  // GitHub activity (commits + tags for a repo)
-  getGitHubActivity: (owner, repo) =>
-    fetch(`${API_BASE}/projects/github-activity/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+  // GitHub explorer — all endpoints authenticate via the board's GitHub plugin OAuth.
+  getGitHubActivity: (owner, repo, boardId) =>
+    fetch(`${API_BASE}/projects/github-activity/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}?boardId=${encodeURIComponent(boardId)}`, {
       headers: getHeaders()
     }).then(handleResponse),
 
-  // GitHub repo explorer
-  getGitHubBranches: (owner, repo) =>
-    fetch(`${API_BASE}/projects/github-branches/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+  getGitHubBranches: (owner, repo, boardId) =>
+    fetch(`${API_BASE}/projects/github-branches/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}?boardId=${encodeURIComponent(boardId)}`, {
       headers: getHeaders()
     }).then(handleResponse),
 
-  getGitHubTree: (owner, repo, ref) =>
-    fetch(`${API_BASE}/projects/github-tree/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}`, {
+  getGitHubTree: (owner, repo, ref, boardId) =>
+    fetch(`${API_BASE}/projects/github-tree/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}?boardId=${encodeURIComponent(boardId)}`, {
       headers: getHeaders()
     }).then(handleResponse),
 
-  getGitHubFile: (owner, repo, ref, filePath) =>
-    fetch(`${API_BASE}/projects/github-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${filePath}`, {
+  getGitHubFile: (owner, repo, ref, filePath, boardId) =>
+    fetch(`${API_BASE}/projects/github-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${filePath}?boardId=${encodeURIComponent(boardId)}`, {
       headers: getHeaders()
     }).then(handleResponse),
 
