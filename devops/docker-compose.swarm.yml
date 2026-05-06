@@ -167,7 +167,7 @@ services:
         - "traefik.http.routers.pulsarteam-frontend.rule=Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)"
         - "traefik.http.routers.pulsarteam-frontend.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-frontend.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.pulsarteam-frontend.middlewares=global@file,pulsarteam-sec-headers@docker"
+        - "traefik.http.routers.pulsarteam-frontend.middlewares=global@file,pulsarteam-sec-headers@swarm"
         - "traefik.http.routers.pulsarteam-frontend.service=pulsarteam-frontend"
         - "traefik.http.routers.pulsarteam-frontend.priority=1"
         - "traefik.http.routers.pulsarteam-oauth-frontend.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && PathPrefix(`/auth/`)"
