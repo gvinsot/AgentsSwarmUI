@@ -266,17 +266,39 @@ class ClaudeCodeBackend(RunnerBackend):
         cooldown = get_token_cooldown_until()
 
         if agent_user:
+            _owner_id_sync = agent_user.get("owner_id")
+            # Bootstrap from global token if agent has none yet (mirrors stream_events)
+            if not resolve_token(agent_user):
+                global_token = load_saved_token()
+                if global_token:
+                    global_refresh = get_saved_refresh_token()
+                    if _owner_id_sync:
+                        save_owner_token(_owner_id_sync, global_token, refresh_token=global_refresh)
+                        logger.info(f"[Owner Auth] Bootstrapped owner {_owner_id_sync} with global token")
+                    else:
+                        save_agent_token(agent_user, global_token, refresh_token=global_refresh)
+                        logger.info(f"[Agent Auth] Bootstrapped agent {agent_user['username']} with global token")
             if is_agent_token_expired(agent_user) and time.time() >= cooldown:
                 refreshed = await refresh_agent_token(agent_user)
                 if not refreshed and not resolve_token(agent_user):
-                    _owner_id = agent_user.get("owner_id")
-                    login_url = initiate_owner_login(_owner_id) if _owner_id else initiate_agent_login(agent_id)
+                    login_url = initiate_owner_login(_owner_id_sync) if _owner_id_sync else initiate_agent_login(agent_id)
                     return {
                         "status": "auth_required",
                         "output": "",
                         "error": f"OAuth token expired and refresh token is invalid. Please re-authenticate: {login_url}",
                         "login_url": login_url,
                     }
+            # Final guard: claude CLI exits silently with rc=0 if there's no token at all.
+            if not resolve_token(agent_user):
+                who = f"owner {_owner_id_sync}" if _owner_id_sync else f"agent {agent_id}"
+                logger.error(f"[Auth] No token available for {who} — cannot spawn Claude CLI")
+                login_url = initiate_owner_login(_owner_id_sync) if _owner_id_sync else initiate_agent_login(agent_id)
+                return {
+                    "status": "auth_required",
+                    "output": "",
+                    "error": f"No authentication token available. Please authenticate: {login_url}",
+                    "login_url": login_url,
+                }
         else:
             if is_token_expired() and time.time() >= cooldown:
                 refreshed = await refresh_oauth_token()
@@ -288,6 +310,15 @@ class ClaudeCodeBackend(RunnerBackend):
                         "error": f"OAuth token expired and refresh token is invalid. Please re-authenticate: {login_url}",
                         "login_url": login_url,
                     }
+            if not load_saved_token() and auth_method() == "none":
+                logger.error("[Auth] No global token available — cannot spawn Claude CLI")
+                login_url = await get_login_url()
+                return {
+                    "status": "auth_required",
+                    "output": "",
+                    "error": f"No authentication token available. Please authenticate: {login_url}",
+                    "login_url": login_url,
+                }
 
         agent_label = f" (user={agent_user['username']})" if agent_user else ""
 
