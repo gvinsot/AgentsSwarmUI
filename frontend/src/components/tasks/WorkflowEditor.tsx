@@ -125,13 +125,16 @@ export default function WorkflowEditor({ workflow, agents, jiraStatus, onClose, 
     setDragColIdx(idx);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(idx));
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '0.4';
+    const wrapper = colRefs.current[idx];
+    if (wrapper) {
+      wrapper.style.opacity = '0.4';
+      e.dataTransfer.setDragImage(wrapper, wrapper.offsetWidth / 2, 20);
     }
   };
-  const handleColDragEnd = (e: React.DragEvent) => {
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '1';
+  const handleColDragEnd = () => {
+    if (dragColIdx !== null) {
+      const wrapper = colRefs.current[dragColIdx];
+      if (wrapper) wrapper.style.opacity = '1';
     }
     setDragColIdx(null);
     setDropTargetIdx(null);
@@ -249,6 +252,9 @@ export default function WorkflowEditor({ workflow, agents, jiraStatus, onClose, 
               return (
                 <div key={col.id + '-' + idx} className="flex flex-col min-w-[240px] flex-1 relative"
                   ref={el => { colRefs.current[idx] = el; }}
+                  draggable
+                  onDragStart={e => handleColDragStart(e, idx)}
+                  onDragEnd={handleColDragEnd}
                   onDragOver={e => handleColDragOver(e, idx)}
                 >
                   {dropTargetIdx === idx && dragColIdx !== null && dragColIdx !== idx && dragColIdx !== idx - 1 && (
@@ -258,11 +264,7 @@ export default function WorkflowEditor({ workflow, agents, jiraStatus, onClose, 
                     <div className="absolute right-[-8px] top-0 bottom-0 w-[3px] bg-indigo-500 rounded-full z-10" />
                   )}
                   {/* Column header card */}
-                  <div className="bg-dark-800 rounded-lg px-3 py-2.5 space-y-2"
-                    draggable
-                    onDragStart={e => handleColDragStart(e, idx)}
-                    onDragEnd={handleColDragEnd}
-                  >
+                  <div className="bg-dark-800 rounded-lg px-3 py-2.5 space-y-2 cursor-grab">
                     <div className="flex items-center gap-2">
                       <GripVertical className="w-3 h-3 text-dark-500 cursor-grab flex-shrink-0" />
                       <select value={col.color} onChange={e => updateCol(idx, { color: e.target.value })}
