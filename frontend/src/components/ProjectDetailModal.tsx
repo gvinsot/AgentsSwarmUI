@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   X, Users, ListTodo, Activity, Clock, CheckCircle, AlertCircle,
   FolderGit2, Bug, Sparkles, BarChart3, FileText, Save, Loader2,
@@ -77,15 +77,7 @@ export default function ProjectDetailModal({ project, projectContext, githubInfo
 
   if (!project) return null;
 
-  const { name, agents, tasks, stats } = project;
-
-  const INACTIVE_SET = new Set(['done', 'error', 'backlog']);
-  const tasksByStatus = {
-    active: tasks.filter(t => !INACTIVE_SET.has(t.status || 'backlog')),
-    backlog: tasks.filter(t => t.status === 'backlog'),
-    done: tasks.filter(t => t.status === 'done'),
-    error: tasks.filter(t => t.status === 'error'),
-  };
+  const { name, agents, stats } = project;
 
   return (
     <div
@@ -174,10 +166,10 @@ export default function ProjectDetailModal({ project, projectContext, githubInfo
         {/* Tab Content -- scrollable */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'overview' && (
-            <OverviewTab agents={agents} tasks={tasks} stats={stats} />
+            <OverviewTab agents={agents} stats={stats} />
           )}
           {activeTab === 'tasks' && (
-            <TasksTab tasks={tasks} tasksByStatus={tasksByStatus} />
+            <TasksTab projectName={name} />
           )}
           {activeTab === 'context' && (
             <ContextTab
@@ -215,7 +207,7 @@ export default function ProjectDetailModal({ project, projectContext, githubInfo
 /* ═══════════════════════════════════════════════════════════════════════════
    Tab: Overview
    ═══════════════════════════════════════════════════════════════════════════ */
-function OverviewTab({ agents, tasks, stats }) {
+function OverviewTab({ agents, stats }) {
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
@@ -280,7 +272,35 @@ function OverviewTab({ agents, tasks, stats }) {
 /* ═══════════════════════════════════════════════════════════════════════════
    Tab: Tasks
    ═══════════════════════════════════════════════════════════════════════════ */
-function TasksTab({ tasks, tasksByStatus }) {
+function TasksTab({ projectName }) {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.getAllTasks({ project: projectName })
+      .then(data => setTasks(data || []))
+      .catch(() => setTasks([]))
+      .finally(() => setLoading(false));
+  }, [projectName]);
+
+  const INACTIVE_SET = new Set(['done', 'error', 'backlog']);
+  const tasksByStatus = useMemo(() => ({
+    active: tasks.filter(t => !INACTIVE_SET.has(t.status || 'backlog')),
+    backlog: tasks.filter(t => t.status === 'backlog'),
+    done: tasks.filter(t => t.status === 'done'),
+    error: tasks.filter(t => t.status === 'error'),
+  }), [tasks]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-dark-400">
+        <Loader2 size={20} className="animate-spin mr-2" />
+        Loading tasks...
+      </div>
+    );
+  }
+
   if (tasks.length === 0) {
     return <p className="text-dark-500 text-sm">No tasks in this project</p>;
   }

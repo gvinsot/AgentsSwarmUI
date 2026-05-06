@@ -69,7 +69,7 @@ router.get('/', async (req, res) => {
     const pool = getPool();
     if (!pool) return res.json([]);
 
-    const { board_id, agent_id, status } = req.query;
+    const { board_id, agent_id, status, project } = req.query;
     let query = 'SELECT * FROM tasks WHERE deleted_at IS NULL';
     const params = [];
 
@@ -84,6 +84,10 @@ router.get('/', async (req, res) => {
     if (status) {
       params.push(status);
       query += ` AND status = $${params.length}`;
+    }
+    if (project) {
+      params.push(project);
+      query += ` AND project = $${params.length}`;
     }
 
     query += ' ORDER BY position ASC, created_at ASC';
