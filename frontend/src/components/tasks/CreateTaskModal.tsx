@@ -106,26 +106,28 @@ export default function CreateTaskModal({ agents, allProjects, defaultProject, o
             />
           </div>
 
-          {/* Project + Status row */}
+          {/* Project */}
+          <div>
+            <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
+              <Tag className="inline w-3 h-3 mr-1" />Project
+            </label>
+            <input
+              type="text"
+              value={project}
+              onChange={e => setProject(e.target.value)}
+              placeholder={allProjects[0] || 'e.g. backend'}
+              list="create-task-projects"
+              className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
+                placeholder-dark-500 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+            <datalist id="create-task-projects">
+              {(allProjects || []).map(p => <option key={p} value={p} />)}
+            </datalist>
+          </div>
+
+          {/* Status + Type row */}
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
-                <Tag className="inline w-3 h-3 mr-1" />Project
-              </label>
-              <input
-                type="text"
-                value={project}
-                onChange={e => setProject(e.target.value)}
-                placeholder={allProjects[0] || 'e.g. backend'}
-                list="create-task-projects"
-                className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200
-                  placeholder-dark-500 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-              <datalist id="create-task-projects">
-                {(allProjects || []).map(p => <option key={p} value={p} />)}
-              </datalist>
-            </div>
-            <div className="w-36">
               <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
                 Status
               </label>
@@ -140,7 +142,7 @@ export default function CreateTaskModal({ agents, allProjects, defaultProject, o
                 ))}
               </select>
             </div>
-            <div className="w-36">
+            <div className="flex-1">
               <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
                 <Layers className="inline w-3 h-3 mr-1" />Type
               </label>
