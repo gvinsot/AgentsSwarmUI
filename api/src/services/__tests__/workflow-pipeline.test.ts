@@ -63,6 +63,15 @@ mock.module('../database.js', {
     getAllMcpServers: async () => [],
     saveMcpServer: noop,
     deleteMcpServerFromDb: noop,
+    storeOAuthToken: noop,
+    getOAuthToken: () => null,
+    hasOAuthToken: () => false,
+    deleteOAuthToken: noop,
+    deleteOAuthTokensByScope: noop,
+    getOAuthTokensByScope: () => [],
+    resolveAccessToken: async () => null,
+    loadOAuthTokens: noop,
+    getOAuthTokenCache: () => new Map(),
   },
 });
 
