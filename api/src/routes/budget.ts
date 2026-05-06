@@ -4,6 +4,7 @@ import {
   getTokenUsageSummary, getTokenUsageSummaryAsync, getDailyTokenUsage, getSetting, setSetting,
   getAllLlmConfigs
 } from '../services/database.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -90,7 +91,7 @@ router.get('/config', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.put('/config', (req, res) => {
+router.put('/config', requireRole('admin'), (req, res) => {
   try {
     setSetting('budget_config', req.body);
     res.json({ success: true });

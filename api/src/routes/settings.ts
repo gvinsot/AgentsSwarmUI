@@ -1,6 +1,7 @@
 import express from 'express';
 import { getSettings, updateSettings, getWorkflow, getReminderConfig } from '../services/configManager.js';
 import { getGitConnections, saveGitConnections, maskConnections, testConnection } from '../services/gitProvider.js';
+import { requireRole } from '../middleware/auth.js';
 
 export function settingsRoutes() {
   const router = express.Router();
@@ -15,7 +16,7 @@ export function settingsRoutes() {
     }
   });
 
-  router.put('/', async (req, res) => {
+  router.put('/', requireRole('admin'), async (req, res) => {
     try {
       const settings = await updateSettings(req.body || {});
       res.json(settings);
@@ -39,7 +40,7 @@ export function settingsRoutes() {
     }
   });
 
-  router.put('/reminders', async (req, res) => {
+  router.put('/reminders', requireRole('admin'), async (req, res) => {
     try {
       const patch: Record<string, string> = {};
       const { intervalMinutes, maxReminders, cooldownMinutes } = req.body || {};
@@ -80,7 +81,7 @@ export function settingsRoutes() {
     }
   });
 
-  router.put('/git-connections', async (req, res) => {
+  router.put('/git-connections', requireRole('admin'), async (req, res) => {
     try {
       const { connections } = req.body || {};
       if (!Array.isArray(connections)) {

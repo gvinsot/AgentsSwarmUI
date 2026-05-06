@@ -1,9 +1,18 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
-import { getPool, getBoardById, getBoardShare, rowToTask } from '../services/database.js';
+import { getPool, getBoardById, getBoardShare, getBoardsByUser, rowToTask } from '../services/database.js';
 import { listStarredRepos } from '../services/githubProjects.js';
 import { setTaskSignal, clearTaskSignal } from '../services/agentManager/tasks.js';
 import { updateTaskExecutionStatus } from '../services/database.js';
+
+async function getUserBoardIds(userId: string): Promise<string[]> {
+  try {
+    const boards = await getBoardsByUser(userId);
+    return boards.map(b => b.id);
+  } catch {
+    return [];
+  }
+}
 
 const router = Router();
 
@@ -49,10 +58,14 @@ async function validateBoardAccess(boardId, userId, userRole) {
   if (!boardId) return { ok: true, board: null };
   const board = await getBoardById(boardId);
   if (!board) return { ok: false, error: 'Destination board not found', status: 404 };
-  if (board.user_id !== userId && !board.is_default && userRole !== 'admin') {
-    return { ok: false, error: 'No write access to destination board', status: 403 };
+  if (board.user_id === userId || board.is_default || userRole === 'admin') {
+    return { ok: true, board };
   }
-  return { ok: true, board };
+  const share = await getBoardShare(boardId, userId);
+  if (share && (share.permission === 'edit' || share.permission === 'admin')) {
+    return { ok: true, board };
+  }
+  return { ok: false, error: 'No write access to destination board', status: 403 };
 }
 
 /** Validate that a column exists in a board; fallback to first column */
@@ -72,6 +85,14 @@ router.get('/', async (req, res) => {
     const { board_id, agent_id, status, project } = req.query;
     let query = 'SELECT * FROM tasks WHERE deleted_at IS NULL';
     const params = [];
+
+    // Scope to user's accessible boards (admins see all)
+    if (req.user.role !== 'admin') {
+      const boardIds = await getUserBoardIds(req.user.userId);
+      if (boardIds.length === 0) return res.json([]);
+      params.push(boardIds);
+      query += ` AND board_id = ANY($${params.length})`;
+    }
 
     if (board_id) {
       params.push(board_id);
@@ -128,6 +149,15 @@ router.put('/reorder', async (req, res) => {
     if (!pool) return res.status(500).json({ error: 'Database not available' });
 
     const mgr = req.app.get('agentManager');
+
+    // Verify user has access to at least the first task's board
+    if (req.user.role !== 'admin') {
+      const firstTask = mgr.getTask(orderedIds[0]);
+      if (firstTask?.boardId) {
+        const access = await validateBoardAccess(firstTask.boardId, req.user.userId, req.user.role);
+        if (!access.ok) return res.status(access.status).json({ error: access.error });
+      }
+    }
 
     // Update position for each task in the given order
     const promises = orderedIds.map((taskId, index) =>
@@ -597,6 +627,16 @@ router.get('/project-stats', async (req, res) => {
 
     const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 90);
 
+    // Scope to user's boards (admins see all)
+    let boardFilter = '';
+    const baseParams: any[] = [];
+    if (req.user.role !== 'admin') {
+      const boardIds = await getUserBoardIds(req.user.userId);
+      if (boardIds.length === 0) return res.json({ projects: [] });
+      baseParams.push(boardIds);
+      boardFilter = ` AND board_id = ANY($${baseParams.length})`;
+    }
+
     // 1. Per-project summary counts (only non-deleted tasks)
     const summaryResult = await pool.query(`
       SELECT
@@ -608,12 +648,14 @@ router.get('/project-stats', async (req, res) => {
         COUNT(*) FILTER (WHERE task_type = 'bug')::int AS bugs,
         COUNT(*) FILTER (WHERE task_type = 'feature')::int AS features
       FROM tasks
-      WHERE deleted_at IS NULL AND project IS NOT NULL AND project != ''
+      WHERE deleted_at IS NULL AND project IS NOT NULL AND project != ''${boardFilter}
       GROUP BY project
       ORDER BY project
-    `);
+    `, baseParams);
 
     // 2. Daily created/completed counts per project (last N days)
+    const dailyParams = [...baseParams, days];
+    const daysParamIdx = dailyParams.length;
     const dailyResult = await pool.query(`
       SELECT project, day::date AS day, created, completed FROM (
         SELECT project, d.day,
@@ -621,18 +663,18 @@ router.get('/project-stats', async (req, res) => {
           COUNT(*) FILTER (WHERE completed_at::date = d.day)::int AS completed
         FROM tasks
         CROSS JOIN generate_series(
-          (CURRENT_DATE - ($1 || ' days')::interval)::date,
+          (CURRENT_DATE - ($${daysParamIdx} || ' days')::interval)::date,
           CURRENT_DATE,
           '1 day'::interval
         ) AS d(day)
-        WHERE deleted_at IS NULL AND project IS NOT NULL AND project != ''
-          AND (created_at >= CURRENT_DATE - ($1 || ' days')::interval
-               OR completed_at >= CURRENT_DATE - ($1 || ' days')::interval)
+        WHERE deleted_at IS NULL AND project IS NOT NULL AND project != ''${boardFilter}
+          AND (created_at >= CURRENT_DATE - ($${daysParamIdx} || ' days')::interval
+               OR completed_at >= CURRENT_DATE - ($${daysParamIdx} || ' days')::interval)
         GROUP BY project, d.day
       ) sub
       WHERE created > 0 OR completed > 0
       ORDER BY project, day
-    `, [days]);
+    `, dailyParams);
 
     // Group daily data by project
     const dailyByProject: Record<string, { date: string; created: number; completed: number }[]> = {};
@@ -670,11 +712,20 @@ router.get('/stats', async (req, res) => {
     const pool = getPool();
     if (!pool) return res.json({ total: 0, active: 0, deleted: 0, deletionRate: 0 });
 
+    let boardFilter = '';
+    const params: any[] = [];
+    if (req.user.role !== 'admin') {
+      const boardIds = await getUserBoardIds(req.user.userId);
+      if (boardIds.length === 0) return res.json({ total: 0, active: 0, deleted: 0, deletionRate30d: 0 });
+      params.push(boardIds);
+      boardFilter = ` AND board_id = ANY($1)`;
+    }
+
     const [totalResult, activeResult, deletedResult, recentDeletedResult] = await Promise.all([
-      pool.query('SELECT COUNT(*) as count FROM tasks'),
-      pool.query('SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NULL'),
-      pool.query('SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NOT NULL'),
-      pool.query('SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NOT NULL AND deleted_at >= NOW() - INTERVAL \'30 days\''),
+      pool.query(`SELECT COUNT(*) as count FROM tasks WHERE 1=1${boardFilter}`, params),
+      pool.query(`SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NULL${boardFilter}`, params),
+      pool.query(`SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NOT NULL${boardFilter}`, params),
+      pool.query(`SELECT COUNT(*) as count FROM tasks WHERE deleted_at IS NOT NULL AND deleted_at >= NOW() - INTERVAL '30 days'${boardFilter}`, params),
     ]);
 
     const total = parseInt(totalResult.rows[0].count, 10);
@@ -773,6 +824,9 @@ router.get('/:id/commits/:hash/diff', async (req, res) => {
     const mgr = req.app.get('agentManager');
     const task = mgr.getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (!await requireTaskAccess(mgr, task, req.user)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const ownerRepo = await resolveOwnerRepo(task, mgr);
     if (!ownerRepo) {

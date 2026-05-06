@@ -1,7 +1,10 @@
 import express from 'express';
 import { getApiKeyInfo, generateNewApiKey, revokeApiKey } from '../services/apiKeyManager.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
+
+router.use(requireRole('admin'));
 
 // GET /api/settings/api-key — get current key info (prefix only)
 router.get('/', async (req, res) => {

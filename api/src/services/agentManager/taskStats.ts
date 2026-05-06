@@ -3,12 +3,14 @@
 /** @this {import('./index.js').AgentManager} */
 export const taskStatsMethods = {
 
-  _collectTasks(this: any, projectFilter: string | null = null): any[] {
+  _collectTasks(this: any, projectFilter: string | null = null, allowedBoardIds: Set<string> | null = null): any[] {
     const tasks: any[] = [];
     for (const agent of this.agents.values()) {
+      if (allowedBoardIds && (agent as any).boardId && !allowedBoardIds.has((agent as any).boardId)) continue;
       const tasks_ = this._getAgentTasks((agent as any).id);
       if (!tasks_.length) continue;
       for (const t of tasks_) {
+        if (allowedBoardIds && t.boardId && !allowedBoardIds.has(t.boardId)) continue;
         const proj = t.project || (agent as any).project || null;
         if (projectFilter && proj !== projectFilter) continue;
         tasks.push({ ...t, _agentId: (agent as any).id, _project: proj });
@@ -17,8 +19,8 @@ export const taskStatsMethods = {
     return tasks;
   },
 
-  getTaskStats(this: any, projectFilter: string | null = null): any {
-    const tasks = this._collectTasks(projectFilter);
+  getTaskStats(this: any, projectFilter: string | null = null, allowedBoardIds: Set<string> | null = null): any {
+    const tasks = this._collectTasks(projectFilter, allowedBoardIds);
     const total = tasks.length;
     const byType: Record<string, number> = {};
     const byStatus: Record<string, number> = {};
@@ -95,8 +97,8 @@ export const taskStatsMethods = {
     };
   },
 
-  getTaskTimeSeries(this: any, projectFilter: string | null = null, days: number = 30): any {
-    const tasks = this._collectTasks(projectFilter);
+  getTaskTimeSeries(this: any, projectFilter: string | null = null, days: number = 30, allowedBoardIds: Set<string> | null = null): any {
+    const tasks = this._collectTasks(projectFilter, allowedBoardIds);
     const now = new Date();
     const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const toDay = (iso: string | null) => iso ? new Date(iso).toISOString().slice(0, 10) : null;
@@ -167,8 +169,8 @@ export const taskStatsMethods = {
     return { createdVsResolved, resolutionTimeEvolution, openOverTime };
   },
 
-  getAgentTimeSeries(this: any, projectFilter: string | null = null, days: number = 30): any {
-    const tasks = this._collectTasks(projectFilter);
+  getAgentTimeSeries(this: any, projectFilter: string | null = null, days: number = 30, allowedBoardIds: Set<string> | null = null): any {
+    const tasks = this._collectTasks(projectFilter, allowedBoardIds);
     const now = new Date();
     const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const toDay = (d: Date) => d.toISOString().slice(0, 10);

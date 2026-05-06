@@ -597,30 +597,39 @@ export function agentRoutes(agentManager) {
 
 // ── Task History & Stats ──────────────────────────────────────────────────────
 
-router.get("/tasks/stats", (req, res) => {
+router.get("/tasks/stats", async (req, res) => {
   const { project } = req.query;
-  const stats = agentManager.getTaskStats(project || null);
+  const userBoardIds = req.user.role === 'admin' ? null : await getUserBoardIds(req.user.userId);
+  const stats = agentManager.getTaskStats(project || null, userBoardIds);
   res.json(stats);
 });
 
-router.get("/tasks/stats/timeseries", (req, res) => {
+router.get("/tasks/stats/timeseries", async (req, res) => {
   const { project, days } = req.query;
   const d = Math.min(Math.max(parseInt(days as string) || 30, 1), 365);
-  const timeseries = agentManager.getTaskTimeSeries(project || null, d);
+  const userBoardIds = req.user.role === 'admin' ? null : await getUserBoardIds(req.user.userId);
+  const timeseries = agentManager.getTaskTimeSeries(project || null, d, userBoardIds);
   res.json(timeseries);
 });
 
-router.get("/tasks/stats/agent-time", (req, res) => {
+router.get("/tasks/stats/agent-time", async (req, res) => {
   const { project, days } = req.query;
   const d = Math.min(Math.max(parseInt(days as string) || 30, 1), 365);
-  const agentTime = agentManager.getAgentTimeSeries(project || null, d);
+  const userBoardIds = req.user.role === 'admin' ? null : await getUserBoardIds(req.user.userId);
+  const agentTime = agentManager.getAgentTimeSeries(project || null, d, userBoardIds);
   res.json(agentTime);
 });
 
-router.get("/tasks/:id/history", (req, res) => {
-  const history = globalTaskStore.getHistory(req.params.id);
-  if (!history) return res.status(404).json({ error: "Not found" });
-  res.json(history);
+router.get("/tasks/:id/history", async (req, res) => {
+  const task = agentManager.getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: "Not found" });
+  if (req.user.role !== 'admin') {
+    const userBoardIds = await getUserBoardIds(req.user.userId);
+    if (task.boardId && !userBoardIds.has(task.boardId)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+  }
+  res.json(task.history || []);
 });
   router.delete('/:id/skills/:skillId', requireAgentAccess, pluginRemoveHandler);
 
