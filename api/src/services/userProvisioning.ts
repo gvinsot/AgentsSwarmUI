@@ -13,7 +13,7 @@ const DEFAULT_USER_WORKFLOW = {
       trigger: 'on_enter',
       conditions: [],
       actions: [
-        { type: 'run_agent', mode: 'decide', role: '', instructions: 'Execute the task' },
+        { type: 'run_agent', mode: 'decide', role: 'developer', instructions: 'Execute the task' },
         { type: 'change_status', target: '__next__' },
       ],
     },
@@ -27,6 +27,16 @@ export function setAgentManager(am: any) {
   _agentManager = am;
 }
 
+function findQwenLlmConfigId(agentManager: any): string | null {
+  if (!agentManager?.llmConfigs) return null;
+  for (const [id, config] of agentManager.llmConfigs) {
+    if (config.name && config.name.toUpperCase().startsWith('QWEN')) {
+      return id;
+    }
+  }
+  return null;
+}
+
 export async function provisionNewUser(userId: string): Promise<void> {
   try {
     const board = await createBoard(userId, 'My Board', DEFAULT_USER_WORKFLOW, {});
@@ -35,6 +45,7 @@ export async function provisionNewUser(userId: string): Promise<void> {
     if (_agentManager) {
       const devTemplate = AGENT_TEMPLATES.find(t => t.id === 'developer');
       if (devTemplate) {
+        const qwenConfigId = findQwenLlmConfigId(_agentManager);
         await _agentManager.create({
           name: devTemplate.name,
           role: devTemplate.role,
@@ -47,8 +58,10 @@ export async function provisionNewUser(userId: string): Promise<void> {
           template: devTemplate.id,
           ownerId: userId,
           boardId: board.id,
+          runner: 'sandbox',
+          ...(qwenConfigId ? { llmConfigId: qwenConfigId } : {}),
         });
-        console.log(`✅ Created default developer agent for user ${userId}`);
+        console.log(`✅ Created default developer agent for user ${userId} (runner=sandbox, llmConfig=${qwenConfigId || 'none'})`);
       }
     }
   } catch (err) {
