@@ -16,7 +16,9 @@ export {
 } from './database/tokenUsage.js';
 export {
   getAllUsers, getUserById, getUserByUsername, createUser, updateUser, deleteUser,
-  getUserByGoogleId, createGoogleUser, linkGoogleId, countUsers, updateLastSeen,
+  getUserByGoogleId, createGoogleUser, linkGoogleId,
+  getUserByMicrosoftId, createMicrosoftUser, linkMicrosoftId,
+  countUsers, updateLastSeen,
 } from './database/users.js';
 export { getAllLlmConfigs, getLlmConfig, saveLlmConfig, deleteLlmConfig } from './database/llmConfigs.js';
 export {

@@ -1,7 +1,11 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { getUserByUsername, getUserById, createUser, countUsers, getUserByGoogleId, createGoogleUser, linkGoogleId } from '../services/database.js';
+import {
+  getUserByUsername, getUserById, createUser, countUsers,
+  getUserByGoogleId, createGoogleUser, linkGoogleId,
+  getUserByMicrosoftId, createMicrosoftUser, linkMicrosoftId,
+} from '../services/database.js';
 
 const router = express.Router();
 
@@ -296,6 +300,131 @@ router.post('/google/callback', async (req, res) => {
     });
   } catch (err) {
     console.error('Google OAuth error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Microsoft / Live.com OAuth ────────────────────────────────────────────────
+
+function isMicrosoftConfigured() {
+  return !!(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET);
+}
+
+router.get('/microsoft/status', (_req, res) => {
+  res.json({ enabled: isMicrosoftConfigured(), clientId: process.env.MICROSOFT_CLIENT_ID || null });
+});
+
+router.get('/microsoft/url', (req, res) => {
+  if (!isMicrosoftConfigured()) {
+    return res.status(501).json({ error: 'Microsoft OAuth not configured' });
+  }
+
+  const redirectUri = req.query.redirect_uri as string;
+  if (!redirectUri) {
+    return res.status(400).json({ error: 'redirect_uri query parameter required' });
+  }
+
+  const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+  const params = new URLSearchParams({
+    client_id: process.env.MICROSOFT_CLIENT_ID as string,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile User.Read',
+    response_mode: 'query',
+    prompt: 'select_account',
+  });
+
+  res.json({ url: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params}` });
+});
+
+router.post('/microsoft/callback', async (req, res) => {
+  if (!isMicrosoftConfigured()) {
+    return res.status(501).json({ error: 'Microsoft OAuth not configured' });
+  }
+
+  const { code, redirect_uri } = req.body;
+  if (!code || !redirect_uri) {
+    return res.status(400).json({ error: 'code and redirect_uri required' });
+  }
+
+  try {
+    const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+    const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.MICROSOFT_CLIENT_ID as string,
+        client_secret: process.env.MICROSOFT_CLIENT_SECRET as string,
+        code,
+        redirect_uri,
+        grant_type: 'authorization_code',
+        scope: 'openid email profile User.Read',
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error('Microsoft token exchange failed:', tokenData);
+      return res.status(401).json({ error: 'Microsoft authentication failed' });
+    }
+
+    const userInfoRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+
+    const profile = await userInfoRes.json();
+    if (!userInfoRes.ok || !profile.id) {
+      console.error('Microsoft userinfo failed:', profile);
+      return res.status(401).json({ error: 'Failed to fetch Microsoft profile' });
+    }
+
+    const microsoftId = profile.id;
+    const email = profile.mail || profile.userPrincipalName;
+    const displayName = profile.displayName || email;
+
+    let avatarUrl = null;
+    try {
+      const photoRes = await fetch('https://graph.microsoft.com/v1.0/me/photo/$value', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (photoRes.ok) {
+        const buf = await photoRes.arrayBuffer();
+        const base64 = Buffer.from(buf).toString('base64');
+        const contentType = photoRes.headers.get('content-type') || 'image/jpeg';
+        avatarUrl = `data:${contentType};base64,${base64}`;
+      }
+    } catch {}
+
+    let user = await getUserByMicrosoftId(microsoftId);
+
+    if (!user) {
+      const existingUser = await getUserByUsername(email);
+      if (existingUser) {
+        await linkMicrosoftId(existingUser.id, microsoftId, avatarUrl);
+        user = await getUserById(existingUser.id);
+      } else {
+        const userCount = await countUsers();
+        const role = userCount === 0 ? 'admin' : 'basic';
+        user = await createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role);
+      }
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      getJwtSecret(),
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      displayName: user.display_name,
+      avatarUrl: user.avatar_url || avatarUrl,
+    });
+  } catch (err) {
+    console.error('Microsoft OAuth error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

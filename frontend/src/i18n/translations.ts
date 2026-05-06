@@ -168,7 +168,8 @@ const translations = {
   'login.connecting': { en: 'Connecting...', fr: 'Connexion...' },
   'login.or': { en: 'or', fr: 'ou' },
   'login.google': { en: 'Sign in with Google', fr: 'Se connecter avec Google' },
-  'login.googleRedirecting': { en: 'Redirecting...', fr: 'Redirection...' },
+  'login.microsoft': { en: 'Sign in with Microsoft', fr: 'Se connecter avec Microsoft' },
+  'login.oauthRedirecting': { en: 'Redirecting...', fr: 'Redirection...' },
   'login.secure': { en: 'Secure multi-agent management interface', fr: 'Interface sécurisée de gestion multi-agents' },
 
   // Contact form

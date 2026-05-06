@@ -44,6 +44,20 @@ export const api = {
       body: JSON.stringify({ code, redirect_uri: redirectUri })
     }).then(handleResponse),
 
+  // Microsoft OAuth
+  microsoftStatus: () =>
+    fetch(`${API_BASE}/auth/microsoft/status`).then(handleResponse),
+
+  microsoftAuthUrl: (redirectUri) =>
+    fetch(`${API_BASE}/auth/microsoft/url?redirect_uri=${encodeURIComponent(redirectUri)}`).then(handleResponse),
+
+  microsoftCallback: (code, redirectUri) =>
+    fetch(`${API_BASE}/auth/microsoft/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, redirect_uri: redirectUri })
+    }).then(handleResponse),
+
   // Agents
   getAgents: () =>
     fetch(`${API_BASE}/agents`, { headers: getHeaders() }).then(handleResponse),

@@ -345,20 +345,29 @@ export default function App() {
     }
   }, []);
 
-  // Handle Google OAuth callback URL
+  // Handle OAuth callback URLs (Google + Microsoft)
   useEffect(() => {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
+    if (!code) return;
 
-    if (path === '/auth/google/callback' && code) {
+    let apiCall: Promise<any> | null = null;
+
+    if (path === '/auth/google/callback') {
       setGoogleLoading(true);
       const redirectUri = `${window.location.origin}/auth/google/callback`;
-
-      // Clean the URL immediately
       window.history.replaceState({}, '', '/');
+      apiCall = api.googleCallback(code, redirectUri);
+    } else if (path === '/auth/microsoft/callback') {
+      setGoogleLoading(true);
+      const redirectUri = `${window.location.origin}/auth/microsoft/callback`;
+      window.history.replaceState({}, '', '/');
+      apiCall = api.microsoftCallback(code, redirectUri);
+    }
 
-      api.googleCallback(code, redirectUri)
+    if (apiCall) {
+      apiCall
         .then(async (data) => {
           localStorage.setItem('token', data.token);
           setUser({ username: data.username, role: data.role, userId: data.userId, displayName: data.displayName });
@@ -367,8 +376,8 @@ export default function App() {
           await checkDbHealth();
         })
         .catch((err) => {
-          console.error('Google login failed:', err);
-          showToast(err.message || 'Google login failed', 'error');
+          console.error('OAuth login failed:', err);
+          showToast(err.message || 'Login failed', 'error');
         })
         .finally(() => {
           setGoogleLoading(false);

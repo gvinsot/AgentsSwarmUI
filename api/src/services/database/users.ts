@@ -143,6 +143,52 @@ export async function linkGoogleId(userId, googleId, avatarUrl) {
   }
 }
 
+export async function getUserByMicrosoftId(microsoftId) {
+  const pool = getPool();
+  if (!pool) return null;
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE microsoft_id = $1', [microsoftId]);
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to get user by microsoft_id:', err.message);
+    return null;
+  }
+}
+
+export async function createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role = 'basic') {
+  const pool = getPool();
+  if (!pool) throw new Error('Database not connected');
+  try {
+    const result = await pool.query(
+      `INSERT INTO users (username, password, role, display_name, microsoft_id, avatar_url)
+       VALUES ($1, NULL, $2, $3, $4, $5)
+       RETURNING id, username, role, display_name, microsoft_id, avatar_url, created_at, updated_at`,
+      [email, role, displayName || email, microsoftId, avatarUrl || null]
+    );
+    return result.rows[0];
+  } catch (err) {
+    if (err.code === '23505') throw new Error('Username already exists');
+    throw err;
+  }
+}
+
+export async function linkMicrosoftId(userId, microsoftId, avatarUrl) {
+  const pool = getPool();
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `UPDATE users SET microsoft_id = $2, avatar_url = COALESCE($3, avatar_url), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, username, role, display_name, microsoft_id, avatar_url`,
+      [userId, microsoftId, avatarUrl]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to link microsoft_id:', err.message);
+    return null;
+  }
+}
+
 export async function updateLastSeen(userId: string) {
   const pool = getPool();
   if (!pool) return;
