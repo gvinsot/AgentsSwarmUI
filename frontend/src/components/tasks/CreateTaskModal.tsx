@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, X, GitBranch, Repeat, Layers, Hand } from 'lucide-react';
+import { Plus, X, GitBranch, Cloud, Repeat, Layers, Hand } from 'lucide-react';
 import { api } from '../../api';
 import { TASK_TYPES } from './taskConstants';
 
@@ -44,6 +44,18 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
     if (!repoFullName && availableRepos.length === 1) setRepoFullName(availableRepos[0].fullName);
   }, [availableRepos, repoFullName]);
 
+  // Storages accessible via the board's OneDrive plugin
+  const [availableStorages, setAvailableStorages] = useState([]);
+  const [storageLoadError, setStorageLoadError] = useState(null);
+  const [storagePath, setStoragePath] = useState('');
+  useEffect(() => {
+    if (!boardId) { setAvailableStorages([]); return; }
+    setStorageLoadError(null);
+    api.getBoardAvailableStorages(boardId)
+      .then(setAvailableStorages)
+      .catch(err => { setAvailableStorages([]); setStorageLoadError(err.message || 'Failed to load storages'); });
+  }, [boardId]);
+
   // Auto-pick the first enabled agent as container (tasks are no longer agent-specific)
   const defaultAgentId = (agents || []).find(a => a.enabled !== false)?.id || '';
 
@@ -70,7 +82,10 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
           ? customInterval
           : RECURRENCE_PERIODS.find(p => p.value === recurrencePeriod)?.minutes || 1440,
       } : undefined;
-      const created = await api.addTask(defaultAgentId, trimmed, status, boardId, repoFullName || undefined, recurrence, taskType || undefined, isManual || undefined);
+      const storageProvider = storagePath
+        ? (availableStorages.find(s => s.path === storagePath)?.provider || 'onedrive')
+        : 'onedrive';
+      const created = await api.addTask(defaultAgentId, trimmed, status, boardId, repoFullName || undefined, recurrence, taskType || undefined, isManual || undefined, 'github', storagePath || null, storageProvider);
       // Pass the created task so the parent can optimistically insert it
       // before the next loadTasks() fetch (avoids the race where the DB
       // INSERT hasn't committed yet).
@@ -152,6 +167,33 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
             ) : (
               <p className="text-xs text-dark-500 italic px-3 py-2 bg-dark-800/40 border border-dark-700 rounded-lg">
                 Loading repos...
+              </p>
+            )}
+          </div>
+
+          {/* Storage — sourced from the board's OneDrive plugin OAuth */}
+          <div>
+            <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
+              <Cloud className="inline w-3 h-3 mr-1" />Storage
+            </label>
+            {storageLoadError ? (
+              <p className="text-xs text-amber-300 italic px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                {storageLoadError} — connect the OneDrive plugin on this board to enable the storage picker.
+              </p>
+            ) : availableStorages.length > 0 ? (
+              <select
+                value={storagePath}
+                onChange={e => setStoragePath(e.target.value)}
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200 focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                <option value="">No specific folder</option>
+                {availableStorages.map(s => (
+                  <option key={`${s.provider}:${s.path}`} value={s.path}>[{s.provider}] {s.displayName || s.path}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-dark-500 italic px-3 py-2 bg-dark-800/40 border border-dark-700 rounded-lg">
+                Loading folders...
               </p>
             )}
           </div>

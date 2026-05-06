@@ -600,6 +600,10 @@ def get_subprocess_kwargs(agent_user: dict = None) -> dict:
     by the entrypoint via setpriv. If the agent record doesn't carry a dedicated
     UID (e.g. legacy code path) we return an empty dict and the subprocess runs
     as the parent's UID.
+
+    Note: uses ``preexec_fn`` rather than ``user``/``group`` because uvloop's
+    ``subprocess_exec`` (used by FastAPI/uvicorn) does not accept those kwargs
+    even though stdlib asyncio supports them since Python 3.9.
     """
     if not agent_user:
         return {}
@@ -608,7 +612,19 @@ def get_subprocess_kwargs(agent_user: dict = None) -> dict:
     parent_uid = os.getuid()
     if uid is None or uid == parent_uid:
         return {}
-    return {"user": uid, "group": gid if gid is not None else uid}
+    target_gid = gid if gid is not None else uid
+
+    def _drop_privs() -> None:
+        # Runs in the forked child before exec().
+        try:
+            os.setgroups([target_gid])
+        except (PermissionError, OSError):
+            # Best-effort; supplementary groups require CAP_SETGID.
+            pass
+        os.setgid(target_gid)
+        os.setuid(uid)
+
+    return {"preexec_fn": _drop_privs}
 
 
 def auth_method() -> str:

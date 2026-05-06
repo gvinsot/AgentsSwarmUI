@@ -17,9 +17,9 @@ export {
 } from './database/boardRepos.js';
 export type { DerivedRepo } from './database/boardRepos.js';
 export {
-  getStoragesForBoard, getStoragesForProject, createBoardStorage, deleteBoardStorage,
+  getStoragesForBoard, getStoragesForProject,
 } from './database/boardStorages.js';
-export type { BoardStorage } from './database/boardStorages.js';
+export type { DerivedStorage } from './database/boardStorages.js';
 export { getSetting, getSettingAsync, setSetting, loadSettingsCache } from './database/settings.js';
 export {
   recordTokenUsage, getTokenUsageSummary, getTokenUsageSummaryAsync,

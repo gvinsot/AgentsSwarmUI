@@ -4,7 +4,7 @@ import {
   getAllProjects, getProjectById, getProjectByName, createProject, updateProject, deleteProject,
   getBoardsForProject, setBoardProject,
   getReposForBoard, getReposForProject, getAccessibleBoardRepos,
-  getStoragesForBoard, getStoragesForProject, createBoardStorage, deleteBoardStorage,
+  getStoragesForBoard, getStoragesForProject,
   getBoardById, getOAuthToken,
 } from '../services/database.js';
 import { readSecret } from '../secrets.js';
@@ -30,13 +30,6 @@ const projectUpdateSchema = z.object({
   description: z.string().max(10000).optional(),
   rules: z.string().max(10000).optional(),
 });
-const storageBodySchema = z.object({
-  provider: z.enum(['onedrive', 'google_drive']),
-  displayName: z.string().min(1).max(200),
-  path: z.string().max(500).optional().default(''),
-  rootId: z.string().max(200).optional().default(''),
-});
-
 export function projectRoutes() {
   const router = express.Router();
 
@@ -164,35 +157,6 @@ export function projectRoutes() {
     }
   });
 
-  router.post('/boards/:boardId/storages', async (req, res) => {
-    try {
-      const body = storageBodySchema.parse(req.body);
-      const board = await getBoardById(req.params.boardId);
-      if (!board) return res.status(404).json({ error: 'Board not found' });
-      const storage = await createBoardStorage(
-        req.params.boardId,
-        body.provider,
-        body.displayName,
-        body.path || null,
-        body.rootId || null
-      );
-      res.status(201).json(storage);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ error: 'Validation failed', details: err.issues });
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.delete('/boards/:boardId/storages/:storageId', async (req, res) => {
-    try {
-      const ok = await deleteBoardStorage(req.params.storageId);
-      if (!ok) return res.status(404).json({ error: 'Storage not found' });
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   // ── (Global) repos pool used by agent pickers (Add Agent, Broadcast) ─────
   // Returns the distinct union of repos used by tasks on boards the user can access.
   router.get('/available-repos', async (req: any, res) => {
@@ -264,6 +228,57 @@ export function projectRoutes() {
     } catch (err: any) {
       console.error('Failed to list board repos:', err.message);
       res.status(500).json({ error: 'Failed to list repos' });
+    }
+  });
+
+  // (Board-scoped) Storage roots accessible via the board's OneDrive plugin.
+  // Returns the top-level folders of the connected user's OneDrive — used to
+  // populate the storage picker on tasks. Google Drive is not currently wired
+  // into the per-board OAuth store and is therefore omitted.
+  router.get('/boards/:boardId/available-storages', async (req, res) => {
+    try {
+      const board = await getBoardById(req.params.boardId);
+      if (!board) return res.status(404).json({ error: 'Board not found' });
+
+      const tok = getOAuthToken('onedrive', 'board', req.params.boardId);
+      if (!tok || !tok.accessToken) {
+        return res.status(400).json({
+          error: 'No OneDrive plugin connected on this board',
+          code: 'ONEDRIVE_NOT_CONNECTED',
+        });
+      }
+
+      const headers = {
+        Authorization: `Bearer ${tok.accessToken}`,
+        Accept: 'application/json',
+        'User-Agent': 'PulsarTeam',
+      };
+
+      const ghRes = await fetch(
+        // Top-level items, sort by name. Folder filter is applied client-side
+        // because Graph's `$filter=folder ne null` requires a specific header.
+        `https://graph.microsoft.com/v1.0/me/drive/root/children?$top=200&$orderby=name&$select=id,name,folder,parentReference,webUrl`,
+        { headers }
+      );
+      if (!ghRes.ok) {
+        const body = await ghRes.text();
+        console.error(`[OneDrive] /me/drive/root/children failed (${ghRes.status}):`, body.slice(0, 200));
+        return res.status(502).json({ error: `OneDrive API ${ghRes.status}` });
+      }
+      const data = await ghRes.json();
+      const items = Array.isArray(data?.value) ? data.value : [];
+      const folders = items.filter((i: any) => i.folder).map((i: any) => ({
+        provider: 'onedrive',
+        path: `/${i.name}`,
+        displayName: i.name,
+        webUrl: i.webUrl || null,
+      }));
+      // Always include the drive root as a target option
+      const out = [{ provider: 'onedrive', path: '/', displayName: 'Drive root', webUrl: null }, ...folders];
+      res.json(out);
+    } catch (err: any) {
+      console.error('Failed to list board storages:', err.message);
+      res.status(500).json({ error: 'Failed to list storages' });
     }
   });
 

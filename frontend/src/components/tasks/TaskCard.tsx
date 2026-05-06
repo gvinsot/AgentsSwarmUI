@@ -335,6 +335,11 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onC
             {task.repoFullName.split('/').pop()}
           </span>
         )}
+        {task.storagePath && (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20" title={`Storage: ${task.storagePath}`}>
+            {task.storagePath.split('/').filter(Boolean).pop() || task.storagePath}
+          </span>
+        )}
         {showTaskType && task.taskType && TASK_TYPE_MAP[task.taskType] && (() => {
           const tt = TASK_TYPE_MAP[task.taskType];
           const Icon = tt.icon;

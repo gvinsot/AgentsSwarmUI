@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Trash2, X, AlertTriangle, Edit3, Save, Check, Tag, Calendar,
-  ChevronDown, Zap, User, GitCommit, GitBranch, Repeat, FolderKanban, Loader2, Layers,
+  ChevronDown, Zap, User, GitCommit, GitBranch, Cloud, Repeat, FolderKanban, Loader2, Layers,
   ArrowRight, Hand, Pause, XCircle, MessageSquare,
 } from 'lucide-react';
 import { api, updateTask as updateTaskById } from '../../api';
@@ -21,6 +21,10 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
   const [savingRepo, setSavingRepo] = useState(false);
   const [availableRepos, setAvailableRepos] = useState([]);
   const [repoLoadError, setRepoLoadError] = useState(null);
+  const [editingStorage, setEditingStorage] = useState(false);
+  const [savingStorage, setSavingStorage] = useState(false);
+  const [availableStorages, setAvailableStorages] = useState([]);
+  const [storageLoadError, setStorageLoadError] = useState(null);
   const [editingAgent, setEditingAgent] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [editingType, setEditingType] = useState(false);
@@ -45,6 +49,16 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
     api.getBoardAvailableRepos(bid)
       .then(setAvailableRepos)
       .catch(err => { setAvailableRepos([]); setRepoLoadError(err.message || 'Failed to load repos'); });
+  }, [task.boardId]);
+
+  // Load storage roots via the board's OneDrive plugin
+  useEffect(() => {
+    const bid = task.boardId;
+    if (!bid) { setAvailableStorages([]); return; }
+    setStorageLoadError(null);
+    api.getBoardAvailableStorages(bid)
+      .then(setAvailableStorages)
+      .catch(err => { setAvailableStorages([]); setStorageLoadError(err.message || 'Failed to load storages'); });
   }, [task.boardId]);
 
   // Focus textarea when entering edit mode
@@ -119,6 +133,21 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
       setEditingRepo(false);
     } finally {
       setSavingRepo(false);
+    }
+  };
+
+  const handleStorageChange = async (newPath) => {
+    if ((newPath || null) === (task.storagePath || null)) { setEditingStorage(false); return; }
+    setSavingStorage(true);
+    try {
+      const provider = newPath
+        ? (availableStorages.find(s => s.path === newPath)?.provider || 'onedrive')
+        : 'onedrive';
+      await api.updateTaskStorage(task.agentId, task.id, newPath || null, provider);
+      await onRefresh();
+      setEditingStorage(false);
+    } finally {
+      setSavingStorage(false);
     }
   };
 
@@ -494,6 +523,59 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
                       onClick={() => setEditingRepo(true)}
                       className="p-0.5 rounded text-dark-500 hover:text-indigo-400 hover:bg-dark-700 transition-colors"
                       title="Change repo"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Storage (editable, scoped to the board's OneDrive plugin) */}
+            <div className="flex items-center justify-between py-2 border-b border-dark-800">
+              <div className="flex items-center gap-2 text-xs text-dark-400">
+                <Cloud className="w-3.5 h-3.5" />
+                Storage
+              </div>
+              {editingStorage ? (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    autoFocus
+                    defaultValue={task.storagePath || ''}
+                    onChange={e => handleStorageChange(e.target.value || null)}
+                    disabled={savingStorage || availableStorages.length === 0}
+                    className="px-2 py-0.5 bg-dark-800 border border-amber-500/50 rounded text-xs text-dark-200 focus:outline-none focus:border-amber-500 transition-colors"
+                  >
+                    <option value="">None</option>
+                    {availableStorages.map(s => (
+                      <option key={`${s.provider}:${s.path}`} value={s.path}>[{s.provider}] {s.displayName || s.path}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setEditingStorage(false)}
+                    className="p-0.5 rounded text-dark-500 hover:text-dark-300 hover:bg-dark-700 transition-colors"
+                    title="Cancel"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  {task.storagePath ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium
+                      bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
+                      {task.storagePath}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-dark-500 italic">None</span>
+                  )}
+                  {storageLoadError ? (
+                    <span className="text-[10px] text-amber-400 italic" title={storageLoadError}>onedrive plugin off</span>
+                  ) : (
+                    <button
+                      onClick={() => setEditingStorage(true)}
+                      className="p-0.5 rounded text-dark-500 hover:text-amber-400 hover:bg-dark-700 transition-colors"
+                      title="Change storage"
                     >
                       <Edit3 className="w-3 h-3" />
                     </button>

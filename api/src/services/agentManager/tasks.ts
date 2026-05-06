@@ -42,7 +42,7 @@ export function purgeStaleTaskSignals(activeTaskIds: Set<string>): void {
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {
 
-  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoFullName, repoProvider, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; repoFullName?: string | null; repoProvider?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
+  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoFullName, repoProvider, storagePath, storageProvider, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; repoFullName?: string | null; repoProvider?: string | null; storagePath?: string | null; storageProvider?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const defaultStatus = 'backlog';
@@ -55,6 +55,8 @@ export const tasksMethods = {
       // project is derived server-side from board.project_id; no longer stored on the task
       repoFullName: repoFullName || null,
       repoProvider: repoFullName ? (repoProvider || 'github') : null,
+      storagePath: storagePath || null,
+      storageProvider: storagePath ? (storageProvider || 'onedrive') : null,
       source: source || null,
       boardId: boardId || null,
       isManual: isManual || false,
@@ -203,6 +205,21 @@ export const tasksMethods = {
     task.repoProvider = repoFullName ? (repoProvider || task.repoProvider || 'github') : null;
     if (!task.history) task.history = [];
     task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'repoFullName', oldValue: oldFullName, newValue: repoFullName || null });
+    saveTaskToDb({ ...task, agentId });
+    this._emit('agent:updated', this._sanitize(agent));
+    return task;
+  },
+
+  updateTaskStorage(this: any, agentId: string, taskId: string, storagePath: string | null, storageProvider: string | null = null): any {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const task = this._getAgentTasks(agentId).find((t: any) => t.id === taskId);
+    if (!task) return null;
+    const oldPath = task.storagePath || null;
+    task.storagePath = storagePath || null;
+    task.storageProvider = storagePath ? (storageProvider || task.storageProvider || 'onedrive') : null;
+    if (!task.history) task.history = [];
+    task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'storagePath', oldValue: oldPath, newValue: storagePath || null });
     saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
@@ -431,7 +448,7 @@ export const tasksMethods = {
     this._removeTaskFromStore(fromAgentId, taskId);
     deleteTaskFromDb(taskId);
     this._emit('agent:updated', this._sanitize(fromAgent));
-    const newTask = this.addTask(toAgentId, taskToTransfer.text, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus, { boardId: taskToTransfer.boardId, repoFullName: taskToTransfer.repoFullName, repoProvider: taskToTransfer.repoProvider });
+    const newTask = this.addTask(toAgentId, taskToTransfer.text, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus, { boardId: taskToTransfer.boardId, repoFullName: taskToTransfer.repoFullName, repoProvider: taskToTransfer.repoProvider, storagePath: taskToTransfer.storagePath, storageProvider: taskToTransfer.storageProvider });
     if (newTask) {
       newTask.assignee = toAgentId;
       saveTaskToDb({ ...newTask, agentId: toAgentId });

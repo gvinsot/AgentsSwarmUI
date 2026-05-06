@@ -161,7 +161,7 @@ export const api = {
     }).then(handleResponse),
 
   // Tasks
-  addTask: (agentId, text, status, boardId, repoFullName, recurrence, taskType, isManual, repoProvider = 'github') =>
+  addTask: (agentId, text, status, boardId, repoFullName, recurrence, taskType, isManual, repoProvider = 'github', storagePath = null, storageProvider = 'onedrive') =>
     fetch(`${API_BASE}/agents/${agentId}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
@@ -170,6 +170,7 @@ export const api = {
         ...(status && { status }),
         ...(boardId && { boardId }),
         ...(repoFullName && { repoFullName, repoProvider }),
+        ...(storagePath && { storagePath, storageProvider }),
         ...(recurrence && { recurrence }),
         ...(taskType && { taskType }),
         ...(isManual && { isManual }),
@@ -241,6 +242,13 @@ export const api = {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ repoFullName: repoFullName || null, repoProvider: repoFullName ? repoProvider : null })
+    }).then(handleResponse),
+
+  updateTaskStorage: (agentId, taskId, storagePath, storageProvider = 'onedrive') =>
+    fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ storagePath: storagePath || null, storageProvider: storagePath ? storageProvider : null })
     }).then(handleResponse),
 
   addTaskCommit: (agentId, taskId, hash, message) =>
@@ -540,22 +548,13 @@ export const api = {
   getBoardRepos: (boardId) =>
     fetch(`${API_BASE}/projects/boards/${boardId}/repos`, { headers: getHeaders() }).then(handleResponse),
 
-  // Board storages (OneDrive / Google Drive)
+  // Board storages — read-only; derived from tasks on the board
   getBoardStorages: (boardId) =>
     fetch(`${API_BASE}/projects/boards/${boardId}/storages`, { headers: getHeaders() }).then(handleResponse),
 
-  addBoardStorage: (boardId, storage) =>
-    fetch(`${API_BASE}/projects/boards/${boardId}/storages`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(storage)
-    }).then(handleResponse),
-
-  removeBoardStorage: (boardId, storageId) =>
-    fetch(`${API_BASE}/projects/boards/${boardId}/storages/${storageId}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
+  // Storages accessible via the board's OneDrive plugin OAuth token (picker source)
+  getBoardAvailableStorages: (boardId) =>
+    fetch(`${API_BASE}/projects/boards/${boardId}/available-storages`, { headers: getHeaders() }).then(handleResponse),
 
   // Available repos from configured git connections (for the picker)
   getAvailableRepos: () =>

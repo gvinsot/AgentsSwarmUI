@@ -28,6 +28,9 @@ export function rowToTask(row) {
     repoProvider: row.repo_provider || null,
     repoFullName: row.repo_full_name || null,
     repoHtmlUrl: row.repo_full_name ? `https://github.com/${row.repo_full_name}` : null,
+    // Storage lives directly on the task — picked from the board's OneDrive/Drive plugin
+    storageProvider: row.storage_provider || null,
+    storagePath: row.storage_path || null,
     assignee: row.assignee || null,
     taskType: row.task_type || undefined,
     priority: row.priority || undefined,
@@ -118,20 +121,22 @@ async function _doSaveTask(task) {
   const pool = getPool();
   try {
     await pool.query(
-      `INSERT INTO tasks (id, agent_id, text, title, status, repo_provider, repo_full_name, board_id, assignee,
+      `INSERT INTO tasks (id, agent_id, text, title, status, repo_provider, repo_full_name,
+                          storage_provider, storage_path, board_id, assignee,
                           task_type, priority, due_date, source, recurrence, commits, history,
                           error, created_at, updated_at, completed_at, started_at,
                           execution_status, completed_action_idx, action_running, action_running_agent_id,
                           action_running_mode, error_from_status, is_manual, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
        ON CONFLICT (id) DO UPDATE SET
          text = $3, title = $4, status = $5, repo_provider = $6, repo_full_name = $7,
-         board_id = $8, assignee = $9,
-         task_type = $10, priority = $11, due_date = $12, source = $13, recurrence = $14,
-         commits = $15, history = $16, error = $17, updated_at = NOW(),
-         completed_at = $19, started_at = $20,
-         execution_status = $21, completed_action_idx = $22, action_running = $23, action_running_agent_id = $24,
-         action_running_mode = $25, error_from_status = $26, is_manual = $27, position = $28`,
+         storage_provider = $8, storage_path = $9,
+         board_id = $10, assignee = $11,
+         task_type = $12, priority = $13, due_date = $14, source = $15, recurrence = $16,
+         commits = $17, history = $18, error = $19, updated_at = NOW(),
+         completed_at = $21, started_at = $22,
+         execution_status = $23, completed_action_idx = $24, action_running = $25, action_running_agent_id = $26,
+         action_running_mode = $27, error_from_status = $28, is_manual = $29, position = $30`,
       [
         task.id,
         task.agentId,
@@ -140,6 +145,8 @@ async function _doSaveTask(task) {
         task.status || 'backlog',
         task.repoProvider || (task.repoFullName ? 'github' : null),
         task.repoFullName || null,
+        task.storageProvider || (task.storagePath ? 'onedrive' : null),
+        task.storagePath || null,
         task.boardId || null,
         task.assignee || null,
         task.taskType || null,
@@ -609,7 +616,8 @@ export async function updateTaskFields(taskId, fields) {
   const pool = getPool();
   if (!pool) return null;
   const allowed = [
-    'text', 'title', 'status', 'repo_provider', 'repo_full_name', 'board_id', 'assignee',
+    'text', 'title', 'status', 'repo_provider', 'repo_full_name', 'storage_provider', 'storage_path',
+    'board_id', 'assignee',
     'task_type', 'priority', 'due_date', 'source', 'recurrence',
     'commits', 'history', 'error', 'completed_at', 'started_at',
     'execution_status', 'completed_action_idx', 'action_running', 'action_running_agent_id',
@@ -624,6 +632,7 @@ export async function updateTaskFields(taskId, fields) {
     actionRunning: 'action_running', actionRunningAgentId: 'action_running_agent_id',
     actionRunningMode: 'action_running_mode', errorFromStatus: 'error_from_status',
     isManual: 'is_manual', repoProvider: 'repo_provider', repoFullName: 'repo_full_name',
+    storageProvider: 'storage_provider', storagePath: 'storage_path',
   };
   const sets = [];
   const values = [taskId];

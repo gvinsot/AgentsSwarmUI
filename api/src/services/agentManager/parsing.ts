@@ -1,5 +1,5 @@
 // ─── Parsing: _parseAskCommands, _listAvailableProjects ──
-import { getAccessibleBoardRepos } from '../database.js';
+import { getAccessibleBoardRepos } from '../database/boardRepos.js';
 
 /** @this {import('./index.js').AgentManager} */
 export const parsingMethods = {

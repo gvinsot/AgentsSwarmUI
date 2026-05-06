@@ -323,21 +323,6 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('CREATE INDEX IF NOT EXISTS idx_boards_project ON boards(project_id)').catch(() => {});
       console.log('✅ Projects table ready');
 
-      // ── Board cloud-storage links table ───────────────────────────────────
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS board_storages (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          board_id UUID NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-          provider TEXT NOT NULL,
-          display_name TEXT NOT NULL DEFAULT '',
-          path TEXT,
-          root_id TEXT,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
-      await pool.query('CREATE INDEX IF NOT EXISTS idx_board_storages_board ON board_storages(board_id)').catch(() => {});
-      console.log('✅ Board storages table ready');
-
       // Drop legacy project_contexts table — replaced by projects + board_repos
       await pool.query('DROP TABLE IF EXISTS project_contexts').catch(() => {});
 
@@ -350,8 +335,15 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repo_full_name TEXT').catch(() => {});
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo_full_name)').catch(() => {});
 
-      // Drop legacy table (replaced by per-task repo + board GitHub plugin)
+      // Storage targeting: same model as repos — picker comes from the board's
+      // OneDrive/Google Drive plugin OAuth, value lives directly on the task.
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS storage_provider TEXT').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS storage_path TEXT').catch(() => {});
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_storage ON tasks(storage_path)').catch(() => {});
+
+      // Drop legacy tables (replaced by per-task fields + board plugins)
       await pool.query('DROP TABLE IF EXISTS board_repos CASCADE').catch(() => {});
+      await pool.query('DROP TABLE IF EXISTS board_storages CASCADE').catch(() => {});
 
       // ── Finalize ──────────────────────────────────────────────────────────
       setPool(pool);

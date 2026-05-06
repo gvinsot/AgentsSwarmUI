@@ -110,7 +110,7 @@ export default function ProjectDetailModal({ projectId, agents = [], onClose, on
               {activeTab === 'overview' && <OverviewTab project={project} agents={projectAgents} />}
               {activeTab === 'boards' && <BoardsTab project={project} onChanged={handleChanged} />}
               {activeTab === 'repos' && <ReposTab project={project} />}
-              {activeTab === 'storage' && <StoragesTab project={project} onChanged={handleChanged} />}
+              {activeTab === 'storage' && <StoragesTab project={project} />}
               {activeTab === 'context' && <ContextTab project={project} onSaved={handleChanged} />}
               {activeTab === 'statistics' && <StatisticsTab project={project} />}
             </>
@@ -298,121 +298,30 @@ function ReposTab({ project }) {
 }
 
 /* ── Storages ─────────────────────────────────────────────────────────────── */
-function StoragesTab({ project, onChanged }) {
+// Read-only — storages are derived from the tasks of the project's boards.
+function StoragesTab({ project }) {
   const boards = project.boards || [];
+  const storages = project.storages || [];
+
   if (boards.length === 0) {
-    return <p className="text-dark-500 text-sm">Link at least one board first to attach cloud storage.</p>;
+    return <p className="text-dark-500 text-sm">Link at least one board first; storages will appear automatically as tasks are assigned to them.</p>;
   }
   return (
-    <div className="space-y-6 max-w-4xl">
-      {boards.map(b => (
-        <BoardStoragesPanel key={b.id} board={b} onChanged={onChanged} />
-      ))}
-    </div>
-  );
-}
-
-function BoardStoragesPanel({ board, onChanged }) {
-  const [storages, setStorages] = useState([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ provider: 'onedrive', displayName: '', path: '' });
-
-  const reload = useCallback(async () => {
-    const list = await api.getBoardStorages(board.id).catch(() => []);
-    setStorages(list);
-  }, [board.id]);
-  useEffect(() => { reload(); }, [reload]);
-
-  const onAdd = async () => {
-    if (!draft.displayName.trim()) return;
-    setBusy(true);
-    try {
-      await api.addBoardStorage(board.id, draft);
-      setShowAdd(false);
-      setDraft({ provider: 'onedrive', displayName: '', path: '' });
-      await reload();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRemove = async (id) => {
-    setBusy(true);
-    try { await api.removeBoardStorage(board.id, id); await reload(); onChanged(); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="bg-dark-800 border border-dark-700 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-dark-100">
-          <KanbanSquare size={14} className="text-blue-400" />
-          {board.name}
-        </div>
-        <button
-          onClick={() => setShowAdd(s => !s)}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs bg-amber-600/80 hover:bg-amber-500 text-white rounded transition-colors"
-        >
-          <Plus size={12} /> Add Storage
-        </button>
-      </div>
-
-      {showAdd && (
-        <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <select
-            value={draft.provider}
-            onChange={e => setDraft(d => ({ ...d, provider: e.target.value }))}
-            className="bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm text-dark-100"
-          >
-            <option value="onedrive">OneDrive</option>
-            <option value="google_drive">Google Drive</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Display name"
-            value={draft.displayName}
-            onChange={e => setDraft(d => ({ ...d, displayName: e.target.value }))}
-            className="bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm text-dark-100"
-          />
-          <input
-            type="text"
-            placeholder="Path / folder ID (optional)"
-            value={draft.path}
-            onChange={e => setDraft(d => ({ ...d, path: e.target.value }))}
-            className="bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm text-dark-100"
-          />
-          <button
-            onClick={onAdd}
-            disabled={busy || !draft.displayName.trim()}
-            className="sm:col-span-3 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-50"
-          >
-            Add
-          </button>
-        </div>
-      )}
-
+    <div className="space-y-4 max-w-4xl">
+      <p className="text-xs text-dark-400">
+        Storages shown here are deduced from the tasks across this project's boards. Pick a folder on each task (the picker is sourced from the board's OneDrive plugin).
+      </p>
       {storages.length === 0 ? (
-        <p className="text-dark-500 text-sm">No storage linked to this board.</p>
+        <p className="text-dark-500 text-sm">No storage used by tasks yet.</p>
       ) : (
         <ul className="space-y-1.5">
           {storages.map(s => (
-            <li key={s.id} className="flex items-center justify-between bg-dark-700/50 border border-dark-600 rounded-lg px-3 py-2">
+            <li key={`${s.provider}:${s.path}`} className="flex items-center bg-dark-800 border border-dark-700 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 text-sm text-dark-100 min-w-0">
                 <Cloud size={14} className="text-amber-400 shrink-0" />
-                <span className="truncate">{s.display_name}</span>
+                <span className="truncate">{s.path}</span>
                 <span className="text-xs text-dark-500">[{s.provider}]</span>
-                {s.path && <span className="text-xs text-dark-400 truncate">— {s.path}</span>}
               </div>
-              <button
-                onClick={() => onRemove(s.id)}
-                disabled={busy}
-                className="p-1 rounded hover:bg-red-600/20 text-dark-400 hover:text-red-400 transition-colors disabled:opacity-50"
-                title="Remove"
-              >
-                <Trash2 size={14} />
-              </button>
             </li>
           ))}
         </ul>

@@ -1,61 +1,52 @@
 import { getPool } from './connection.js';
 
-export interface BoardStorage {
-  id: string;
-  board_id: string;
+/**
+ * Storages used on PulsarTeam are not stored explicitly — they're derived from
+ * the `storage_path` actually assigned to tasks. The picker list (when creating
+ * a task) comes from the board's OneDrive (or other) plugin OAuth token.
+ */
+
+export interface DerivedStorage {
   provider: string;
-  display_name: string;
-  path: string | null;
-  root_id: string | null;
-  created_at: string;
+  path: string;
 }
 
-export async function getStoragesForBoard(boardId: string): Promise<BoardStorage[]> {
+function rowToStorage(row: any): DerivedStorage {
+  return {
+    provider: row.storage_provider || 'onedrive',
+    path: row.storage_path as string,
+  };
+}
+
+/** Distinct storages in use by non-deleted tasks across the boards of one project. */
+export async function getStoragesForProject(projectId: string): Promise<DerivedStorage[]> {
   const pool = getPool();
   if (!pool) return [];
   const result = await pool.query(
-    `SELECT id, board_id, provider, display_name, path, root_id, created_at
-     FROM board_storages WHERE board_id = $1 ORDER BY created_at`,
-    [boardId]
-  );
-  return result.rows;
-}
-
-export async function getStoragesForProject(projectId: string): Promise<BoardStorage[]> {
-  const pool = getPool();
-  if (!pool) return [];
-  const result = await pool.query(
-    `SELECT bs.id, bs.board_id, bs.provider, bs.display_name, bs.path, bs.root_id, bs.created_at
-     FROM board_storages bs
-     JOIN boards b ON bs.board_id = b.id
+    `SELECT DISTINCT t.storage_provider, t.storage_path
+     FROM tasks t
+     JOIN boards b ON t.board_id = b.id
      WHERE b.project_id = $1
-     ORDER BY bs.created_at`,
+       AND t.storage_path IS NOT NULL
+       AND t.deleted_at IS NULL
+     ORDER BY t.storage_path`,
     [projectId]
   );
-  return result.rows;
+  return result.rows.map(rowToStorage);
 }
 
-export async function createBoardStorage(
-  boardId: string,
-  provider: string,
-  displayName: string,
-  path: string | null,
-  rootId: string | null
-): Promise<BoardStorage> {
+/** Distinct storages in use by non-deleted tasks of one board. */
+export async function getStoragesForBoard(boardId: string): Promise<DerivedStorage[]> {
   const pool = getPool();
-  if (!pool) throw new Error('Database not connected');
+  if (!pool) return [];
   const result = await pool.query(
-    `INSERT INTO board_storages (board_id, provider, display_name, path, root_id)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, board_id, provider, display_name, path, root_id, created_at`,
-    [boardId, provider, displayName, path, rootId]
+    `SELECT DISTINCT t.storage_provider, t.storage_path
+     FROM tasks t
+     WHERE t.board_id = $1
+       AND t.storage_path IS NOT NULL
+       AND t.deleted_at IS NULL
+     ORDER BY t.storage_path`,
+    [boardId]
   );
-  return result.rows[0];
-}
-
-export async function deleteBoardStorage(id: string): Promise<boolean> {
-  const pool = getPool();
-  if (!pool) return false;
-  const result = await pool.query('DELETE FROM board_storages WHERE id = $1', [id]);
-  return (result.rowCount ?? 0) > 0;
+  return result.rows.map(rowToStorage);
 }

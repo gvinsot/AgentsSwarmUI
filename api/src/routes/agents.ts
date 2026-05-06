@@ -335,7 +335,7 @@ export function agentRoutes(agentManager) {
   // ── Task endpoints ──────────────────────────────────────────────────────
   router.post('/:id/tasks', requireAgentAccess, async (req, res) => {
     try {
-      const { text, source, status, boardId, repoFullName, repoProvider, recurrence, taskType, isManual } = req.body;
+      const { text, source, status, boardId, repoFullName, repoProvider, storageProvider, storagePath, recurrence, taskType, isManual } = req.body;
       if (!text) return res.status(400).json({ error: 'Text required' });
       const agent = agentManager.agents.get(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -373,11 +373,19 @@ export function agentRoutes(agentManager) {
         : null;
       const resolvedRepoProvider = resolvedRepoFullName ? (repoProvider || 'github') : null;
 
-      console.log(`[CreateTask] POST /:id/tasks — status="${status}", boardId="${boardId}", repo="${resolvedRepoFullName || ''}" text="${(text || '').slice(0, 60)}"`);
+      // Storage path comes from the board's OneDrive plugin picker.
+      const resolvedStoragePath: string | null = (typeof storagePath === 'string' && storagePath.trim().length > 0)
+        ? storagePath.trim().slice(0, 500)
+        : null;
+      const resolvedStorageProvider = resolvedStoragePath ? (storageProvider || 'onedrive') : null;
+
+      console.log(`[CreateTask] POST /:id/tasks — status="${status}", boardId="${boardId}", repo="${resolvedRepoFullName || ''}", storage="${resolvedStoragePath || ''}" text="${(text || '').slice(0, 60)}"`);
       const task = agentManager.addTask(req.params.id, text, resolvedSource, resolvedStatus, {
         boardId: resolvedBoardId,
         repoFullName: resolvedRepoFullName,
         repoProvider: resolvedRepoProvider,
+        storagePath: resolvedStoragePath,
+        storageProvider: resolvedStorageProvider,
         recurrence: recurrence || undefined,
         taskType: taskType || undefined,
         isManual: isManual || false,
@@ -392,7 +400,7 @@ export function agentRoutes(agentManager) {
 
   router.patch('/:id/tasks/:taskId', requireAgentAccess, async (req, res) => {
     try {
-    const { status, text, title, repoFullName, repoProvider, source, recurrence, taskType, isManual } = req.body || {};
+    const { status, text, title, repoFullName, repoProvider, storageProvider, storagePath, source, recurrence, taskType, isManual } = req.body || {};
     // Source is immutable once set at creation — reject any attempt to change it
     if (source !== undefined) {
       return res.status(400).json({ error: 'Source cannot be modified after creation' });
@@ -439,6 +447,12 @@ export function agentRoutes(agentManager) {
       // Format check only — the picker is sourced from the board's GitHub plugin.
       const value = repoFullName && /^[\w.-]+\/[\w.-]+$/.test(repoFullName) ? repoFullName : null;
       task = agentManager.updateTaskRepo(req.params.id, req.params.taskId, value, repoProvider || (value ? 'github' : null));
+    } else if (storagePath !== undefined) {
+      // Picker sourced from the board's OneDrive plugin; just length-check.
+      const value = (typeof storagePath === 'string' && storagePath.trim().length > 0)
+        ? storagePath.trim().slice(0, 500)
+        : null;
+      task = agentManager.updateTaskStorage(req.params.id, req.params.taskId, value, storageProvider || (value ? 'onedrive' : null));
     } else if (status) {
       task = agentManager.setTaskStatus(req.params.id, req.params.taskId, status);
     } else if (recurrence !== undefined) {
