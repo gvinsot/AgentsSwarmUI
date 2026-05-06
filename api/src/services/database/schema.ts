@@ -323,22 +323,6 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       await pool.query('CREATE INDEX IF NOT EXISTS idx_boards_project ON boards(project_id)').catch(() => {});
       console.log('✅ Projects table ready');
 
-      // ── Board git repos table ─────────────────────────────────────────────
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS board_repos (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          board_id UUID NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-          provider TEXT NOT NULL,
-          full_name TEXT NOT NULL,
-          html_url TEXT,
-          default_branch TEXT,
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          UNIQUE(board_id, provider, full_name)
-        )
-      `);
-      await pool.query('CREATE INDEX IF NOT EXISTS idx_board_repos_board ON board_repos(board_id)').catch(() => {});
-      console.log('✅ Board repos table ready');
-
       // ── Board cloud-storage links table ───────────────────────────────────
       await pool.query(`
         CREATE TABLE IF NOT EXISTS board_storages (
@@ -357,12 +341,17 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Drop legacy project_contexts table — replaced by projects + board_repos
       await pool.query('DROP TABLE IF EXISTS project_contexts').catch(() => {});
 
-      // ── Tasks: drop legacy project text column, add repo_id ───────────────
-      // task.project is now derived from board.project_id at read-time (JOIN).
-      // task.repo_id targets a specific board repo for execution context.
+      // ── Tasks: project is derived from board.project_id at read-time. ────
+      // Repo is stored directly on the task as (repo_provider, repo_full_name) —
+      // the picker reads from the board's GitHub plugin OAuth, no intermediate table.
       await pool.query('ALTER TABLE tasks DROP COLUMN IF EXISTS project').catch(() => {});
-      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repo_id UUID REFERENCES board_repos(id) ON DELETE SET NULL').catch(() => {});
-      await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo_id)').catch(() => {});
+      await pool.query('ALTER TABLE tasks DROP COLUMN IF EXISTS repo_id').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repo_provider TEXT').catch(() => {});
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repo_full_name TEXT').catch(() => {});
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo_full_name)').catch(() => {});
+
+      // Drop legacy table (replaced by per-task repo + board GitHub plugin)
+      await pool.query('DROP TABLE IF EXISTS board_repos CASCADE').catch(() => {});
 
       // ── Finalize ──────────────────────────────────────────────────────────
       setPool(pool);

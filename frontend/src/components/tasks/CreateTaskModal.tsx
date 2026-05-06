@@ -28,17 +28,21 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef(null);
 
-  // Repos linked to the board — task can target one of them
-  const [boardRepos, setBoardRepos] = useState([]);
-  const [repoId, setRepoId] = useState('');
+  // Repos accessible via the board's GitHub plugin — task targets one of them
+  const [availableRepos, setAvailableRepos] = useState([]);
+  const [repoLoadError, setRepoLoadError] = useState(null);
+  const [repoFullName, setRepoFullName] = useState('');
   useEffect(() => {
-    if (!boardId) { setBoardRepos([]); return; }
-    api.getBoardRepos(boardId).then(setBoardRepos).catch(() => setBoardRepos([]));
+    if (!boardId) { setAvailableRepos([]); return; }
+    setRepoLoadError(null);
+    api.getBoardAvailableRepos(boardId)
+      .then(setAvailableRepos)
+      .catch(err => { setAvailableRepos([]); setRepoLoadError(err.message || 'Failed to load repos'); });
   }, [boardId]);
   // Default to the only repo when there's exactly one
   useEffect(() => {
-    if (!repoId && boardRepos.length === 1) setRepoId(boardRepos[0].id);
-  }, [boardRepos, repoId]);
+    if (!repoFullName && availableRepos.length === 1) setRepoFullName(availableRepos[0].fullName);
+  }, [availableRepos, repoFullName]);
 
   // Auto-pick the first enabled agent as container (tasks are no longer agent-specific)
   const defaultAgentId = (agents || []).find(a => a.enabled !== false)?.id || '';
@@ -66,7 +70,7 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
           ? customInterval
           : RECURRENCE_PERIODS.find(p => p.value === recurrencePeriod)?.minutes || 1440,
       } : undefined;
-      const created = await api.addTask(defaultAgentId, trimmed, status, boardId, repoId || undefined, recurrence, taskType || undefined, isManual || undefined);
+      const created = await api.addTask(defaultAgentId, trimmed, status, boardId, repoFullName || undefined, recurrence, taskType || undefined, isManual || undefined);
       // Pass the created task so the parent can optimistically insert it
       // before the next loadTasks() fetch (avoids the race where the DB
       // INSERT hasn't committed yet).
@@ -125,25 +129,29 @@ export default function CreateTaskModal({ agents, onClose, onCreated, statusOpti
             </div>
           )}
 
-          {/* Repo (optional, scoped to the board's repos) */}
+          {/* Repo — sourced from the board's GitHub plugin OAuth */}
           <div>
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wide mb-1.5">
               <GitBranch className="inline w-3 h-3 mr-1" />Repo
             </label>
-            {boardRepos.length > 0 ? (
+            {repoLoadError ? (
+              <p className="text-xs text-amber-300 italic px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                {repoLoadError} — connect the GitHub plugin on this board to enable the repo picker.
+              </p>
+            ) : availableRepos.length > 0 ? (
               <select
-                value={repoId}
-                onChange={e => setRepoId(e.target.value)}
+                value={repoFullName}
+                onChange={e => setRepoFullName(e.target.value)}
                 className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-dark-200 focus:outline-none focus:border-indigo-500 transition-colors"
               >
                 <option value="">No specific repo</option>
-                {boardRepos.map(r => (
-                  <option key={r.id} value={r.id}>[{r.provider}] {r.full_name}</option>
+                {availableRepos.map(r => (
+                  <option key={r.fullName} value={r.fullName}>[{r.provider}] {r.fullName}</option>
                 ))}
               </select>
             ) : (
               <p className="text-xs text-dark-500 italic px-3 py-2 bg-dark-800/40 border border-dark-700 rounded-lg">
-                No repo linked to this board. Open the project's Repos tab to add one.
+                Loading repos...
               </p>
             )}
           </div>

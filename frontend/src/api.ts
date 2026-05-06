@@ -161,11 +161,19 @@ export const api = {
     }).then(handleResponse),
 
   // Tasks
-  addTask: (agentId, text, status, boardId, repoId, recurrence, taskType, isManual) =>
+  addTask: (agentId, text, status, boardId, repoFullName, recurrence, taskType, isManual, repoProvider = 'github') =>
     fetch(`${API_BASE}/agents/${agentId}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ text, ...(status && { status }), ...(boardId && { boardId }), ...(repoId && { repoId }), ...(recurrence && { recurrence }), ...(taskType && { taskType }), ...(isManual && { isManual }) })
+      body: JSON.stringify({
+        text,
+        ...(status && { status }),
+        ...(boardId && { boardId }),
+        ...(repoFullName && { repoFullName, repoProvider }),
+        ...(recurrence && { recurrence }),
+        ...(taskType && { taskType }),
+        ...(isManual && { isManual }),
+      })
     }).then(handleResponse),
 
   toggleTask: (agentId, taskId) =>
@@ -228,11 +236,11 @@ export const api = {
       body: JSON.stringify(fields)
     }).then(handleResponse),
 
-  updateTaskRepo: (agentId, taskId, repoId) =>
+  updateTaskRepo: (agentId, taskId, repoFullName, repoProvider = 'github') =>
     fetch(`${API_BASE}/agents/${agentId}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: getHeaders(),
-      body: JSON.stringify({ repoId: repoId || null })
+      body: JSON.stringify({ repoFullName: repoFullName || null, repoProvider: repoFullName ? repoProvider : null })
     }).then(handleResponse),
 
   addTaskCommit: (agentId, taskId, hash, message) =>
@@ -528,22 +536,9 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
-  // Board repos
+  // Board repos — read-only; derived from tasks on the board
   getBoardRepos: (boardId) =>
     fetch(`${API_BASE}/projects/boards/${boardId}/repos`, { headers: getHeaders() }).then(handleResponse),
-
-  addBoardRepo: (boardId, repo) =>
-    fetch(`${API_BASE}/projects/boards/${boardId}/repos`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(repo)
-    }).then(handleResponse),
-
-  removeBoardRepo: (boardId, repoId) =>
-    fetch(`${API_BASE}/projects/boards/${boardId}/repos/${repoId}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    }).then(handleResponse),
 
   // Board storages (OneDrive / Google Drive)
   getBoardStorages: (boardId) =>
@@ -641,24 +636,6 @@ export const api = {
   // Workflow (read-only — default board workflow)
   getWorkflow: () =>
     fetch(`${API_BASE}/settings/general/workflow`, { headers: getHeaders() }).then(handleResponse),
-
-  // Git Connections
-  getGitConnections: () =>
-    fetch(`${API_BASE}/settings/general/git-connections`, { headers: getHeaders() }).then(handleResponse),
-
-  updateGitConnections: (connections) =>
-    fetch(`${API_BASE}/settings/general/git-connections`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify({ connections })
-    }).then(handleResponse),
-
-  testGitConnection: (connection) =>
-    fetch(`${API_BASE}/settings/general/git-connections/test`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(connection)
-    }).then(handleResponse),
 
   // Boards (per-user multi-board)
   getBoards: () =>

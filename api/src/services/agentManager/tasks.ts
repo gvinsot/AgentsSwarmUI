@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus, getTaskById, getTasksByAgent, getActiveTasksByAgent, getActiveTaskForExecutor, getRecurringDoneTasks, hasActiveTask, updateTaskFields } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { isActiveStatus, getWorkflowManagedStatuses } from '../workflow/index.js';
-import { getProjectGitUrl } from '../githubProjects.js';
 
 // ── Ephemeral task signals ──────────────────────────────────────────────────
 // Transient coordination flags between async coroutines (NOT persisted).
@@ -43,7 +42,7 @@ export function purgeStaleTaskSignals(activeTaskIds: Set<string>): void {
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {
 
-  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoId, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; repoId?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
+  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoFullName, repoProvider, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; repoFullName?: string | null; repoProvider?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const defaultStatus = 'backlog';
@@ -54,7 +53,8 @@ export const tasksMethods = {
       text,
       status,
       // project is derived server-side from board.project_id; no longer stored on the task
-      repoId: repoId || null,
+      repoFullName: repoFullName || null,
+      repoProvider: repoFullName ? (repoProvider || 'github') : null,
       source: source || null,
       boardId: boardId || null,
       isManual: isManual || false,
@@ -193,15 +193,16 @@ export const tasksMethods = {
     return task;
   },
 
-  updateTaskRepo(this: any, agentId: string, taskId: string, repoId: string | null): any {
+  updateTaskRepo(this: any, agentId: string, taskId: string, repoFullName: string | null, repoProvider: string | null = null): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const task = this._getAgentTasks(agentId).find((t: any) => t.id === taskId);
     if (!task) return null;
-    const oldRepoId = task.repoId || null;
-    task.repoId = repoId || null;
+    const oldFullName = task.repoFullName || null;
+    task.repoFullName = repoFullName || null;
+    task.repoProvider = repoFullName ? (repoProvider || task.repoProvider || 'github') : null;
     if (!task.history) task.history = [];
-    task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'repoId', oldValue: oldRepoId, newValue: repoId || null });
+    task.history.push({ status: task.status, at: new Date().toISOString(), by: 'user', type: 'edit', field: 'repoFullName', oldValue: oldFullName, newValue: repoFullName || null });
     saveTaskToDb({ ...task, agentId });
     this._emit('agent:updated', this._sanitize(agent));
     return task;
@@ -430,7 +431,7 @@ export const tasksMethods = {
     this._removeTaskFromStore(fromAgentId, taskId);
     deleteTaskFromDb(taskId);
     this._emit('agent:updated', this._sanitize(fromAgent));
-    const newTask = this.addTask(toAgentId, taskToTransfer.text, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus, { boardId: taskToTransfer.boardId, repoId: taskToTransfer.repoId });
+    const newTask = this.addTask(toAgentId, taskToTransfer.text, { type: 'transfer', name: fromAgent.name, id: fromAgent.id }, prevStatus, { boardId: taskToTransfer.boardId, repoFullName: taskToTransfer.repoFullName, repoProvider: taskToTransfer.repoProvider });
     if (newTask) {
       newTask.assignee = toAgentId;
       saveTaskToDb({ ...newTask, agentId: toAgentId });

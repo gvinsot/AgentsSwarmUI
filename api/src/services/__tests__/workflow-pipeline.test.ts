@@ -131,13 +131,6 @@ mock.module('../configManager.js', {
   },
 });
 
-mock.module('../githubProjects.js', {
-  namedExports: {
-    getProjectGitUrl: async () => null,
-    listStarredRepos: async () => [],
-  },
-});
-
 mock.module('../jiraSync.js', {
   namedExports: {
     onTaskStatusChanged: noopSync,

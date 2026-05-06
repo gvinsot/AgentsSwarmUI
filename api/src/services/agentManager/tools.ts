@@ -1,6 +1,6 @@
 // ─── Tools: _processToolCalls ────────────────────────────────────────────────
 import { parseToolCalls, executeTool } from '../agentTools.js';
-import { getProjectGitUrl } from '../githubProjects.js';
+import { buildRepoCloneUrl } from '../repoUrl.js';
 import { saveAgent, searchAgentSkills, getAgentSkillById, saveAgentSkill, deleteAgentSkillFromDb, getAllBoards, getBoardById, getTasksByStatusAndBoard, saveTaskToDb } from '../database.js';
 import { getWorkflowForBoard } from '../configManager.js';
 import { setTaskSignal } from './tasks.js';
@@ -231,11 +231,11 @@ export const toolsMethods = {
         this.executionManager.bindAgent(agentId, providerType, { ownerId: agent.ownerId || null, gitCredentials: gitCreds });
 
         if (agent.project) {
-          const gitUrl = await getProjectGitUrl(agent.project);
+          const gitUrl = buildRepoCloneUrl(agent.project);
           if (gitUrl) {
             await this.executionManager.ensureProject(agentId, agent.project, gitUrl, gitCreds);
           } else {
-            console.warn(`⚠️  [Execution] No git URL found for project "${agent.project}" — environment will NOT be initialized`);
+            console.warn(`⚠️  [Execution] No git URL derived from agent.project "${agent.project}" — expected "owner/repo" format`);
           }
         } else {
           await this.executionManager.ensureProject(agentId);

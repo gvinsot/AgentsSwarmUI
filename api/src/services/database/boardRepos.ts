@@ -1,64 +1,88 @@
 import { getPool } from './connection.js';
 
-export interface BoardRepo {
-  id: string;
-  board_id: string;
+/**
+ * Repos used on PulsarTeam are not stored explicitly — they're derived from
+ * the `repo_full_name` actually assigned to tasks. The picker list (when
+ * creating a task) comes from the board's GitHub plugin OAuth token.
+ *
+ * These helpers expose the *derived* view: distinct repos seen across tasks.
+ */
+
+export interface DerivedRepo {
   provider: string;
-  full_name: string;
-  html_url: string | null;
-  default_branch: string | null;
-  created_at: string;
+  fullName: string;
+  htmlUrl: string;
 }
 
-export async function getReposForBoard(boardId: string): Promise<BoardRepo[]> {
+function rowToRepo(row: any): DerivedRepo {
+  const provider = row.repo_provider || 'github';
+  const fullName = row.repo_full_name as string;
+  return {
+    provider,
+    fullName,
+    htmlUrl: provider === 'github' ? `https://github.com/${fullName}` : '',
+  };
+}
+
+/** Distinct repos in use by non-deleted tasks across the boards of one project. */
+export async function getReposForProject(projectId: string): Promise<DerivedRepo[]> {
   const pool = getPool();
   if (!pool) return [];
   const result = await pool.query(
-    `SELECT id, board_id, provider, full_name, html_url, default_branch, created_at
-     FROM board_repos WHERE board_id = $1 ORDER BY created_at`,
-    [boardId]
-  );
-  return result.rows;
-}
-
-export async function getReposForProject(projectId: string): Promise<BoardRepo[]> {
-  const pool = getPool();
-  if (!pool) return [];
-  const result = await pool.query(
-    `SELECT br.id, br.board_id, br.provider, br.full_name, br.html_url, br.default_branch, br.created_at
-     FROM board_repos br
-     JOIN boards b ON br.board_id = b.id
+    `SELECT DISTINCT t.repo_provider, t.repo_full_name
+     FROM tasks t
+     JOIN boards b ON t.board_id = b.id
      WHERE b.project_id = $1
-     ORDER BY br.created_at`,
+       AND t.repo_full_name IS NOT NULL
+       AND t.deleted_at IS NULL
+     ORDER BY t.repo_full_name`,
     [projectId]
   );
-  return result.rows;
+  return result.rows.map(rowToRepo);
 }
 
-export async function createBoardRepo(
-  boardId: string,
-  provider: string,
-  fullName: string,
-  htmlUrl: string | null,
-  defaultBranch: string | null
-): Promise<BoardRepo> {
+/** Distinct repos in use by non-deleted tasks of one board. */
+export async function getReposForBoard(boardId: string): Promise<DerivedRepo[]> {
   const pool = getPool();
-  if (!pool) throw new Error('Database not connected');
+  if (!pool) return [];
   const result = await pool.query(
-    `INSERT INTO board_repos (board_id, provider, full_name, html_url, default_branch)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (board_id, provider, full_name) DO UPDATE SET
-       html_url = EXCLUDED.html_url,
-       default_branch = EXCLUDED.default_branch
-     RETURNING id, board_id, provider, full_name, html_url, default_branch, created_at`,
-    [boardId, provider, fullName, htmlUrl, defaultBranch]
+    `SELECT DISTINCT t.repo_provider, t.repo_full_name
+     FROM tasks t
+     WHERE t.board_id = $1
+       AND t.repo_full_name IS NOT NULL
+       AND t.deleted_at IS NULL
+     ORDER BY t.repo_full_name`,
+    [boardId]
   );
-  return result.rows[0];
+  return result.rows.map(rowToRepo);
 }
 
-export async function deleteBoardRepo(id: string): Promise<boolean> {
+/**
+ * Distinct repos used across the boards a user has access to (admin = all).
+ * Powers global pickers (Add Agent, Broadcast).
+ */
+export async function getAccessibleBoardRepos(userId: string | null, role: string): Promise<DerivedRepo[]> {
   const pool = getPool();
-  if (!pool) return false;
-  const result = await pool.query('DELETE FROM board_repos WHERE id = $1', [id]);
-  return (result.rowCount ?? 0) > 0;
+  if (!pool) return [];
+  if (role === 'admin' || !userId) {
+    const result = await pool.query(
+      `SELECT DISTINCT t.repo_provider, t.repo_full_name
+       FROM tasks t
+       WHERE t.repo_full_name IS NOT NULL AND t.deleted_at IS NULL
+       ORDER BY t.repo_full_name`
+    );
+    return result.rows.map(rowToRepo);
+  }
+  const result = await pool.query(
+    `SELECT DISTINCT t.repo_provider, t.repo_full_name
+     FROM tasks t
+     JOIN boards b ON t.board_id = b.id
+     WHERE t.repo_full_name IS NOT NULL AND t.deleted_at IS NULL
+       AND (b.is_default = TRUE
+         OR b.user_id = $1
+         OR EXISTS (SELECT 1 FROM board_shares bs WHERE bs.board_id = b.id AND bs.user_id = $1))
+     ORDER BY t.repo_full_name`,
+    [userId]
+  );
+  return result.rows.map(rowToRepo);
 }

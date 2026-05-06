@@ -109,7 +109,7 @@ export default function ProjectDetailModal({ projectId, agents = [], onClose, on
             <>
               {activeTab === 'overview' && <OverviewTab project={project} agents={projectAgents} />}
               {activeTab === 'boards' && <BoardsTab project={project} onChanged={handleChanged} />}
-              {activeTab === 'repos' && <ReposTab project={project} onChanged={handleChanged} />}
+              {activeTab === 'repos' && <ReposTab project={project} />}
               {activeTab === 'storage' && <StoragesTab project={project} onChanged={handleChanged} />}
               {activeTab === 'context' && <ContextTab project={project} onSaved={handleChanged} />}
               {activeTab === 'statistics' && <StatisticsTab project={project} />}
@@ -239,193 +239,59 @@ function BoardsTab({ project, onChanged }) {
 }
 
 /* ── Repos ────────────────────────────────────────────────────────────────── */
-function ReposTab({ project, onChanged }) {
+// Read-only — repos are derived from the tasks of the project's boards.
+function ReposTab({ project }) {
   const boards = project.boards || [];
+  const repos = project.repos || [];
   const [activityTarget, setActivityTarget] = useState(null);
 
   if (boards.length === 0) {
-    return <p className="text-dark-500 text-sm">Link at least one board first to attach git repos.</p>;
+    return <p className="text-dark-500 text-sm">Link at least one board first; repos will appear automatically as tasks are assigned to them.</p>;
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      {boards.map(b => (
-        <BoardReposPanel key={b.id} board={b} onChanged={onChanged} onShowActivity={setActivityTarget} />
-      ))}
+    <div className="space-y-4 max-w-4xl">
+      <p className="text-xs text-dark-400">
+        Repos shown here are deduced from the tasks across this project's boards. Pick a repo on each task (the picker is sourced from the board's GitHub plugin).
+      </p>
+      {repos.length === 0 ? (
+        <p className="text-dark-500 text-sm">No repos used by tasks yet.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {repos.map(r => {
+            const [owner, repo] = (r.fullName || '').split('/');
+            return (
+              <li key={`${r.provider}/${r.fullName}`} className="flex items-center justify-between bg-dark-800 border border-dark-700 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-sm text-dark-100 min-w-0">
+                  <GitBranch size={14} className="text-green-400 shrink-0" />
+                  <span className="truncate">{r.fullName}</span>
+                  <span className="text-xs text-dark-500">[{r.provider}]</span>
+                  {r.htmlUrl && (
+                    <a href={r.htmlUrl} target="_blank" rel="noopener noreferrer" className="text-dark-400 hover:text-dark-100 ml-1" title="Open on GitHub">
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+                {r.provider === 'github' && owner && repo && (
+                  <button
+                    onClick={() => setActivityTarget({ owner, repo })}
+                    className="p-1 rounded hover:bg-dark-700 text-dark-400 hover:text-dark-100 transition-colors"
+                    title="View activity"
+                  >
+                    <GitCommit size={14} />
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {activityTarget && (
         <GitHubActivityModal
           owner={activityTarget.owner}
           repo={activityTarget.repo}
           onClose={() => setActivityTarget(null)}
         />
-      )}
-    </div>
-  );
-}
-
-function BoardReposPanel({ board, onChanged, onShowActivity }) {
-  const [repos, setRepos] = useState([]);
-  const [available, setAvailable] = useState([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [pickedRepo, setPickedRepo] = useState('');
-  const [pickerError, setPickerError] = useState(null);
-  const [loadingAvailable, setLoadingAvailable] = useState(false);
-
-  const reload = useCallback(async () => {
-    const list = await api.getBoardRepos(board.id).catch(() => []);
-    setRepos(list);
-  }, [board.id]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  // Load available repos lazily when the user opens the picker, so we don't
-  // hammer the GitHub API for every board on the page.
-  const loadAvailable = useCallback(async () => {
-    setLoadingAvailable(true);
-    setPickerError(null);
-    try {
-      const list = await api.getBoardAvailableRepos(board.id);
-      setAvailable(list);
-    } catch (err) {
-      setAvailable([]);
-      setPickerError(err.message || 'Failed to load repos');
-    } finally {
-      setLoadingAvailable(false);
-    }
-  }, [board.id]);
-
-  const onToggleAdd = () => {
-    const next = !showAdd;
-    setShowAdd(next);
-    if (next && available.length === 0 && !loadingAvailable) loadAvailable();
-  };
-
-  const onAdd = async () => {
-    if (!pickedRepo) return;
-    setBusy(true);
-    try {
-      const repo = available.find(r => r.fullName === pickedRepo);
-      if (!repo) return;
-      await api.addBoardRepo(board.id, {
-        provider: repo.provider,
-        fullName: repo.fullName,
-        htmlUrl: repo.htmlUrl,
-        defaultBranch: repo.defaultBranch || '',
-      });
-      setShowAdd(false);
-      setPickedRepo('');
-      await reload();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRemove = async (id) => {
-    setBusy(true);
-    try { await api.removeBoardRepo(board.id, id); await reload(); onChanged(); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="bg-dark-800 border border-dark-700 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-dark-100">
-          <KanbanSquare size={14} className="text-blue-400" />
-          {board.name}
-        </div>
-        <button
-          onClick={onToggleAdd}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs bg-purple-600/80 hover:bg-purple-500 text-white rounded transition-colors"
-        >
-          <Plus size={12} /> Add Repo
-        </button>
-      </div>
-
-      {showAdd && (
-        <div className="mb-3 space-y-2">
-          {loadingAvailable ? (
-            <p className="text-xs text-dark-400 px-2 py-1.5">Loading repos via the board's GitHub plugin...</p>
-          ) : pickerError ? (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2 text-xs text-amber-300 space-y-1">
-              <p><strong>GitHub not connected on this board.</strong></p>
-              <p className="text-amber-300/80">{pickerError}</p>
-              <p>Open the board's <em>Plugins</em> panel (in the Tasks view) to connect the GitHub plugin, then come back here.</p>
-              <button
-                onClick={loadAvailable}
-                className="mt-1 text-amber-200 underline hover:text-amber-100"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <select
-                value={pickedRepo}
-                onChange={e => setPickedRepo(e.target.value)}
-                className="flex-1 bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm text-dark-100"
-              >
-                <option value="">Select a repo accessible via the board's GitHub plugin...</option>
-                {available.map(r => (
-                  <option key={`${r.provider}/${r.fullName}`} value={r.fullName}>
-                    [{r.provider}] {r.fullName}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={onAdd}
-                disabled={!pickedRepo || busy}
-                className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded disabled:opacity-50"
-              >
-                Add
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {repos.length === 0 ? (
-        <p className="text-dark-500 text-sm">No repos linked to this board.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {repos.map(r => {
-            const [owner, repo] = (r.full_name || '').split('/');
-            return (
-              <li key={r.id} className="flex items-center justify-between bg-dark-700/50 border border-dark-600 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 text-sm text-dark-100 min-w-0">
-                  <GitBranch size={14} className="text-green-400 shrink-0" />
-                  <span className="truncate">{r.full_name}</span>
-                  <span className="text-xs text-dark-500">[{r.provider}]</span>
-                  {r.html_url && (
-                    <a href={r.html_url} target="_blank" rel="noopener noreferrer" className="text-dark-400 hover:text-dark-100 ml-1">
-                      <ExternalLink size={12} />
-                    </a>
-                  )}
-                </div>
-                <div className="flex items-center gap-1">
-                  {r.provider === 'github' && owner && repo && (
-                    <button
-                      onClick={() => onShowActivity({ owner, repo })}
-                      className="p-1 rounded hover:bg-dark-600 text-dark-400 hover:text-dark-100 transition-colors"
-                      title="View activity"
-                    >
-                      <GitCommit size={14} />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onRemove(r.id)}
-                    disabled={busy}
-                    className="p-1 rounded hover:bg-red-600/20 text-dark-400 hover:text-red-400 transition-colors disabled:opacity-50"
-                    title="Remove"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
       )}
     </div>
   );

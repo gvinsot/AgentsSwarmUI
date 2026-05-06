@@ -3,7 +3,7 @@
 import { createProvider } from '../llmProviders.js';
 import { saveAgent, saveTaskToDb, getBoardById } from '../database.js';
 import { TOOL_DEFINITIONS } from '../agentTools.js';
-import { getProjectGitUrl } from '../githubProjects.js';
+import { buildRepoCloneUrl } from '../repoUrl.js';
 import { getGitHubCredentialsForAgent } from '../../routes/github.js';
 import { simplifyMcpSchema } from './helpers.js';
 import { AgentManager } from './index.js';
@@ -63,7 +63,7 @@ export const chatMethods = {
       if (envProject && envProject !== agent.project) {
         console.warn(`⚠️  [Chat] Project mismatch detected for "${agent.name}": agent.project="${agent.project}" but execution env has "${envProject}". Re-syncing execution environment.`);
         try {
-          const gitUrl = await getProjectGitUrl(agent.project);
+          const gitUrl = buildRepoCloneUrl(agent.project);
           if (gitUrl) {
             const gitCreds = await getGitHubCredentialsForAgent(id, agent.boardId || null);
             await this.executionManager.switchProject(id, agent.project, gitUrl, gitCreds);
@@ -81,7 +81,7 @@ export const chatMethods = {
           const gitCreds = await getGitHubCredentialsForAgent(id, agent.boardId || null);
           this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null, gitCredentials: gitCreds });
 
-          const gitUrl = await getProjectGitUrl(agent.project);
+          const gitUrl = buildRepoCloneUrl(agent.project);
           if (gitUrl) {
             // ensureProject handles project cloning across all runner backends
             await this.executionManager.ensureProject(id, agent.project, gitUrl, gitCreds);

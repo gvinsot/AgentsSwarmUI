@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { globalTaskStore } from '../services/globalTaskStore.js';
 import { getWorkflowForBoard } from '../services/configManager.js';
-import { getAllBoards, getBoardsByUser, saveTaskToDb, getReposForBoard } from '../services/database.js';
+import { getAllBoards, getBoardsByUser, saveTaskToDb } from '../services/database.js';
 import { stripToolCalls } from '../services/workflow/index.js';
 import { setTaskSignal } from '../services/agentManager/tasks.js';
 
@@ -335,7 +335,7 @@ export function agentRoutes(agentManager) {
   // ── Task endpoints ──────────────────────────────────────────────────────
   router.post('/:id/tasks', requireAgentAccess, async (req, res) => {
     try {
-      const { text, source, status, boardId, repoId, recurrence, taskType, isManual } = req.body;
+      const { text, source, status, boardId, repoFullName, repoProvider, recurrence, taskType, isManual } = req.body;
       if (!text) return res.status(400).json({ error: 'Text required' });
       const agent = agentManager.agents.get(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -365,17 +365,23 @@ export function agentRoutes(agentManager) {
         } catch { /* fall through to addTask default */ }
       }
 
-      // Validate that the chosen repo (if any) belongs to the resolved board
-      let resolvedRepoId: string | null = null;
-      if (repoId && resolvedBoardId) {
-        const boardRepos = await getReposForBoard(resolvedBoardId);
-        const match = boardRepos.find(r => r.id === repoId);
-        if (!match) return res.status(400).json({ error: 'Repo does not belong to the selected board' });
-        resolvedRepoId = match.id;
-      }
+      // Repo is the canonical "owner/repo" the picker captured from the
+      // board's GitHub plugin — validate format only (full validation against
+      // the OAuth scope happens at clone time).
+      const resolvedRepoFullName: string | null = (repoFullName && /^[\w.-]+\/[\w.-]+$/.test(repoFullName))
+        ? repoFullName
+        : null;
+      const resolvedRepoProvider = resolvedRepoFullName ? (repoProvider || 'github') : null;
 
-      console.log(`[CreateTask] POST /:id/tasks — input: status="${status}", boardId="${boardId}", repoId="${repoId}" → resolved: status="${resolvedStatus}", boardId="${resolvedBoardId}", repoId="${resolvedRepoId}" text="${(text || '').slice(0, 60)}"`);
-      const task = agentManager.addTask(req.params.id, text, resolvedSource, resolvedStatus, { boardId: resolvedBoardId, repoId: resolvedRepoId, recurrence: recurrence || undefined, taskType: taskType || undefined, isManual: isManual || false });
+      console.log(`[CreateTask] POST /:id/tasks — status="${status}", boardId="${boardId}", repo="${resolvedRepoFullName || ''}" text="${(text || '').slice(0, 60)}"`);
+      const task = agentManager.addTask(req.params.id, text, resolvedSource, resolvedStatus, {
+        boardId: resolvedBoardId,
+        repoFullName: resolvedRepoFullName,
+        repoProvider: resolvedRepoProvider,
+        recurrence: recurrence || undefined,
+        taskType: taskType || undefined,
+        isManual: isManual || false,
+      });
       if (!task) return res.status(404).json({ error: 'Agent not found' });
       console.log(`[CreateTask] Task created: id=${task.id} status="${task.status}" boardId="${task.boardId}"`);
       res.status(201).json(task);
@@ -386,7 +392,7 @@ export function agentRoutes(agentManager) {
 
   router.patch('/:id/tasks/:taskId', requireAgentAccess, async (req, res) => {
     try {
-    const { status, text, title, repoId, source, recurrence, taskType, isManual } = req.body || {};
+    const { status, text, title, repoFullName, repoProvider, source, recurrence, taskType, isManual } = req.body || {};
     // Source is immutable once set at creation — reject any attempt to change it
     if (source !== undefined) {
       return res.status(400).json({ error: 'Source cannot be modified after creation' });
@@ -429,17 +435,10 @@ export function agentRoutes(agentManager) {
     if (text !== undefined) {
       if (!text.trim()) return res.status(400).json({ error: 'Text cannot be empty' });
       task = agentManager.updateTaskText(req.params.id, req.params.taskId, text.trim());
-    } else if (repoId !== undefined) {
-      // Validate repo belongs to the task's board
-      if (repoId) {
-        const targetBoardId = oldTask?.boardId;
-        if (!targetBoardId) return res.status(400).json({ error: 'Task has no board — cannot assign a repo' });
-        const boardRepos = await getReposForBoard(targetBoardId);
-        if (!boardRepos.some(r => r.id === repoId)) {
-          return res.status(400).json({ error: 'Repo does not belong to the task\'s board' });
-        }
-      }
-      task = agentManager.updateTaskRepo(req.params.id, req.params.taskId, repoId || null);
+    } else if (repoFullName !== undefined) {
+      // Format check only — the picker is sourced from the board's GitHub plugin.
+      const value = repoFullName && /^[\w.-]+\/[\w.-]+$/.test(repoFullName) ? repoFullName : null;
+      task = agentManager.updateTaskRepo(req.params.id, req.params.taskId, value, repoProvider || (value ? 'github' : null));
     } else if (status) {
       task = agentManager.setTaskStatus(req.params.id, req.params.taskId, status);
     } else if (recurrence !== undefined) {

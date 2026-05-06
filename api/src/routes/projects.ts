@@ -3,11 +3,10 @@ import { z } from 'zod';
 import {
   getAllProjects, getProjectById, getProjectByName, createProject, updateProject, deleteProject,
   getBoardsForProject, setBoardProject,
-  getReposForBoard, getReposForProject, createBoardRepo, deleteBoardRepo,
+  getReposForBoard, getReposForProject, getAccessibleBoardRepos,
   getStoragesForBoard, getStoragesForProject, createBoardStorage, deleteBoardStorage,
   getBoardById, getOAuthToken,
 } from '../services/database.js';
-import { listRepos } from '../services/gitProvider.js';
 import { readSecret } from '../secrets.js';
 
 // ── In-memory caches for GitHub explorer endpoints ─────────────────────────
@@ -30,12 +29,6 @@ const projectUpdateSchema = z.object({
   name: projectNameSchema.optional(),
   description: z.string().max(10000).optional(),
   rules: z.string().max(10000).optional(),
-});
-const repoBodySchema = z.object({
-  provider: z.enum(['github', 'gitlab']),
-  fullName: z.string().min(1).max(200),
-  htmlUrl: z.string().url().max(500).optional().or(z.literal('')).default(''),
-  defaultBranch: z.string().max(100).optional().default(''),
 });
 const storageBodySchema = z.object({
   provider: z.enum(['onedrive', 'google_drive']),
@@ -152,40 +145,12 @@ export function projectRoutes() {
     }
   });
 
-  // ── Board repos / storages (mounted under /projects for cohesion) ────────
+  // ── Board storages (mounted under /projects for cohesion) ───────────────
+  // Repos used on a board are derived from tasks (see /boards/:id/repos below).
 
   router.get('/boards/:boardId/repos', async (req, res) => {
     try {
       res.json(await getReposForBoard(req.params.boardId));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.post('/boards/:boardId/repos', async (req, res) => {
-    try {
-      const body = repoBodySchema.parse(req.body);
-      const board = await getBoardById(req.params.boardId);
-      if (!board) return res.status(404).json({ error: 'Board not found' });
-      const repo = await createBoardRepo(
-        req.params.boardId,
-        body.provider,
-        body.fullName,
-        body.htmlUrl || null,
-        body.defaultBranch || null
-      );
-      res.status(201).json(repo);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ error: 'Validation failed', details: err.issues });
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.delete('/boards/:boardId/repos/:repoId', async (req, res) => {
-    try {
-      const ok = await deleteBoardRepo(req.params.repoId);
-      if (!ok) return res.status(404).json({ error: 'Repo not found' });
-      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -228,18 +193,17 @@ export function projectRoutes() {
     }
   });
 
-  // ── Helper: list available repos from configured git connections ─────────
-  // (Global) Used by agent pickers (Add Agent, Broadcast) — feeds the legacy
-  // `agent.project` string from any repo exposed by the configured connections.
-  router.get('/available-repos', async (req, res) => {
+  // ── (Global) repos pool used by agent pickers (Add Agent, Broadcast) ─────
+  // Returns the distinct union of repos used by tasks on boards the user can access.
+  router.get('/available-repos', async (req: any, res) => {
     try {
-      const repos = await listRepos();
+      const repos = await getAccessibleBoardRepos(req.user?.userId || null, req.user?.role || 'user');
       res.json(repos.map(r => ({
         provider: r.provider,
         fullName: r.fullName,
         htmlUrl: r.htmlUrl,
-        defaultBranch: r.defaultBranch,
-        description: r.description,
+        defaultBranch: '',
+        description: '',
       })));
     } catch (err: any) {
       console.error('Failed to list available repos:', err.message);

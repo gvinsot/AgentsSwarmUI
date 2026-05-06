@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardShare, getBoardsByUser, rowToTask } from '../services/database.js';
-import { listStarredRepos } from '../services/githubProjects.js';
 import { setTaskSignal, clearTaskSignal } from '../services/agentManager/tasks.js';
 import { updateTaskExecutionStatus } from '../services/database.js';
 import { readSecret } from '../secrets.js';

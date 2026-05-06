@@ -1,19 +1,15 @@
 import { getPool } from './connection.js';
 
 // SELECT clause + joins shared by every task read query.
-// Hydrates `project` (name, derived from board.project_id) and the linked repo
-// so `rowToTask` doesn't need a separate fetch.
+// Hydrates `project` (name, derived from board.project_id) so `rowToTask`
+// doesn't need a separate fetch. Repo lives directly on the task row.
 const TASK_SELECT = `
   SELECT t.*,
          p.id   AS _project_id,
-         p.name AS _project_name,
-         r.provider  AS _repo_provider,
-         r.full_name AS _repo_full_name,
-         r.html_url  AS _repo_html_url
+         p.name AS _project_name
   FROM tasks t
   LEFT JOIN boards   b ON t.board_id = b.id
   LEFT JOIN projects p ON b.project_id = p.id
-  LEFT JOIN board_repos r ON t.repo_id = r.id
 `;
 
 /** Convert a DB row to the in-memory task object format */
@@ -28,11 +24,10 @@ export function rowToTask(row) {
     // Project is derived from board.project_id (read-only on the task object)
     projectId: row._project_id || null,
     project: row._project_name || null,
-    // Repo selection — points at a board_repos row
-    repoId: row.repo_id || null,
-    repoProvider: row._repo_provider || null,
-    repoFullName: row._repo_full_name || null,
-    repoHtmlUrl: row._repo_html_url || null,
+    // Repo lives directly on the task — picked from the board's GitHub plugin
+    repoProvider: row.repo_provider || null,
+    repoFullName: row.repo_full_name || null,
+    repoHtmlUrl: row.repo_full_name ? `https://github.com/${row.repo_full_name}` : null,
     assignee: row.assignee || null,
     taskType: row.task_type || undefined,
     priority: row.priority || undefined,
@@ -123,26 +118,28 @@ async function _doSaveTask(task) {
   const pool = getPool();
   try {
     await pool.query(
-      `INSERT INTO tasks (id, agent_id, text, title, status, repo_id, board_id, assignee,
+      `INSERT INTO tasks (id, agent_id, text, title, status, repo_provider, repo_full_name, board_id, assignee,
                           task_type, priority, due_date, source, recurrence, commits, history,
                           error, created_at, updated_at, completed_at, started_at,
                           execution_status, completed_action_idx, action_running, action_running_agent_id,
                           action_running_mode, error_from_status, is_manual, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (id) DO UPDATE SET
-         text = $3, title = $4, status = $5, repo_id = $6, board_id = $7, assignee = $8,
-         task_type = $9, priority = $10, due_date = $11, source = $12, recurrence = $13,
-         commits = $14, history = $15, error = $16, updated_at = NOW(),
-         completed_at = $18, started_at = $19,
-         execution_status = $20, completed_action_idx = $21, action_running = $22, action_running_agent_id = $23,
-         action_running_mode = $24, error_from_status = $25, is_manual = $26, position = $27`,
+         text = $3, title = $4, status = $5, repo_provider = $6, repo_full_name = $7,
+         board_id = $8, assignee = $9,
+         task_type = $10, priority = $11, due_date = $12, source = $13, recurrence = $14,
+         commits = $15, history = $16, error = $17, updated_at = NOW(),
+         completed_at = $19, started_at = $20,
+         execution_status = $21, completed_action_idx = $22, action_running = $23, action_running_agent_id = $24,
+         action_running_mode = $25, error_from_status = $26, is_manual = $27, position = $28`,
       [
         task.id,
         task.agentId,
         task.text || '',
         task.title || null,
         task.status || 'backlog',
-        task.repoId || null,
+        task.repoProvider || (task.repoFullName ? 'github' : null),
+        task.repoFullName || null,
         task.boardId || null,
         task.assignee || null,
         task.taskType || null,
@@ -265,14 +262,10 @@ export async function getTasksForResume() {
       SELECT t.*,
              p.id   AS _project_id,
              p.name AS _project_name,
-             r.provider  AS _repo_provider,
-             r.full_name AS _repo_full_name,
-             r.html_url  AS _repo_html_url,
              a.data AS agent_data
       FROM tasks t
       LEFT JOIN boards   b ON t.board_id = b.id
       LEFT JOIN projects p ON b.project_id = p.id
-      LEFT JOIN board_repos r ON t.repo_id = r.id
       JOIN agents a ON COALESCE(t.assignee, t.agent_id) = a.id
       WHERE t.deleted_at IS NULL
         AND t.started_at IS NOT NULL
@@ -616,7 +609,7 @@ export async function updateTaskFields(taskId, fields) {
   const pool = getPool();
   if (!pool) return null;
   const allowed = [
-    'text', 'title', 'status', 'repo_id', 'board_id', 'assignee',
+    'text', 'title', 'status', 'repo_provider', 'repo_full_name', 'board_id', 'assignee',
     'task_type', 'priority', 'due_date', 'source', 'recurrence',
     'commits', 'history', 'error', 'completed_at', 'started_at',
     'execution_status', 'completed_action_idx', 'action_running', 'action_running_agent_id',
@@ -630,7 +623,7 @@ export async function updateTaskFields(taskId, fields) {
     executionStatus: 'execution_status', completedActionIdx: 'completed_action_idx',
     actionRunning: 'action_running', actionRunningAgentId: 'action_running_agent_id',
     actionRunningMode: 'action_running_mode', errorFromStatus: 'error_from_status',
-    isManual: 'is_manual', repoId: 'repo_id',
+    isManual: 'is_manual', repoProvider: 'repo_provider', repoFullName: 'repo_full_name',
   };
   const sets = [];
   const values = [taskId];

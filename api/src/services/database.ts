@@ -13,9 +13,9 @@ export {
 } from './database/projects.js';
 export type { Project } from './database/projects.js';
 export {
-  getReposForBoard, getReposForProject, createBoardRepo, deleteBoardRepo,
+  getReposForBoard, getReposForProject, getAccessibleBoardRepos,
 } from './database/boardRepos.js';
-export type { BoardRepo } from './database/boardRepos.js';
+export type { DerivedRepo } from './database/boardRepos.js';
 export {
   getStoragesForBoard, getStoragesForProject, createBoardStorage, deleteBoardStorage,
 } from './database/boardStorages.js';

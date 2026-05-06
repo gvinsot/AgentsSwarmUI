@@ -19,7 +19,8 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
   const [statusOpen, setStatusOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState(false);
   const [savingRepo, setSavingRepo] = useState(false);
-  const [boardRepos, setBoardRepos] = useState([]);
+  const [availableRepos, setAvailableRepos] = useState([]);
+  const [repoLoadError, setRepoLoadError] = useState(null);
   const [editingAgent, setEditingAgent] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [editingType, setEditingType] = useState(false);
@@ -36,11 +37,14 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
   const textareaRef = useRef(null);
   const refineRef = useRef(null);
 
-  // Load the board's repos so the user can re-target the task to a different one
+  // Load repos via the board's GitHub plugin so the user can re-target the task
   useEffect(() => {
     const bid = task.boardId;
-    if (!bid) { setBoardRepos([]); return; }
-    api.getBoardRepos(bid).then(setBoardRepos).catch(() => setBoardRepos([]));
+    if (!bid) { setAvailableRepos([]); return; }
+    setRepoLoadError(null);
+    api.getBoardAvailableRepos(bid)
+      .then(setAvailableRepos)
+      .catch(err => { setAvailableRepos([]); setRepoLoadError(err.message || 'Failed to load repos'); });
   }, [task.boardId]);
 
   // Focus textarea when entering edit mode
@@ -103,11 +107,14 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
     }
   };
 
-  const handleRepoChange = async (newRepoId) => {
-    if ((newRepoId || null) === (task.repoId || null)) { setEditingRepo(false); return; }
+  const handleRepoChange = async (newFullName) => {
+    if ((newFullName || null) === (task.repoFullName || null)) { setEditingRepo(false); return; }
     setSavingRepo(true);
     try {
-      await api.updateTaskRepo(task.agentId, task.id, newRepoId || null);
+      const provider = newFullName
+        ? (availableRepos.find(r => r.fullName === newFullName)?.provider || 'github')
+        : 'github';
+      await api.updateTaskRepo(task.agentId, task.id, newFullName || null, provider);
       await onRefresh();
       setEditingRepo(false);
     } finally {
@@ -452,14 +459,14 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
                 <div className="flex items-center gap-1.5">
                   <select
                     autoFocus
-                    defaultValue={task.repoId || ''}
+                    defaultValue={task.repoFullName || ''}
                     onChange={e => handleRepoChange(e.target.value || null)}
-                    disabled={savingRepo}
+                    disabled={savingRepo || availableRepos.length === 0}
                     className="px-2 py-0.5 bg-dark-800 border border-indigo-500/50 rounded text-xs text-dark-200 focus:outline-none focus:border-indigo-500 transition-colors"
                   >
                     <option value="">None</option>
-                    {boardRepos.map(r => (
-                      <option key={r.id} value={r.id}>[{r.provider}] {r.full_name}</option>
+                    {availableRepos.map(r => (
+                      <option key={r.fullName} value={r.fullName}>[{r.provider}] {r.fullName}</option>
                     ))}
                   </select>
                   <button
@@ -480,7 +487,9 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
                   ) : (
                     <span className="text-xs text-dark-500 italic">None</span>
                   )}
-                  {(boardRepos.length > 0 || task.repoId) ? (
+                  {repoLoadError ? (
+                    <span className="text-[10px] text-amber-400 italic" title={repoLoadError}>github plugin off</span>
+                  ) : (
                     <button
                       onClick={() => setEditingRepo(true)}
                       className="p-0.5 rounded text-dark-500 hover:text-indigo-400 hover:bg-dark-700 transition-colors"
@@ -488,8 +497,6 @@ export default function TaskDetailModal({ task, agents, onClose, onRefresh, onDe
                     >
                       <Edit3 className="w-3 h-3" />
                     </button>
-                  ) : (
-                    <span className="text-[10px] text-dark-500 italic" title="Link a repo to this board first">no repo on board</span>
                   )}
                 </div>
               )}

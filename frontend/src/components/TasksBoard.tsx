@@ -262,19 +262,24 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     return allTasks.find(t => t.id === selectedTask.id && t.agentId === selectedTask.agentId) || null;
   }, [selectedTask, allTasks]);
 
-  // Repos linked to the active board (via board_repos) — also drives the repo filter
-  const [boardRepos, setBoardRepos] = useState([]);
-  useEffect(() => {
-    if (!activeBoardId) { setBoardRepos([]); return; }
-    api.getBoardRepos(activeBoardId).then(setBoardRepos).catch(() => setBoardRepos([]));
-  }, [activeBoardId]);
+  // Repos in use on the active board — derived from tasks (distinct repoFullName)
+  const boardRepos = useMemo(() => {
+    const seen = new Map();
+    for (const t of allTasks) {
+      if (t.deletedAt || !t.repoFullName) continue;
+      if (!seen.has(t.repoFullName)) {
+        seen.set(t.repoFullName, { fullName: t.repoFullName, provider: t.repoProvider || 'github' });
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.fullName.localeCompare(b.fullName));
+  }, [allTasks]);
 
   const boardProjectsWithGithub = useMemo(() => {
     return boardRepos
-      .filter(r => r.provider === 'github' && r.full_name)
+      .filter(r => r.provider === 'github' && r.fullName)
       .map(r => {
-        const [owner, repo] = r.full_name.split('/');
-        return { name: r.full_name, github: { fullName: r.full_name, owner, repo } };
+        const [owner, repo] = r.fullName.split('/');
+        return { name: r.fullName, github: { fullName: r.fullName, owner, repo } };
       });
   }, [boardRepos]);
 
@@ -289,7 +294,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     const q = search.toLowerCase();
     return allTasks.filter(t => {
       if (agentFilter && t.agentId !== agentFilter) return false;
-      if (repoFilter && t.repoId !== repoFilter) return false;
+      if (repoFilter && t.repoFullName !== repoFilter) return false;
       if (q && !t.text.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -640,7 +645,7 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
               focus:outline-none focus:border-indigo-500 transition-colors flex-shrink-0"
           >
             <option value="">All repos</option>
-            {boardRepos.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
+            {boardRepos.map(r => <option key={r.fullName} value={r.fullName}>{r.fullName}</option>)}
           </select>
         )}
 

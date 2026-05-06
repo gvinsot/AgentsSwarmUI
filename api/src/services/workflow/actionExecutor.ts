@@ -12,7 +12,7 @@
 import { ActionType, AgentMode, columnExists } from './taskStateMachine.js';
 import { findAgentByRole, findAgentForAssignment, acquireLock, releaseLock, markAgentBusy, clearAgentBusy } from './agentSelector.js';
 import { saveTaskToDb } from '../database.js';
-import { getProjectGitUrl } from '../githubProjects.js';
+import { buildRepoCloneUrl } from '../repoUrl.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -369,29 +369,30 @@ async function executeRunAgent(action, task, { agentManager, io, ownerId, workfl
       .then(() => _emitTaskUpdated(agentManager, task.agentId, taskPayload));
   }
 
-  // Auto-switch agent to task project if needed
-  if (task.project && task.project !== agent.project) {
-    console.log(`[ActionExecutor] Switching "${agent.name}" from "${agent.project || '(none)'}" to project "${task.project}"`);
+  // Auto-switch agent to the task's repo if needed (taskRepo = "owner/repo")
+  const taskRepo = task.repoFullName || null;
+  if (taskRepo && taskRepo !== agent.project) {
+    console.log(`[ActionExecutor] Switching "${agent.name}" from "${agent.project || '(none)'}" to repo "${taskRepo}"`);
     try {
       // 1. Switch conversation context (saves/restores history)
       if (agentManager._switchProjectContext) {
-        agentManager._switchProjectContext(agent, agent.project, task.project);
+        agentManager._switchProjectContext(agent, agent.project, taskRepo);
       }
       // 2. Switch execution environment (coder-service / sandbox)
       if (agentManager.executionManager) {
-        const gitUrl = await getProjectGitUrl(task.project);
+        const gitUrl = task.repoHtmlUrl || buildRepoCloneUrl(taskRepo);
         if (gitUrl) {
-          await agentManager.executionManager.switchProject(agent.id, task.project, gitUrl);
+          await agentManager.executionManager.switchProject(agent.id, taskRepo, gitUrl);
         } else {
-          console.warn(`[ActionExecutor] No git URL for project "${task.project}" — execution env may not match`);
+          console.warn(`[ActionExecutor] No git URL for repo "${taskRepo}" — execution env may not match`);
         }
         // 3. Verify execution environment matches
         const envProject = agentManager.executionManager.getProject(agent.id);
-        if (envProject && envProject !== task.project) {
-          throw new Error(`Execution environment is on "${envProject}" but task requires "${task.project}"`);
+        if (envProject && envProject !== taskRepo) {
+          throw new Error(`Execution environment is on "${envProject}" but task requires "${taskRepo}"`);
         }
       }
-      agent.project = task.project;
+      agent.project = taskRepo;
     } catch (switchErr) {
       console.error(`[ActionExecutor] Project switch failed for "${agent.name}": ${switchErr.message}`);
       releaseLock(lockKey);

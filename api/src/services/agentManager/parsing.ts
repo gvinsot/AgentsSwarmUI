@@ -1,5 +1,5 @@
 // ─── Parsing: _parseAskCommands, _listAvailableProjects ──
-import { listStarredRepos } from '../githubProjects.js';
+import { getAccessibleBoardRepos } from '../database.js';
 
 /** @this {import('./index.js').AgentManager} */
 export const parsingMethods = {
@@ -62,8 +62,8 @@ export const parsingMethods = {
 
   async _listAvailableProjects(this: any): Promise<string[]> {
     try {
-      const repos = await listStarredRepos();
-      return repos.map((r: any) => r.name).sort();
+      const repos = await getAccessibleBoardRepos(null, 'admin');
+      return repos.map((r: any) => r.full_name).filter(Boolean).sort();
     } catch {
       return [];
     }
