@@ -9,7 +9,7 @@ import { getConnectedUserIds } from '../ws/socketHandler.js';
 const createUserSchema = z.object({
   username: z.string().min(2).max(100),
   password: z.string().min(4).max(200),
-  role: z.enum(['admin', 'advanced', 'basic']).default('basic'),
+  role: z.enum(['admin', 'advanced', 'basic']).default('advanced'),
   displayName: z.string().max(200).optional(),
 });
 

@@ -288,7 +288,7 @@ router.post('/google/callback', async (req, res) => {
       } else {
         // Determine role — first user gets admin, others get basic
         const userCount = await countUsers();
-        const role = userCount === 0 ? 'admin' : 'basic';
+        const role = userCount === 0 ? 'admin' : 'advanced';
         user = await createGoogleUser(googleId, email, displayName, avatarUrl, role);
       }
     }
@@ -422,7 +422,7 @@ router.post('/microsoft/callback', async (req, res) => {
         user = await getUserById(existingUser.id);
       } else {
         const userCount = await countUsers();
-        const role = userCount === 0 ? 'admin' : 'basic';
+        const role = userCount === 0 ? 'admin' : 'advanced';
         user = await createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role);
       }
     }

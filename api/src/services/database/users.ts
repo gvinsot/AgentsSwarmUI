@@ -38,7 +38,7 @@ export async function getUserByUsername(username) {
   }
 }
 
-export async function createUser(username, hashedPassword, role = 'basic', displayName = '') {
+export async function createUser(username, hashedPassword, role = 'advanced', displayName = '') {
   const pool = getPool();
   if (!pool) throw new Error('Database not connected');
   try {
@@ -109,7 +109,7 @@ export async function getUserByGoogleId(googleId) {
   }
 }
 
-export async function createGoogleUser(googleId, email, displayName, avatarUrl, role = 'basic') {
+export async function createGoogleUser(googleId, email, displayName, avatarUrl, role = 'advanced') {
   const pool = getPool();
   if (!pool) throw new Error('Database not connected');
   try {
@@ -155,7 +155,7 @@ export async function getUserByMicrosoftId(microsoftId) {
   }
 }
 
-export async function createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role = 'basic') {
+export async function createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role = 'advanced') {
   const pool = getPool();
   if (!pool) throw new Error('Database not connected');
   try {

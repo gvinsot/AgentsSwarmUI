@@ -131,7 +131,7 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           username TEXT UNIQUE NOT NULL,
           password TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'basic',
+          role TEXT NOT NULL DEFAULT 'advanced',
           display_name TEXT,
           created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW()
