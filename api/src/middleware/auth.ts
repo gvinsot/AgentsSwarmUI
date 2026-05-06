@@ -6,6 +6,7 @@ import {
   getUserByGoogleId, createGoogleUser, linkGoogleId,
   getUserByMicrosoftId, createMicrosoftUser, linkMicrosoftId,
 } from '../services/database.js';
+import { provisionNewUser } from '../services/userProvisioning.js';
 
 const router = express.Router();
 
@@ -290,6 +291,7 @@ router.post('/google/callback', async (req, res) => {
         const userCount = await countUsers();
         const role = userCount === 0 ? 'admin' : 'advanced';
         user = await createGoogleUser(googleId, email, displayName, avatarUrl, role);
+        provisionNewUser(user.id).catch(err => console.error('Provisioning error:', err.message));
       }
     }
 
@@ -424,6 +426,7 @@ router.post('/microsoft/callback', async (req, res) => {
         const userCount = await countUsers();
         const role = userCount === 0 ? 'admin' : 'advanced';
         user = await createMicrosoftUser(microsoftId, email, displayName, avatarUrl, role);
+        provisionNewUser(user.id).catch(err => console.error('Provisioning error:', err.message));
       }
     }
 

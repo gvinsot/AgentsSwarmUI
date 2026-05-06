@@ -5,6 +5,7 @@ import {
   getAllUsers, getUserById, createUser, updateUser, deleteUser
 } from '../services/database.js';
 import { getConnectedUserIds } from '../ws/socketHandler.js';
+import { provisionNewUser } from '../services/userProvisioning.js';
 
 const createUserSchema = z.object({
   username: z.string().min(2).max(100),
@@ -57,6 +58,7 @@ export function userRoutes() {
         parsed.role,
         parsed.displayName || parsed.username
       );
+      provisionNewUser(user.id).catch(err => console.error('Provisioning error:', err.message));
       res.status(201).json(user);
     } catch (err) {
       if (err instanceof z.ZodError) {

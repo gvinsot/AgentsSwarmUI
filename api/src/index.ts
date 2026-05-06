@@ -51,6 +51,7 @@ import { llmConfigRoutes } from './routes/llmConfigs.js';
 import { boardRoutes } from './routes/boards.js';
 import { contactRoutes } from './routes/contact.js';
 import taskRoutes from './routes/tasks.js';
+import { setAgentManager } from './services/userProvisioning.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -89,6 +90,7 @@ const executionManager = new ExecutionManager({
 const mcpManager = new MCPManager();
 const codeIndexService = new CodeIndexService();
 const agentManager = new AgentManager(io, skillManager, executionManager, mcpManager, codeIndexService);
+setAgentManager(agentManager);
 app.set('io', io);
 app.set('agentManager', agentManager);
 

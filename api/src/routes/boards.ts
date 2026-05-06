@@ -7,11 +7,21 @@ import {
 
 const DEFAULT_BOARD_WORKFLOW = {
   columns: [
-    { id: 'todo',        label: 'Todo',        color: '#6b7280' },
+    { id: 'todo', label: 'Todo', color: '#6b7280' },
     { id: 'in_progress', label: 'In Progress', color: '#3b82f6' },
-    { id: 'done',        label: 'Done',        color: '#22c55e' },
+    { id: 'done', label: 'Done', color: '#22c55e' },
   ],
-  transitions: [],
+  transitions: [
+    {
+      from: 'in_progress',
+      trigger: 'on_enter',
+      conditions: [],
+      actions: [
+        { type: 'run_agent', mode: 'decide', role: '', instructions: 'Execute the task' },
+        { type: 'change_status', target: '__next__' },
+      ],
+    },
+  ],
   version: 1,
 };
 
