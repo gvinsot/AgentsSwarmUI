@@ -68,7 +68,6 @@ services:
       - JIRA_WEBHOOK_SECRET=${JIRA_WEBHOOK_SECRET:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
     ports:
       - "3001:3001"
     networks:
@@ -126,7 +125,6 @@ services:
       - PYTHONFAULTHANDLER=1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
       - ${HOST_CODE_PATH:-~}:/projects
       - claudecode-auth-data:/app/data
     ports:
@@ -162,7 +160,6 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
       - ${HOST_CODE_PATH:-~}:/projects
       - openclaw-data:/app/data
     networks:
@@ -193,7 +190,6 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
       - ${HOST_CODE_PATH:-~}:/projects
       - sandbox-data:/app/data
     networks:
@@ -260,7 +256,6 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
       - ${HOST_CODE_PATH:-~}:/projects
       - hermes-data:/app/data
     networks:

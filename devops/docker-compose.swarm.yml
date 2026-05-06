@@ -37,7 +37,6 @@ services:
       - OPENCLAW_SERVICE_URL=http://openclaw-service:8000
       - HERMES_SERVICE_URL=http://hermes-service:8000
       - OPENCODE_SERVICE_URL=http://opencode-service:8000
-      - SSH_KEYS_HOST_PATH=${SSH_KEYS_HOST_PATH}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_USER=${GITHUB_USER}
       - MCP_ENDPOINT=http://swarm-manager:8000/ai/mcp
@@ -61,8 +60,6 @@ services:
       - CODER_API_KEY=${CODER_API_KEY:-change-me-in-production}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - BROWSER_SERVICE_URL=http://mcp-browser:8000
-    volumes:
-      - ${SSH_KEYS_HOST_PATH:-/tmp/empty-ssh}:/root/.ssh:ro
     cap_drop:
       - ALL
     cap_add:
