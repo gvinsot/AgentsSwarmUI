@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Lock, User, AlertCircle, ChevronRight, Bot, LayoutDashboard, FolderKanban, DollarSign, Zap, Shield, Globe, ArrowRight, Play, X, ChevronDown, Mail, Phone, Building2, MessageSquare, Headphones, Send } from 'lucide-react';
+import { Lock, User, AlertCircle, Bot, LayoutDashboard, FolderKanban, DollarSign, Zap, Shield, Globe, ArrowRight, Play, X, ChevronDown, Mail, Phone, Building2, MessageSquare, Headphones, Send } from 'lucide-react';
 import { api } from '../api';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -690,7 +690,7 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
             <FeatureCard icon={Globe} title={t('features.multiProvider.title')} desc={t('features.multiProvider.desc')} />
             <FeatureCard icon={Shield} title={t('features.sandbox.title')} desc={t('features.sandbox.desc')} />
             <FeatureCard icon={Play} title={t('features.plugins.title')} desc={t('features.plugins.desc')} />
-            <FeatureCard icon={ChevronRight} title={t('features.openSource.title')} desc={t('features.openSource.desc')} />
+
           </div>
         </div>
       </section>
