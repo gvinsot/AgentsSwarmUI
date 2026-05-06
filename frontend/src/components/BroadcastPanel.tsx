@@ -354,9 +354,11 @@ export default function BroadcastPanel({ agents, projects = [], skills = [], mcp
                     disabled={changingProject || agents.length === 0}
                     className="appearance-none bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 pr-7 text-sm text-dark-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer"
                   >
-                    <option value="">No project</option>
+                    <option value="">No repository</option>
                     {projects.map(p => (
-                      <option key={p.name} value={p.name}>{p.name}</option>
+                      <option key={p.name} value={p.name} title={p.description || p.htmlUrl || p.name}>
+                        {p.fullName || p.name}
+                      </option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-400 pointer-events-none" />

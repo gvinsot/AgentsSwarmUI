@@ -311,11 +311,14 @@ async function _fetchGitLabRepos(conn: GitConnection): Promise<RepoInfo[]> {
 // ── Utility functions ────────────────────────────────────────────────────────
 
 /**
- * Get the git clone URL for a specific project name.
+ * Get the git clone URL for a project identifier.
+ * Accepts either the canonical `owner/repo` fullName (preferred, since the
+ * UI picker now emits fullName to disambiguate same-named repos across
+ * multiple connections) or the short repo name (legacy).
  */
 export async function getProjectGitUrl(projectName: string): Promise<string | null> {
   const repos = await listRepos();
-  const repo = repos.find(r => r.name === projectName);
+  const repo = _findRepo(repos, projectName);
   return repo?.sshUrl || null;
 }
 
@@ -324,7 +327,7 @@ export async function getProjectGitUrl(projectName: string): Promise<string | nu
  */
 export async function getConnectionForProject(projectName: string): Promise<{ connection: GitConnection; repo: RepoInfo } | null> {
   const repos = await listRepos();
-  const repo = repos.find(r => r.name === projectName);
+  const repo = _findRepo(repos, projectName);
   if (!repo) return null;
 
   const connections = await getGitConnections();
@@ -332,6 +335,16 @@ export async function getConnectionForProject(projectName: string): Promise<{ co
   if (!connection) return null;
 
   return { connection, repo };
+}
+
+function _findRepo(repos: RepoInfo[], projectName: string): RepoInfo | undefined {
+  if (!projectName) return undefined;
+  const needle = projectName.toLowerCase();
+  // 1. Exact fullName match (owner/repo) — unambiguous, preferred.
+  const byFull = repos.find(r => r.fullName.toLowerCase() === needle);
+  if (byFull) return byFull;
+  // 2. Legacy: short repo name — first match wins.
+  return repos.find(r => r.name.toLowerCase() === needle);
 }
 
 /**

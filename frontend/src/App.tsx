@@ -66,9 +66,35 @@ export default function App() {
     if (loadedRef.current.projects && !force) return;
     loadedRef.current.projects = true;
     try {
-      setProjects(await api.getProjects());
+      // The agent / broadcast / add-agent pickers want to choose **a git
+      // repository** to clone into the runner container, not a DB-backed
+      // "project" entity. We surface every repo exposed by the configured
+      // GitHub/GitLab connections and use the canonical `owner/repo`
+      // fullName as the option value (stored in `agent.project`). The API
+      // resolves both fullName and the legacy short name, so existing
+      // agents keep working.
+      const repos = await api.getAvailableRepos();
+      const normalized = (repos || []).map(r => ({
+        // Canonical id used by the picker and stored as agent.project.
+        name: r.fullName || r.name,
+        fullName: r.fullName,
+        repoName: r.fullName ? r.fullName.split('/').pop() : r.name,
+        provider: r.provider,
+        description: r.description || '',
+        htmlUrl: r.htmlUrl || '',
+        defaultBranch: r.defaultBranch || '',
+      }));
+      // De-duplicate by fullName in case the same repo is exposed by
+      // multiple connections.
+      const seen = new Set();
+      const deduped = normalized.filter(p => {
+        if (seen.has(p.name)) return false;
+        seen.add(p.name);
+        return true;
+      });
+      setProjects(deduped);
     } catch (err) {
-      console.error('Failed to load projects:', err);
+      console.error('Failed to load repos:', err);
       setProjects([]);
       loadedRef.current.projects = false;
     }

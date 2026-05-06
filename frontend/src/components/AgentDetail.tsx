@@ -192,9 +192,11 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
                 className="min-w-0 flex-1 px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500 disabled:opacity-60"
                 title="Working project"
               >
-                <option value="">No project</option>
+                <option value="">No repository</option>
                 {projects?.map(p => (
-                  <option key={p.name} value={p.name}>{p.name}</option>
+                  <option key={p.name} value={p.name} title={p.description || p.htmlUrl || p.name}>
+                    {p.fullName || p.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -236,9 +238,11 @@ export default function AgentDetail({ agent, agents, projects, skills, thinking,
               className="px-2 py-1 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-200 focus:outline-none focus:border-indigo-500 max-w-[160px] disabled:opacity-60"
               title="Working project"
             >
-              <option value="">No project</option>
+              <option value="">No repository</option>
               {projects?.map(p => (
-                <option key={p.name} value={p.name}>{p.name}</option>
+                <option key={p.name} value={p.name} title={p.description || p.htmlUrl || p.name}>
+                  {p.fullName || p.name}
+                </option>
               ))}
             </select>
           </div>

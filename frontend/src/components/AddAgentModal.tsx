@@ -234,18 +234,20 @@ export default function AddAgentModal({ templates, projects, agents = [], onClos
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-xs text-dark-400 mb-1.5">Working Project</label>
+                  <label className="block text-xs text-dark-400 mb-1.5">Repository</label>
                   <select
                     value={form.project}
                     onChange={(e) => updateField('project', e.target.value)}
                     className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-dark-100 focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="">No project selected</option>
+                    <option value="">No repository selected</option>
                     {projects.map(p => (
-                      <option key={p.name} value={p.name}>{p.name}</option>
+                      <option key={p.name} value={p.name} title={p.description || p.htmlUrl || p.name}>
+                        {p.fullName || p.name}
+                      </option>
                     ))}
                   </select>
-                  <p className="text-[11px] text-dark-500 mt-1">Select the project this agent will work on</p>
+                  <p className="text-[11px] text-dark-500 mt-1">Pick the git repository this agent will clone into its runner container</p>
                 </div>
 
                 <div className="col-span-2 border-t border-dark-700 pt-4">
