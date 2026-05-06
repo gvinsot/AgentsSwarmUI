@@ -9,6 +9,7 @@ import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
 import GitHubConnect from '../GitHubConnect';
+import S3Connect from '../S3Connect';
 
 export default function BoardPluginsTab({ board, onClose }) {
   const [plugins, setPlugins] = useState([]);
@@ -63,6 +64,7 @@ export default function BoardPluginsTab({ board, onClose }) {
   const SLACK_MCP_ID = 'mcp-slack';
   const JIRA_MCP_ID = 'mcp-jira';
   const GITHUB_MCP_ID = 'mcp-github';
+  const S3_MCP_ID = 'mcp-aws-s3';
 
   const hasMcp = (mcpId) => assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === mcpId) ||
@@ -305,6 +307,11 @@ export default function BoardPluginsTab({ board, onClose }) {
             {hasMcp(GITHUB_MCP_ID) && (
               <div className="mt-3">
                 <GitHubConnect boardId={board.id} onStatusChange={() => loadData()} />
+              </div>
+            )}
+            {hasMcp(S3_MCP_ID) && (
+              <div className="mt-3">
+                <S3Connect boardId={board.id} onStatusChange={() => loadData()} />
               </div>
             )}
           </div>

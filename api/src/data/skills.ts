@@ -370,6 +370,59 @@ Call them using the @mcp_call(Web Browser, tool_name, {"param": "value"}) syntax
 - Never use this tool to perform side effects (form submissions, logins). It is read-only by design.`
   },
   {
+    "id": "skill-aws-s3",
+    "name": "AWS S3",
+    "description": "Browse buckets, read/write/delete objects, generate presigned URLs, and manage files on Amazon S3",
+    "category": "cloud",
+    "icon": "🪣",
+    "builtin": true,
+    "mcpServerIds": [
+      "mcp-aws-s3"
+    ],
+    "instructions": `You can interact with Amazon S3 using the AWS S3 MCP tools.
+
+The MCP tools are listed in the "--- MCP Tools ---" section of your prompt.
+Call them using the @mcp_call(AWS S3, tool_name, {"param": "value"}) syntax shown there.
+
+## AWS S3 MCP Tools Reference
+
+@mcp_call(AWS S3, list_buckets, {})
+  — List all S3 buckets in the account.
+
+@mcp_call(AWS S3, list_objects, {"bucket": "my-bucket", "prefix": "data/", "max_keys": 100})
+  — List objects in a bucket. Filter by prefix, paginate with continuation_token.
+
+@mcp_call(AWS S3, get_object, {"bucket": "my-bucket", "key": "data/report.json"})
+  — Read the content of an object (text files). For large/binary files, use get_presigned_url.
+
+@mcp_call(AWS S3, put_object, {"bucket": "my-bucket", "key": "data/output.json", "content": "{}", "content_type": "application/json"})
+  — Upload text content to an object. Creates or overwrites.
+
+@mcp_call(AWS S3, delete_object, {"bucket": "my-bucket", "key": "data/old-file.txt"})
+  — Delete an object from a bucket.
+
+@mcp_call(AWS S3, copy_object, {"source_bucket": "src-bucket", "source_key": "file.txt", "dest_bucket": "dst-bucket", "dest_key": "copy.txt"})
+  — Copy an object within or between buckets.
+
+@mcp_call(AWS S3, get_object_info, {"bucket": "my-bucket", "key": "data/file.pdf"})
+  — Get metadata about an object (size, type, last modified) without downloading.
+
+@mcp_call(AWS S3, get_presigned_url, {"bucket": "my-bucket", "key": "data/large-file.zip", "operation": "get", "expires_in": 3600})
+  — Generate a presigned URL for download ("get") or upload ("put"). Default 1 hour.
+
+@mcp_call(AWS S3, create_bucket, {"bucket": "new-bucket-name", "region": "eu-west-1"})
+  — Create a new S3 bucket.
+
+## USAGE GUIDELINES
+- Start by listing buckets: @mcp_call(AWS S3, list_buckets, {})
+- Use list_objects with prefix to browse bucket contents like a file system
+- Use get_object for text files, get_presigned_url for binary/large files
+- Always confirm with the user before deleting objects or creating buckets
+- Bucket names must be globally unique, lowercase, 3-63 characters
+- Use prefix (e.g. "folder/") to organize objects — S3 has no real folders
+- For large result sets, use the continuation_token from the previous response`
+  },
+  {
     "id": "skill-auto-learn",
     "name": "Auto Learn",
     "description": "Shared skill library — agents can create, search, update, and reuse learned knowledge and procedures",

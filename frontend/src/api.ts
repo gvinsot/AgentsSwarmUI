@@ -54,6 +54,9 @@ export const api = {
     return fetch(`${API_BASE}/tasks${qs ? '?' + qs : ''}`, { headers: getHeaders() }).then(handleResponse);
   },
 
+  getProjectStats: (days = 30) =>
+    fetch(`${API_BASE}/tasks/project-stats?days=${days}`, { headers: getHeaders() }).then(handleResponse),
+
   getAgent: (id) =>
     fetch(`${API_BASE}/agents/${id}`, { headers: getHeaders() }).then(handleResponse),
 
@@ -715,6 +718,29 @@ export const api = {
 
   disconnectJira: (agentId?: string, boardId?: string) =>
     fetch(`${API_BASE}/jira/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
+    }).then(handleResponse),
+
+  // AWS S3 (per-agent / per-board)
+  getS3Status: (agentId?: string, boardId?: string) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/s3/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
+
+  connectS3: (agentId: string, secretAccessKey: string, accessKeyId: string, region: string, boardId?: string, endpoint?: string) =>
+    fetch(`${API_BASE}/s3/connect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ agentId, accessKeyId, secretAccessKey, region, ...(boardId && { boardId }), ...(endpoint && { endpoint }) }),
+    }).then(handleResponse),
+
+  disconnectS3: (agentId?: string, boardId?: string) =>
+    fetch(`${API_BASE}/s3/disconnect`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
