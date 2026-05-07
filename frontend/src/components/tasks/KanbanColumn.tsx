@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Trash2, Edit3, Plus, ArrowRight } from 'lucide-react';
+import { Trash2, Edit3, Plus, ArrowRight, GripVertical } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import TaskCard from './TaskCard';
 
-export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onClearStopped, onDrop, onOpen, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits, columns, onBatchMove, onBatchDelete }) {
+export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onResume, onClearStopped, onDrop, onOpen, onAddTask, onEditInstructions, hasInstructions, showAgent, showCreator, showProject, showTaskType, onTouchDrop, onNavigateToAgent, onOpenCommits, columns, onBatchMove, onBatchDelete, canReorderColumns, draggingColumnId, onColumnDragStart, onColumnDragEnd, onColumnReorder, isFirstColumn, isLastColumn }) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [dragOver, setDragOver] = useState(false);
@@ -12,8 +12,12 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [batchMoving, setBatchMoving] = useState(false);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [columnDropSide, setColumnDropSide] = useState(null); // 'left' | 'right' | null
   const batchMenuRef = useRef(null);
   const dropZoneRef = useRef(null);
+
+  const isDraggingThisColumn = draggingColumnId === col.id;
+  const isColumnDragActive = !!draggingColumnId && draggingColumnId !== col.id;
 
   // Close batch menu on outside click
   useEffect(() => {
@@ -64,10 +68,47 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
     return tasks.length; // drop at end
   }, [tasks.length]);
 
+  // Handle column-reorder drag-over: decide left/right insertion based on cursor position
+  const handleColumnDragOver = useCallback((e) => {
+    if (!isColumnDragActive || !onColumnReorder) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    setColumnDropSide(e.clientX < midX ? 'left' : 'right');
+  }, [isColumnDragActive, onColumnReorder]);
+
+  const handleColumnDrop = useCallback((e) => {
+    if (!isColumnDragActive || !onColumnReorder || !draggingColumnId) {
+      setColumnDropSide(null);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const side = columnDropSide || 'left';
+    setColumnDropSide(null);
+    onColumnReorder(draggingColumnId, col.id, side === 'left' ? 'before' : 'after');
+  }, [isColumnDragActive, onColumnReorder, draggingColumnId, columnDropSide, col.id]);
+
   return (
-    <div className="flex flex-col min-w-[300px] w-[300px] max-h-[2500px] flex-shrink-0 group"
+    <div className={`flex flex-col min-w-[300px] w-[300px] max-h-[2500px] flex-shrink-0 group relative
+      ${isDraggingThisColumn ? 'opacity-40' : ''}`}
       data-column-id={col.id}
-      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+      onDragOver={handleColumnDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setColumnDropSide(null);
+      }}
+      onDrop={handleColumnDrop}
+    >
+      {/* Column reorder drop indicator */}
+      {isColumnDragActive && columnDropSide === 'left' && (
+        <div className="absolute -left-2 top-0 bottom-0 w-1 rounded-full bg-indigo-500/70 z-10" />
+      )}
+      {isColumnDragActive && columnDropSide === 'right' && (
+        <div className="absolute -right-2 top-0 bottom-0 w-1 rounded-full bg-indigo-500/70 z-10" />
+      )}
+
       {/* Column header */}
       <div className={`flex items-center justify-between px-3 py-2.5 rounded-t-xl border border-b-2
         transition-colors mb-0 flex-shrink-0
@@ -75,10 +116,29 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
           ? `bg-dark-750 ${col.headerActive} border-b-2`
           : 'bg-dark-800/60 border-dark-700/50'
         }`}
+        draggable={!!canReorderColumns}
+        onDragStart={(e) => {
+          if (!canReorderColumns) return;
+          e.dataTransfer.effectAllowed = 'move';
+          // Carry a marker so the existing task drop zone (which expects
+          // application/json) ignores this drag.
+          try { e.dataTransfer.setData('application/x-pulsar-column', col.id); } catch { /* no-op */ }
+          onColumnDragStart?.(col.id);
+        }}
+        onDragEnd={() => {
+          onColumnDragEnd?.();
+          setColumnDropSide(null);
+        }}
       >
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${col.dot}`} />
-          <span className={`text-sm font-semibold ${isLight ? col.headerTextLight : col.headerText}`}>{col.label}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          {canReorderColumns && (
+            <GripVertical
+              className="w-3.5 h-3.5 text-dark-500 cursor-grab active:cursor-grabbing flex-shrink-0"
+              aria-label="Drag to reorder column"
+            />
+          )}
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+          <span className={`text-sm font-semibold truncate ${isLight ? col.headerTextLight : col.headerText}`}>{col.label}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {hasInstructions && (
@@ -152,6 +212,7 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
             : 'bg-dark-800/20 border-dark-700/30'
           }`}
         onDragOver={(e) => {
+          if (isColumnDragActive || isDraggingThisColumn) return; // let parent handle column reorder
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           setDragOver(true);
@@ -164,6 +225,7 @@ export default function KanbanColumn({ col, tasks, agents, onDelete, onStop, onR
           }
         }}
         onDrop={(e) => {
+          if (isColumnDragActive || isDraggingThisColumn) return; // column reorder handled at column level
           e.preventDefault();
           const idx = computeDropIndex(e);
           setDragOver(false);

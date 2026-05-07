@@ -567,6 +567,43 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
     setBoards(prev => prev.map(b => b.id === activeBoardId ? updatedBoard : b));
   }, [activeBoardId]);
 
+  // Track which column is being dragged (for column reorder, distinct from task drag)
+  const [draggingColumnId, setDraggingColumnId] = useState(null);
+
+  // Reorder columns within the workflow (does not edit any other workflow setting)
+  const handleReorderColumns = useCallback(async (draggedColId, targetColId, position) => {
+    if (!workflow || !activeBoardId) return;
+    if (draggedColId === targetColId) return;
+    const cols = workflow.columns;
+    const fromIdx = cols.findIndex(c => c.id === draggedColId);
+    const targetIdx = cols.findIndex(c => c.id === targetColId);
+    if (fromIdx === -1 || targetIdx === -1) return;
+    const without = cols.filter(c => c.id !== draggedColId);
+    let insertIdx = without.findIndex(c => c.id === targetColId);
+    if (position === 'after') insertIdx += 1;
+    const reordered = [...without.slice(0, insertIdx), cols[fromIdx], ...without.slice(insertIdx)];
+    if (reordered.map(c => c.id).join('|') === cols.map(c => c.id).join('|')) return;
+    const updated = {
+      columns: reordered,
+      transitions: workflow.transitions,
+      version: workflow.version,
+    };
+    // Optimistic update on local boards state
+    setBoards(prev => prev.map(b => b.id === activeBoardId
+      ? { ...b, workflow: { ...(b.workflow || {}), ...updated } }
+      : b));
+    try {
+      await handleSaveWorkflow(updated);
+    } catch (err) {
+      console.error('[TasksBoard] Column reorder failed:', err.message);
+      // Reload boards on failure
+      try {
+        const list = await api.getBoards();
+        if (list.length > 0) setBoards(list);
+      } catch { /* no-op */ }
+    }
+  }, [workflow, activeBoardId, handleSaveWorkflow]);
+
   const handleAddColumn = useCallback(async () => {
     if (!workflow || !activeBoardId) return;
     const slugify = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'step';
@@ -782,6 +819,13 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
               columns={columns}
               onBatchMove={isReadOnly ? undefined : handleBatchMove}
               onBatchDelete={isReadOnly ? undefined : handleBatchDelete}
+              canReorderColumns={canEdit}
+              draggingColumnId={draggingColumnId}
+              onColumnDragStart={setDraggingColumnId}
+              onColumnDragEnd={() => setDraggingColumnId(null)}
+              onColumnReorder={handleReorderColumns}
+              isFirstColumn={colIdx === 0}
+              isLastColumn={colIdx === columns.length - 1}
             />
           ))}
           {canEdit && (
