@@ -13,6 +13,8 @@ import { readSecret } from '../../secrets.js';
 interface AgentEntry {
   project: string | null;
   ready: boolean;
+  /** Epoch ms of the last successful /projects/ensure call for this project. */
+  lastEnsuredAt?: number;
 }
 
 interface FileTreeCacheEntry {
@@ -25,6 +27,14 @@ interface RunnerOptions {
   baseUrl?: string;
   apiKey?: string;
 }
+
+/**
+ * How long a successful /projects/ensure result is trusted before we re-issue
+ * the call for the same (agent, project). The runner-service does its own
+ * fetch+reset on every call, so spamming this endpoint at every tool batch is
+ * wasteful and causes concurrent git operations on the same working tree.
+ */
+const ENSURE_PROJECT_TTL_MS = 60_000;
 
 export class RunnerExecutionProvider extends ExecutionProvider {
   baseUrl: string;
@@ -75,12 +85,28 @@ export class RunnerExecutionProvider extends ExecutionProvider {
     gitCredentials: GitCredentials | null = null,
   ): Promise<void> {
     if (gitCredentials !== null) this.setGitCredentials(agentId, gitCredentials);
-    console.log(`🤖 [Runner] ensureProject(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
 
     if (!project || !gitUrl) {
       this._agents.set(agentId, { project: null, ready: true });
       return;
     }
+
+    // Debounce: if the same (agent, project) was successfully ensured very
+    // recently, skip the HTTP round-trip. The runner-service caches the clone
+    // and re-runs git fetch+reset on every call, which is expensive when
+    // every tool batch from the LLM triggers ensureProject.
+    const existing = this._agents.get(agentId);
+    if (
+      existing &&
+      existing.ready &&
+      existing.project === project &&
+      existing.lastEnsuredAt &&
+      Date.now() - existing.lastEnsuredAt < ENSURE_PROJECT_TTL_MS
+    ) {
+      return;
+    }
+
+    console.log(`🤖 [Runner] ensureProject(agent=${agentId.slice(0, 8)}, project=${project || 'none'}, gitUrl=${gitUrl ? 'yes' : 'no'})`);
 
     try {
       const creds = (this.gitCredentials.get(agentId) || null) as (GitCredentials & { login?: string | null }) | null;
@@ -101,7 +127,7 @@ export class RunnerExecutionProvider extends ExecutionProvider {
       if (data.status === 'error') {
         throw new Error(data.error || 'Project ensure failed');
       }
-      this._agents.set(agentId, { project, ready: true });
+      this._agents.set(agentId, { project, ready: true, lastEnsuredAt: Date.now() });
       console.log(`🤖 [Runner] Project "${project}" ready for agent ${agentId.slice(0, 8)}`);
 
       await this.refreshFileTree(agentId);
@@ -119,6 +145,10 @@ export class RunnerExecutionProvider extends ExecutionProvider {
   ): Promise<void> {
     if (gitCredentials !== null) this.setGitCredentials(agentId, gitCredentials);
     this._fileTreeCache.delete(agentId);
+    // Force a re-ensure even if the TTL hasn't elapsed: the caller explicitly
+    // wants a project switch.
+    const entry = this._agents.get(agentId);
+    if (entry) entry.lastEnsuredAt = 0;
     await this.ensureProject(agentId, newProject, gitUrl);
     await this.resetSession(agentId);
   }

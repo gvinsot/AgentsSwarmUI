@@ -21,6 +21,7 @@ import re
 import asyncio
 import shutil
 import hashlib
+import time
 from typing import Optional
 
 from config import DATA_DIR, logger
@@ -50,6 +51,22 @@ def _allocate_agent_uid(agent_id: str) -> int:
 _agent_user_lock = None  # Lazily initialized (asyncio.Lock needs a running event loop)
 _agent_users: dict[str, dict] = {}
 _agent_projects: dict[str, dict] = {}
+# Per-agent locks serializing ensure_agent_project so two concurrent
+# /projects/ensure calls from the API don't race on the same working tree
+# (e.g. one rmtree + clone while another fetch+reset is running).
+_agent_project_locks: dict[str, asyncio.Lock] = {}
+# Skip the fetch+reset round-trip if we updated this (agent, project) less
+# than this many seconds ago. The API also debounces, but this is a safety
+# net for any other caller and for races inside a single batch.
+_PROJECT_REFRESH_TTL_SECONDS = 30.0
+
+
+def _get_project_lock(agent_id: str) -> asyncio.Lock:
+    lock = _agent_project_locks.get(agent_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _agent_project_locks[agent_id] = lock
+    return lock
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -141,12 +158,22 @@ def get_agent_project_dir(agent_id: str) -> Optional[str]:
 
 
 def _chown_recursive(path: str, uid: int, gid: int):
-    """Best-effort recursive chown — silently no-op if the server lacks CAP_CHOWN."""
+    """Best-effort recursive chown + chmod dirs to 0o700.
+
+    Without the chmod, dirs created by the parent UID (e.g. via `git clone`)
+    keep the parent's umask and may not have the owner-x bit the agent UID
+    needs to chdir/traverse. Files keep their existing mode so executable
+    bits in the cloned repo are preserved.
+    """
     if uid == os.getuid():
         return
     try:
         for root, dirs, files in os.walk(path):
-            os.chown(root, uid, gid)
+            try:
+                os.chown(root, uid, gid)
+                os.chmod(root, 0o700)
+            except OSError:
+                pass
             for name in files:
                 try:
                     os.chown(os.path.join(root, name), uid, gid)
@@ -300,7 +327,22 @@ async def ensure_agent_project(
     GitHub plugin connected to the agent or its board), the token is installed
     in the agent's HOME via `~/.git-credentials` + credential.helper=store so
     `git push/pull` from the LLM agent works against the connected repo.
+
+    Calls are serialized per `agent_id` via an asyncio.Lock so concurrent
+    requests can't race on the same working tree (rmtree + clone vs.
+    fetch + reset). A short TTL also short-circuits the fetch+reset round-trip
+    when the previous successful ensure happened just a few seconds ago.
     """
+    async with _get_project_lock(agent_id):
+        return await _ensure_agent_project_locked(agent_id, project, git_url, git_credentials)
+
+
+async def _ensure_agent_project_locked(
+    agent_id: str,
+    project: str,
+    git_url: str,
+    git_credentials: Optional[dict] = None,
+) -> str:
     username = _sanitize_agent_id(agent_id)
     agent_data_dir = os.path.join(DATA_DIR, "agents", username)
     projects_base = os.path.join(agent_data_dir, "projects")
@@ -309,6 +351,18 @@ async def ensure_agent_project(
     agent_uid = cached_user.get("uid", os.getuid())
     agent_gid = cached_user.get("gid", os.getgid())
     home_dir = cached_user.get("home", agent_data_dir)
+
+    cached = _agent_projects.get(agent_id)
+    # TTL fast path: same project, working tree present, and we updated it
+    # very recently — don't reinstall credentials, don't re-fetch.
+    if (
+        cached
+        and cached.get("project") == project
+        and os.path.isdir(os.path.join(project_dir, ".git"))
+    ):
+        last = cached.get("updated_at", 0.0)
+        if (time.monotonic() - last) < _PROJECT_REFRESH_TTL_SECONDS:
+            return project_dir
 
     # Install plugin credentials before any git operation so updates and clones
     # both benefit from them.
@@ -320,8 +374,7 @@ async def ensure_agent_project(
         except Exception as e:
             logger.warning(f"[Project] Failed to install git credentials for agent {agent_id[:12]}: {e}")
 
-    cached = _agent_projects.get(agent_id)
-    if cached and cached["project"] == project and os.path.isdir(os.path.join(project_dir, ".git")):
+    if cached and cached.get("project") == project and os.path.isdir(os.path.join(project_dir, ".git")):
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git", "fetch", "--all",
@@ -345,7 +398,12 @@ async def ensure_agent_project(
             except asyncio.TimeoutError:
                 proc.kill()
                 raise RuntimeError("git reset --hard origin/HEAD timed out after 15s")
+            cached["updated_at"] = time.monotonic()
             logger.info(f"[Project] Updated {project} for agent {agent_id[:12]}")
+            # fetch/reset ran as parent UID; new files inherit parent ownership.
+            # Re-hand the tree to the agent UID so the CLI subprocess can read
+            # everything after dropping privileges.
+            _chown_recursive(project_dir, agent_uid, agent_gid)
         except Exception as e:
             logger.warning(f"[Project] Failed to update {project} for agent {agent_id[:12]}: {type(e).__name__}: {e}")
         return project_dir
@@ -416,6 +474,6 @@ async def ensure_agent_project(
     # subprocess (which runs under that UID) can read/write it.
     _chown_recursive(project_dir, agent_uid, agent_gid)
 
-    _agent_projects[agent_id] = {"project": project, "path": project_dir}
+    _agent_projects[agent_id] = {"project": project, "path": project_dir, "updated_at": time.monotonic()}
     logger.info(f"[Project] Cloned {project} for agent {agent_id[:12]} at {project_dir}")
     return project_dir

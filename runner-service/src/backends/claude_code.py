@@ -9,6 +9,7 @@ import os
 import json
 import time
 import uuid
+import shutil
 import asyncio
 import subprocess
 from typing import AsyncIterator, Optional
@@ -43,6 +44,29 @@ from .claude_oauth import (
 
 
 MAX_AUTH_RETRIES = 2
+
+
+def _spawn_diagnostic(proc_cwd: str, agent_user: Optional[dict]) -> str:
+    """One-line diagnostic printed before each `claude` subprocess spawn so
+    EACCES failures (cwd not traversable, binary not executable, …) can be
+    pinpointed without attaching a debugger."""
+    target_uid = agent_user.get("uid") if agent_user else os.getuid()
+    parts = [f"cwd={proc_cwd}", f"target_uid={target_uid}"]
+    try:
+        st = os.stat(proc_cwd)
+        parts.append(f"cwd_mode={oct(st.st_mode & 0o777)} cwd_uid={st.st_uid} cwd_gid={st.st_gid}")
+    except OSError as e:
+        parts.append(f"cwd_stat_err={e}")
+    claude_bin = shutil.which("claude")
+    if claude_bin:
+        try:
+            st = os.stat(claude_bin)
+            parts.append(f"claude_bin={claude_bin} mode={oct(st.st_mode & 0o777)} bin_uid={st.st_uid}")
+        except OSError as e:
+            parts.append(f"claude_bin={claude_bin} stat_err={e}")
+    else:
+        parts.append("claude_bin=NOT_FOUND_IN_PATH")
+    return " ".join(parts)
 
 
 class ClaudeCodeBackend(RunnerBackend):
@@ -335,6 +359,7 @@ class ClaudeCodeBackend(RunnerBackend):
             pending_session["is_new"] = is_new
             logger.info(f"Executing Claude Code{agent_label} (prompt={len(prompt)}B): {prompt[:100]}...")
             logger.debug(f"Command: {' '.join(cmd)} (cwd={proc_cwd})")
+            logger.info(f"[Spawn] {_spawn_diagnostic(proc_cwd, agent_user)}")
             p = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -590,6 +615,7 @@ class ClaudeCodeBackend(RunnerBackend):
             pending_session["id"] = sid
             pending_session["is_new"] = is_new
             logger.info(f"Streaming Claude Code{agent_label} (prompt={len(prompt)}B): {prompt[:100]}...")
+            logger.info(f"[Spawn] {_spawn_diagnostic(proc_cwd, agent_user)}")
             p = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
