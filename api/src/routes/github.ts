@@ -45,6 +45,32 @@ function getConfig() {
   return { clientId, clientSecret, redirectUri };
 }
 
+// Retries `fetch` on transient socket errors (undici "terminated", ECONNRESET, ETIMEDOUT).
+// Such errors surface during GitHub OAuth token exchange when the egress connection
+// is closed unexpectedly, leaving the popup stuck on "Connected!".
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  attempts = 3,
+  baseDelayMs = 250,
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err: any) {
+      lastErr = err;
+      const cause = err?.cause?.code || err?.cause?.message || err?.code || err?.message || '';
+      const transient = /terminated|ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN|UND_ERR_SOCKET/i.test(String(cause));
+      if (!transient || i === attempts - 1) throw err;
+      const delay = baseDelayMs * Math.pow(2, i);
+      console.warn(`[GitHub] fetch ${url} failed with "${cause}", retrying in ${delay}ms (attempt ${i + 2}/${attempts})`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 export function hasGitHubTokensForAgent(agentId) {
   if (!agentId) return false;
   return hasOAuthToken('github', 'agent', agentId);
@@ -120,7 +146,7 @@ async function handleOAuthRedirect(req, res) {
   }
 
   try {
-    const response = await fetch('https://github.com/login/oauth/access_token', {
+    const response = await fetchWithRetry('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -139,7 +165,7 @@ async function handleOAuthRedirect(req, res) {
 
     let login = null;
     try {
-      const userRes = await fetch('https://api.github.com/user', {
+      const userRes = await fetchWithRetry('https://api.github.com/user', {
         headers: { Authorization: `Bearer ${data.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'PulsarTeam' },
       });
       if (userRes.ok) {
@@ -162,9 +188,10 @@ async function handleOAuthRedirect(req, res) {
 
     console.log(`✅ [GitHub] OAuth token stored for ${scopeType}:${scopeId} (${login || 'unknown'}) via redirect`);
     return sendOAuthResult(res, 'GitHub', 'github-oauth-callback', true, null, { login });
-  } catch (err) {
+  } catch (err: any) {
+    const cause = err?.cause?.code || err?.cause?.message || err?.message || 'unknown';
     console.error('[GitHub] OAuth redirect error:', err);
-    return sendOAuthResult(res, 'GitHub', 'github-oauth-callback', false, 'Internal error during token exchange');
+    return sendOAuthResult(res, 'GitHub', 'github-oauth-callback', false, `Token exchange failed: ${cause}`);
   }
 }
 
@@ -228,7 +255,7 @@ export function githubRoutes() {
     if (!stateData) return res.status(400).json({ error: 'Invalid or expired state' });
 
     try {
-      const response = await fetch('https://github.com/login/oauth/access_token', {
+      const response = await fetchWithRetry('https://github.com/login/oauth/access_token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
@@ -247,7 +274,7 @@ export function githubRoutes() {
 
       let login = null;
       try {
-        const userRes = await fetch('https://api.github.com/user', {
+        const userRes = await fetchWithRetry('https://api.github.com/user', {
           headers: { Authorization: `Bearer ${data.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'PulsarTeam' },
         });
         if (userRes.ok) {
@@ -270,9 +297,10 @@ export function githubRoutes() {
 
       console.log(`✅ [GitHub] OAuth token stored for ${scopeType}:${scopeId} (${login || 'unknown'})`);
       res.json({ success: true, agentId: stateData.agentId, boardId: stateData.boardId, login });
-    } catch (err) {
+    } catch (err: any) {
+      const cause = err?.cause?.code || err?.cause?.message || err?.message || 'unknown';
       console.error('[GitHub] Token exchange error:', err);
-      res.status(500).json({ error: 'Token exchange failed' });
+      res.status(500).json({ error: `Token exchange failed: ${cause}` });
     }
   });
 
