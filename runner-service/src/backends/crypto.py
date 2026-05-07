@@ -21,7 +21,7 @@ import base64
 import logging
 from typing import Optional
 
-from secrets import read as read_secret
+from swarm_secrets import read as read_secret
 
 logger = logging.getLogger("runner_service.crypto")
 

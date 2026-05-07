@@ -17,7 +17,7 @@ from config import (
     OAUTH_CLIENT_ID, OAUTH_TOKEN_URL, OAUTH_SCOPES,
     logger,
 )
-from secrets import read as read_secret
+from swarm_secrets import read as read_secret
 from .crypto import encrypt_text, decrypt_text, is_envelope
 
 

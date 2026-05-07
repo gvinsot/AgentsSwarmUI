@@ -8,7 +8,7 @@ hermes, opencode, sandbox).
 
 import os
 import logging
-from secrets import read as read_secret
+from swarm_secrets import read as read_secret
 
 # --- Runner selection ---------------------------------------------------------
 
