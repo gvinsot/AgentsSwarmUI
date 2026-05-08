@@ -151,9 +151,15 @@ export default function BroadcastPanel({ agents, skills = [], mcpServers = [], s
   };
 
   const saveEdit = async () => {
-    if (!editingPlugin || !editForm.name.trim() || !editForm.instructions.trim()) return;
+    if (!editingPlugin) return;
+    // Non-admins can only change the User-specific configuration; everything else
+    // is read-only in the UI and rejected by the API.
+    const payload = isAdmin
+      ? editForm
+      : { userConfig: editForm.userConfig || {} };
+    if (isAdmin && (!editForm.name.trim() || !editForm.instructions.trim())) return;
     try {
-      await api.updatePlugin(editingPlugin, editForm);
+      await api.updatePlugin(editingPlugin, payload);
       setEditingPlugin(null);
       if (onRefresh) onRefresh();
     } catch (err) { console.error('Failed to update plugin:', err); }
@@ -453,12 +459,12 @@ export default function BroadcastPanel({ agents, skills = [], mcpServers = [], s
                     {skills.map(plugin => (
                       <div
                         key={plugin.id}
-                        className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors group ${isAdmin ? 'cursor-pointer' : ''} ${
+                        className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors group cursor-pointer ${
                           editingPlugin === plugin.id
                             ? 'bg-indigo-500/10 border-indigo-500/30'
                             : 'bg-dark-800/30 border-dark-700/30 hover:border-dark-600'
                         }`}
-                        onClick={() => isAdmin && startEdit(plugin)}
+                        onClick={() => startEdit(plugin)}
                       >
                         <span className="text-base flex-shrink-0">{plugin.icon}</span>
                         <div className="flex-1 min-w-0">
@@ -701,12 +707,14 @@ export default function BroadcastPanel({ agents, skills = [], mcpServers = [], s
         </div>
         </div>
         {/* ── Right panel: Plugin editor ── */}
-        {editingPlugin && isAdmin && (
+        {editingPlugin && (
           <div className="hidden sm:flex flex-col w-[400px] border-l border-dark-700 bg-dark-850 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Pencil className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="text-sm font-semibold text-dark-100">Edit Plugin</span>
+                <span className="text-sm font-semibold text-dark-100">
+                  {isAdmin ? 'Edit Plugin' : 'Plugin configuration'}
+                </span>
               </div>
               <button onClick={cancelEdit} className="p-1.5 text-dark-400 hover:text-dark-100 hover:bg-dark-700 rounded-lg transition-colors">
                 <X className="w-4 h-4" />
@@ -720,6 +728,7 @@ export default function BroadcastPanel({ agents, skills = [], mcpServers = [], s
                 onCancel={cancelEdit}
                 saving={false}
                 submitLabel="Sauvegarder"
+                readOnly={!isAdmin}
               />
             </div>
           </div>

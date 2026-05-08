@@ -57,6 +57,28 @@ export function pluginRoutes(skillManager, mcpManager) {
     next();
   }
 
+  /**
+   * Non-admins are limited to editing the User-specific configuration field.
+   * Admins keep full edit rights. Anonymous requests are rejected.
+   */
+  function restrictNonAdminToUserConfig(req, res, next) {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    if (req.user.role !== 'admin') {
+      const body = req.body || {};
+      const allowed = new Set(['userConfig']);
+      const forbiddenKeys = Object.keys(body).filter((k) => !allowed.has(k));
+      if (forbiddenKeys.length > 0) {
+        return res.status(403).json({
+          error: 'Non-admin users can only update the User-specific configuration',
+          forbiddenFields: forbiddenKeys,
+        });
+      }
+    }
+    next();
+  }
+
   router.get('/', (req, res) => {
     const plugins = skillManager.getAll().map(sanitizePlugin);
     res.json(plugins);
@@ -81,7 +103,7 @@ export function pluginRoutes(skillManager, mcpManager) {
     }
   });
 
-  router.put('/:id', requireAdmin, async (req, res) => {
+  router.put('/:id', restrictNonAdminToUserConfig, async (req, res) => {
     try {
       const parsed = updatePluginSchema.parse(req.body);
 
