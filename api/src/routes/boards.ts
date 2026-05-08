@@ -5,6 +5,17 @@ import {
   logBoardAudit, getBoardAuditLogs, getAllUsers, getAllBoards,
 } from '../services/database.js';
 import { checkBoardAccess } from '../middleware/auth.js';
+import { validateBody } from '../lib/validate.js';
+import {
+  createBoardSchema,
+  updateBoardSchema,
+  updateWorkflowSchema,
+  updatePluginsSchema,
+  pluginAssignSchema,
+  mcpAuthSchema,
+  createShareSchema,
+  updateShareSchema,
+} from '../schemas/boards.js';
 
 const DEFAULT_BOARD_WORKFLOW = {
   columns: [
@@ -26,7 +37,6 @@ const DEFAULT_BOARD_WORKFLOW = {
   version: 1,
 };
 
-const VALID_PERMISSIONS = ['read', 'edit', 'admin'];
 
 export function boardRoutes(agentManager) {
   const router = express.Router();
@@ -87,7 +97,7 @@ export function boardRoutes(agentManager) {
   // GET /:id — get a specific board (owner + shared users + admins)
   router.get('/:id', async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'read');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'read');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       res.json({ ...access.board, _permission: access.permission, _isOwner: access.isOwner });
     } catch (err) {
@@ -96,7 +106,7 @@ export function boardRoutes(agentManager) {
   });
 
   // POST / — create a new board
-  router.post('/', async (req, res) => {
+  router.post('/', validateBody(createBoardSchema), async (req, res) => {
     try {
       const { name, workflow, filters } = req.body;
       const boardName = (name || 'My Board').slice(0, 100);
@@ -112,9 +122,9 @@ export function boardRoutes(agentManager) {
   });
 
   // PUT /:id — update a board (requires edit permission)
-  router.put('/:id', async (req, res) => {
+  router.put('/:id', validateBody(updateBoardSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       if (access.board.is_default) return res.status(403).json({ error: 'Default board cannot be modified.' });
 
@@ -126,16 +136,13 @@ export function boardRoutes(agentManager) {
   });
 
   // PUT /:id/workflow — update board workflow (requires edit permission)
-  router.put('/:id/workflow', async (req, res) => {
+  router.put('/:id/workflow', validateBody(updateWorkflowSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       if (access.board.is_default) return res.status(403).json({ error: 'Default board workflow cannot be modified.' });
 
       const workflow = req.body;
-      if (!workflow || !workflow.columns) {
-        return res.status(400).json({ error: 'Invalid workflow: must have columns' });
-      }
       const newWorkflow = { ...workflow, version: (access.board.workflow?.version || 0) + 1 };
       const updated = await updateBoard(req.params.id, { workflow: newWorkflow });
       res.json(updated);
@@ -149,7 +156,7 @@ export function boardRoutes(agentManager) {
   // GET /:id/plugins — get board plugins
   router.get('/:id/plugins', async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'read');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'read');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       res.json({
         plugins: access.board.plugins || [],
@@ -161,15 +168,12 @@ export function boardRoutes(agentManager) {
   });
 
   // PUT /:id/plugins — update board plugins (skill IDs array)
-  router.put('/:id/plugins', async (req, res) => {
+  router.put('/:id/plugins', validateBody(updatePluginsSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const { plugins } = req.body;
-      if (!Array.isArray(plugins)) {
-        return res.status(400).json({ error: 'plugins must be an array of skill IDs' });
-      }
       const updated = await updateBoard(req.params.id, { plugins });
       res.json(updated);
     } catch (err) {
@@ -178,13 +182,12 @@ export function boardRoutes(agentManager) {
   });
 
   // POST /:id/plugins/assign — add a plugin to the board
-  router.post('/:id/plugins/assign', async (req, res) => {
+  router.post('/:id/plugins/assign', validateBody(pluginAssignSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const { pluginId } = req.body;
-      if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
 
       const currentPlugins = Array.isArray(access.board.plugins) ? access.board.plugins : [];
       if (currentPlugins.includes(pluginId)) {
@@ -198,13 +201,12 @@ export function boardRoutes(agentManager) {
   });
 
   // POST /:id/plugins/remove — remove a plugin from the board
-  router.post('/:id/plugins/remove', async (req, res) => {
+  router.post('/:id/plugins/remove', validateBody(pluginAssignSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const { pluginId } = req.body;
-      if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
 
       const currentPlugins = Array.isArray(access.board.plugins) ? access.board.plugins : [];
       const updated = await updateBoard(req.params.id, {
@@ -217,9 +219,9 @@ export function boardRoutes(agentManager) {
   });
 
   // PUT /:id/mcp-auth — update board MCP auth config
-  router.put('/:id/mcp-auth', async (req, res) => {
+  router.put('/:id/mcp-auth', validateBody(mcpAuthSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'edit');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'edit');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const updated = await updateBoard(req.params.id, { mcp_auth: req.body });
@@ -232,7 +234,7 @@ export function boardRoutes(agentManager) {
   // DELETE /:id — delete a board (owner or admin only)
   router.delete('/:id', async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       if (access.board.is_default) return res.status(403).json({ error: 'Default board cannot be deleted.' });
       if (!access.isOwner && req.user.role !== 'admin') {
@@ -252,7 +254,7 @@ export function boardRoutes(agentManager) {
   // GET /:id/shares — list all shares for a board (owner or admin)
   router.get('/:id/shares', async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       const shares = await getBoardShares(req.params.id);
       res.json(shares);
@@ -262,15 +264,12 @@ export function boardRoutes(agentManager) {
   });
 
   // POST /:id/shares — share a board with a user (owner or admin)
-  router.post('/:id/shares', async (req, res) => {
+  router.post('/:id/shares', validateBody(createShareSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const { userId, username, permission } = req.body;
-      if (!permission || !VALID_PERMISSIONS.includes(permission)) {
-        return res.status(400).json({ error: 'Invalid permission. Must be: read, edit, or admin' });
-      }
 
       // Resolve user — accept userId or username
       let targetUserId = userId;
@@ -304,15 +303,12 @@ export function boardRoutes(agentManager) {
   });
 
   // PUT /:id/shares/:userId — update a share's permission (owner or admin)
-  router.put('/:id/shares/:userId', async (req, res) => {
+  router.put('/:id/shares/:userId', validateBody(updateShareSchema), async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const { permission } = req.body;
-      if (!permission || !VALID_PERMISSIONS.includes(permission)) {
-        return res.status(400).json({ error: 'Invalid permission. Must be: read, edit, or admin' });
-      }
 
       const updated = await updateBoardShare(req.params.id, req.params.userId, permission);
       if (!updated) return res.status(404).json({ error: 'Share not found' });
@@ -331,7 +327,7 @@ export function boardRoutes(agentManager) {
       // Users can remove themselves from a shared board
       const isSelf = req.params.userId === req.user.userId;
       if (!isSelf) {
-        const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+        const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
         if (!access.ok) return res.status(access.status).json({ error: access.error });
       }
 
@@ -349,7 +345,7 @@ export function boardRoutes(agentManager) {
   // GET /:id/audit — view audit logs for a board (owner or admin)
   router.get('/:id/audit', async (req, res) => {
     try {
-      const access = await checkBoardAccess(req.params.id, req.user.userId, req.user.role, 'admin');
+      const access = await checkBoardAccess(req.params.id as string, req.user.userId, req.user.role, 'admin');
       if (!access.ok) return res.status(access.status).json({ error: access.error });
       const logs = await getBoardAuditLogs(req.params.id);
       res.json(logs);

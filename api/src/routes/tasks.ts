@@ -3,6 +3,13 @@ import { requireRole, checkBoardAccess } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardsByUser, rowToTask, getOAuthToken } from '../services/database.js';
 import { setTaskSignal, clearTaskSignal } from '../services/agentManager/tasks.js';
 import { updateTaskExecutionStatus } from '../services/database.js';
+import { validateBody } from '../lib/validate.js';
+import {
+  reorderTasksSchema,
+  updateTaskSchema,
+  bulkMoveSchema,
+  purgeTasksSchema,
+} from '../schemas/tasks.js';
 
 async function getUserBoardIds(userId: string): Promise<string[]> {
   try {
@@ -141,12 +148,9 @@ router.get('/', async (req, res) => {
 // ── PUT /tasks/reorder — update positions for tasks in a column ────────────
 // IMPORTANT: This must be defined BEFORE /:id to prevent Express from
 // matching '/reorder' as a task :id parameter.
-router.put('/reorder', async (req, res) => {
+router.put('/reorder', validateBody(reorderTasksSchema), async (req, res) => {
   try {
     const { orderedIds } = req.body;
-    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
-      return res.status(400).json({ error: 'orderedIds must be a non-empty array of task IDs' });
-    }
 
     const pool = getPool();
     if (!pool) return res.status(500).json({ error: 'Database not available' });
@@ -187,7 +191,7 @@ router.put('/reorder', async (req, res) => {
 });
 
 // ── PUT /tasks/:id — update a task ──────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', validateBody(updateTaskSchema), async (req, res) => {
   try {
     const mgr = req.app.get('agentManager');
     const task = mgr.getTask(req.params.id);
@@ -329,7 +333,7 @@ router.put('/:id', async (req, res) => {
           delete memTask.actionRunningMode;
           if (task.status === 'done') memTask.completedAt = now;
           // Signal the reminder loop / execution wait to exit
-          setTaskSignal(req.params.id, 'stopped', true);
+          setTaskSignal(req.params.id as string, 'stopped', true);
         }
       }
     }
@@ -375,15 +379,9 @@ router.put('/:id', async (req, res) => {
 });
 
 // ── POST /tasks/bulk-move — move multiple tasks to another board/column ──────
-router.post('/bulk-move', async (req, res) => {
+router.post('/bulk-move', validateBody(bulkMoveSchema), async (req, res) => {
   try {
     const { taskIds, boardId, column } = req.body;
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'taskIds must be a non-empty array' });
-    }
-    if (!boardId) {
-      return res.status(400).json({ error: 'boardId is required' });
-    }
 
     const mgr = req.app.get('agentManager');
     const username = req.user?.username || 'user';

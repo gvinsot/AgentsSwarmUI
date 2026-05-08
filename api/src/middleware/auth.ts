@@ -10,6 +10,13 @@ import {
 } from '../services/database.js';
 import { provisionNewUser } from '../services/userProvisioning.js';
 import { readSecret } from '../secrets.js';
+import { validateBody, validateParams, validateQuery } from '../lib/validate.js';
+import {
+  loginSchema,
+  oauthCallbackSchema,
+  oauthUrlQuerySchema,
+  impersonateParamsSchema,
+} from '../schemas/auth.js';
 
 const router = express.Router();
 
@@ -101,7 +108,7 @@ export async function ensureAdminSeeded() {
 }
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', validateBody(loginSchema), async (req, res) => {
   try {
     const clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
     if (!checkLoginRateLimit(clientIp)) {
@@ -109,9 +116,6 @@ router.post('/login', async (req, res) => {
     }
 
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
 
     const user = await getUserByUsername(username);
     if (!user || !user.password) {
@@ -167,7 +171,7 @@ router.get('/verify', async (req, res) => {
 });
 
 // Impersonate user (admin only) — authenticateToken applied inline
-router.post('/impersonate/:userId', authenticateToken, async (req, res) => {
+router.post('/impersonate/:userId', authenticateToken, validateParams(impersonateParamsSchema), async (req, res) => {
   try {
     const adminUser = req.user;
     if (!adminUser || adminUser.role !== 'admin') {
@@ -239,7 +243,7 @@ function resolveGoogleRedirectUri(frontendUri?: string): string {
 }
 
 // Returns the Google OAuth consent URL for the frontend to redirect to
-router.get('/google/url', (req, res) => {
+router.get('/google/url', validateQuery(oauthUrlQuerySchema), (req, res) => {
   if (!isGoogleConfigured()) {
     return res.status(501).json({ error: 'Google OAuth not configured' });
   }
@@ -267,15 +271,12 @@ router.get('/google/status', (_req, res) => {
 });
 
 // Exchanges the Google authorization code for user info and returns a JWT
-router.post('/google/callback', async (req, res) => {
+router.post('/google/callback', validateBody(oauthCallbackSchema), async (req, res) => {
   if (!isGoogleConfigured()) {
     return res.status(501).json({ error: 'Google OAuth not configured' });
   }
 
   const { code, redirect_uri } = req.body;
-  if (!code) {
-    return res.status(400).json({ error: 'code required' });
-  }
 
   const canonicalRedirectUri = resolveGoogleRedirectUri(redirect_uri);
   if (!canonicalRedirectUri) {
@@ -372,7 +373,7 @@ function resolveMicrosoftRedirectUri(frontendUri?: string): string {
   return '';
 }
 
-router.get('/microsoft/url', (req, res) => {
+router.get('/microsoft/url', validateQuery(oauthUrlQuerySchema), (req, res) => {
   if (!isMicrosoftConfigured()) {
     return res.status(501).json({ error: 'Microsoft OAuth not configured' });
   }
@@ -395,15 +396,12 @@ router.get('/microsoft/url', (req, res) => {
   res.json({ url: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params}`, redirect_uri: redirectUri });
 });
 
-router.post('/microsoft/callback', async (req, res) => {
+router.post('/microsoft/callback', validateBody(oauthCallbackSchema), async (req, res) => {
   if (!isMicrosoftConfigured()) {
     return res.status(501).json({ error: 'Microsoft OAuth not configured' });
   }
 
   const { code, redirect_uri } = req.body;
-  if (!code) {
-    return res.status(400).json({ error: 'code required' });
-  }
 
   const canonicalRedirectUri = resolveMicrosoftRedirectUri(redirect_uri);
   if (!canonicalRedirectUri) {

@@ -1,25 +1,12 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
 import {
   getAllUsers, getUserById, createUser, updateUser, deleteUser
 } from '../services/database.js';
 import { getConnectedUserIds } from '../ws/socketHandler.js';
 import { provisionNewUser } from '../services/userProvisioning.js';
-
-const createUserSchema = z.object({
-  username: z.string().min(2).max(100),
-  password: z.string().min(4).max(200),
-  role: z.enum(['admin', 'advanced', 'basic']).default('advanced'),
-  displayName: z.string().max(200).optional(),
-});
-
-const updateUserSchema = z.object({
-  username: z.string().min(2).max(100).optional(),
-  password: z.string().min(4).max(200).optional(),
-  role: z.enum(['admin', 'advanced', 'basic']).optional(),
-  displayName: z.string().max(200).optional(),
-});
+import { validateBody, validateParams } from '../lib/validate.js';
+import { createUserSchema, updateUserSchema, userIdParamsSchema } from '../schemas/users.js';
 
 export function userRoutes() {
   const router = express.Router();
@@ -36,7 +23,7 @@ export function userRoutes() {
   });
 
   // Get single user
-  router.get('/:id', async (req, res) => {
+  router.get('/:id', validateParams(userIdParamsSchema), async (req, res) => {
     try {
       const user = await getUserById(req.params.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
@@ -48,9 +35,9 @@ export function userRoutes() {
   });
 
   // Create user
-  router.post('/', async (req, res) => {
+  router.post('/', validateBody(createUserSchema), async (req, res) => {
     try {
-      const parsed = createUserSchema.parse(req.body);
+      const parsed = req.body as any;
       const hash = await bcrypt.hash(parsed.password, 10);
       const user = await createUser(
         parsed.username,
@@ -61,17 +48,14 @@ export function userRoutes() {
       provisionNewUser(user.id).catch(err => console.error('Provisioning error:', err.message));
       res.status(201).json(user);
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Validation failed', details: err.issues });
-      }
       res.status(400).json({ error: err.message });
     }
   });
 
   // Update user
-  router.put('/:id', async (req, res) => {
+  router.put('/:id', validateParams(userIdParamsSchema), validateBody(updateUserSchema), async (req, res) => {
     try {
-      const parsed = updateUserSchema.parse(req.body);
+      const parsed = req.body as any;
       const fields: Record<string, any> = {};
       if (parsed.username) fields.username = parsed.username;
       if (parsed.role) fields.role = parsed.role;
@@ -83,15 +67,12 @@ export function userRoutes() {
       if (!user) return res.status(404).json({ error: 'User not found' });
       res.json(user);
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Validation failed', details: err.issues });
-      }
       res.status(400).json({ error: err.message });
     }
   });
 
   // Delete user
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', validateParams(userIdParamsSchema), async (req, res) => {
     // Prevent self-deletion
     if (req.params.id === req.user.userId) {
       return res.status(400).json({ error: 'Cannot delete your own account' });

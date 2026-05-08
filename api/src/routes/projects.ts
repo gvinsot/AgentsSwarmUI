@@ -1,5 +1,4 @@
 import express from 'express';
-import { z } from 'zod';
 import { requireRole, checkBoardAccess, checkProjectAccess } from '../middleware/auth.js';
 import {
   getAllProjects, getProjectByName, createProject, updateProject, deleteProject,
@@ -8,6 +7,8 @@ import {
   getStoragesForBoard, getStoragesForProject,
   getOAuthToken,
 } from '../services/database.js';
+import { validateBody } from '../lib/validate.js';
+import { createProjectSchema, updateProjectSchema } from '../schemas/projects.js';
 
 // ── In-memory caches for GitHub explorer endpoints ─────────────────────────
 const ACTIVITY_CACHE_TTL = 60 * 60 * 1000;
@@ -19,17 +20,6 @@ const _branchesCache = new Map<string, { data: any; time: number }>();
 const _treeCache = new Map<string, { data: any; time: number }>();
 const _fileCache = new Map<string, { data: any; time: number }>();
 
-const projectNameSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_\- .]+$/, 'Invalid project name');
-const projectBodySchema = z.object({
-  name: projectNameSchema,
-  description: z.string().max(10000).optional().default(''),
-  rules: z.string().max(10000).optional().default(''),
-});
-const projectUpdateSchema = z.object({
-  name: projectNameSchema.optional(),
-  description: z.string().max(10000).optional(),
-  rules: z.string().max(10000).optional(),
-});
 // Guard for routes whose `:id` must be a UUID — falls through to the next
 // matching route when the path segment is a literal (e.g. `available-repos`).
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -82,29 +72,26 @@ export function projectRoutes() {
   }));
 
   // Mutations require advanced/admin — basic users may not create/modify projects globally.
-  router.post('/', requireRole('admin', 'advanced'), async (req: any, res) => {
+  router.post('/', requireRole('admin', 'advanced'), validateBody(createProjectSchema), async (req: any, res) => {
     try {
-      const body = projectBodySchema.parse(req.body);
+      const body = req.body;
       const existing = await getProjectByName(body.name);
       if (existing) return res.status(409).json({ error: 'A project with this name already exists' });
       const project = await createProject(body.name, body.description, body.rules, req.user?.userId || null);
       res.status(201).json(project);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ error: 'Validation failed', details: err.issues });
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/:id', requireRole('admin', 'advanced'), uuidOnly(async (req: any, res: any) => {
+  router.put('/:id', requireRole('admin', 'advanced'), validateBody(updateProjectSchema), uuidOnly(async (req: any, res: any) => {
     try {
       const access = await checkProjectAccess(req.params.id, req.user?.userId, req.user?.role, 'edit');
       if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
-      const body = projectUpdateSchema.parse(req.body);
-      const updated = await updateProject(req.params.id, body);
+      const updated = await updateProject(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: 'Project not found' });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ error: 'Validation failed', details: err.issues });
       res.status(500).json({ error: err.message });
     }
   }));

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { getAllBoards, getAgentsByBoard } from '../services/database.js';
+import { validateBody } from '../lib/validate.js';
+import { contactSubmitSchema } from '../schemas/contact.js';
 
 export function contactRoutes(agentManager: any) {
   const router = Router();
@@ -14,25 +16,12 @@ export function contactRoutes(agentManager: any) {
     message: { error: 'Too many submissions. Please try again later.' },
   });
 
-  router.post('/', contactLimiter, async (req: Request, res: Response) => {
+  router.post('/', contactLimiter, validateBody(contactSubmitSchema), async (req: Request, res: Response) => {
     try {
-      const { email, phone, name, company, message, type } = req.body;
+      const { email, phone, name, company, message, type } = req.body as any;
 
-      // Validate required fields
-      if (!email || !phone) {
-        return res.status(400).json({ error: 'Email and phone number are required.' });
-      }
-      if (!type || !['contact', 'support'].includes(type)) {
-        return res.status(400).json({ error: 'Type must be "contact" or "support".' });
-      }
-
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({ error: 'Invalid email address.' });
-      }
-
-      // Basic phone validation (at least 6 digits)
+      // Phone digit-count check kept here — schema only enforces length bounds
+      // because international phone formats vary.
       const phoneDigits = phone.replace(/\D/g, '');
       if (phoneDigits.length < 6) {
         return res.status(400).json({ error: 'Invalid phone number.' });
