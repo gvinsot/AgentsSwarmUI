@@ -11,9 +11,9 @@ services:
       # App code reads them via api/src/secrets.ts (file first, env fallback).
       - NODE_ENV=production
       - PORT=${PORT}
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in the deployment environment}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in the deployment environment}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
@@ -57,7 +57,7 @@ services:
       - JIRA_USER_EMAIL=${JIRA_USER_EMAIL:-}
       - JIRA_WEBHOOK_URL=${JIRA_WEBHOOK_URL:-}
       - JIRA_WEBHOOK_SECRET=${JIRA_WEBHOOK_SECRET:-}
-      - CODER_API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - CODER_API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - BROWSER_SERVICE_URL=http://mcp-browser:8000
     cap_drop:
@@ -206,11 +206,11 @@ services:
       - TIMEOUT=600
       - PORT=8000
       - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
       - SWARM_API_BASE_URL=http://team-api:3001
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in the deployment environment}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - MCP_ENDPOINT=${MCP_ENDPOINT:-http://swarm-manager:8000/ai/mcp}
       - PYTHONUNBUFFERED=1
@@ -284,7 +284,7 @@ services:
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
       - PYTHONUNBUFFERED=1
@@ -332,7 +332,7 @@ services:
       - RUNNER_MODEL=${OPENCLAW_MODEL:-claude-opus-4-6}
       - PORT=8000
       - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - PUID=${CODER_PUID:-1000}
@@ -396,7 +396,7 @@ services:
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
@@ -461,13 +461,13 @@ services:
       - TIMEOUT=600
       - PORT=8000
       - HOST=0.0.0.0
-      - API_KEY=${CODER_API_KEY:-change-me-in-production}
+      - API_KEY=${CODER_API_KEY:?CODER_API_KEY must be set in the deployment environment}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - PUID=${CODER_PUID:-1000}
       - PGID=${CODER_PGID:-1000}
       - SWARM_API_BASE_URL=http://team-api:3001
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in the deployment environment}
       - PYTHONUNBUFFERED=1
     volumes:
       - hermes-data:/app/data

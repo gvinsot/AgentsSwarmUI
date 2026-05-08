@@ -45,7 +45,56 @@ logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 # --- Shared constants ---------------------------------------------------------
 
-API_KEY = read_secret("API_KEY", default="change-me-in-production")
+API_KEY = read_secret("API_KEY", default="")
+
+# Known placeholder values shipped in docker-compose.yml / .env.example for local
+# dev. Their presence in production means the operator forgot to override the
+# secret — refuse to start rather than expose a publicly-known key.
+_KNOWN_DEFAULT_VALUES = {
+    "change-me-to-a-random-string",
+    "change-me-in-production",
+    "changeme",
+    "change-me",
+    "pulsarteam",
+    "swarm2026",
+    "admin",
+    "password",
+    "secret",
+}
+
+_IS_PRODUCTION = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv(
+    "RUNNER_ENV", ""
+).lower() == "production"
+
+
+def _is_weak(value: str, min_length: int) -> bool:
+    if not value or len(value) < min_length:
+        return True
+    return value.lower() in _KNOWN_DEFAULT_VALUES
+
+
+if _is_weak(API_KEY, 16):
+    if _IS_PRODUCTION:
+        logger.error("=" * 72)
+        logger.error(
+            "FATAL: API_KEY (CODER_API_KEY) is missing, too short (<16 chars), "
+            "or set to a known default placeholder."
+        )
+        logger.error(
+            "Set CODER_API_KEY as a Docker secret with a strong random value "
+            "(e.g. `openssl rand -hex 32`) before deploying."
+        )
+        logger.error("=" * 72)
+        raise SystemExit(1)
+    logger.warning(
+        "API_KEY (CODER_API_KEY) is weak or unset — runner accepts requests "
+        "with the placeholder. OK for local dev only."
+    )
+    if not API_KEY:
+        # Provide *some* value so dev clients hitting the placeholder still work.
+        API_KEY = "change-me-in-production"
+
+
 PROJECTS_DIR = os.getenv("PROJECTS_DIR", "/projects")
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
 TIMEOUT = int(os.getenv("TIMEOUT", "600"))

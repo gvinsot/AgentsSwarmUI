@@ -23,7 +23,7 @@ import { mcpServerRoutes } from './routes/mcpServers.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { leaderToolsRoutes } from './routes/leaderTools.js';
 import { BUILTIN_SKILLS } from './data/skills.js';
-import { readSecret } from './secrets.js';
+import { readSecret, validateProductionSecrets } from './secrets.js';
 import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase, isDatabaseConnected } from './services/database.js';
 import { onedriveRoutes, onedriveOAuthRedirectRouter } from './routes/onedrive.js';
@@ -277,6 +277,7 @@ setupSocketHandlers(io, agentManager);
 const PORT = process.env.PORT || 3001;
 
 async function start() {
+  validateProductionSecrets();
   await initDatabase();
   await ensureAdminSeeded();
   await ensureApiKeysTable();

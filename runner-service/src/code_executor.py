@@ -10,9 +10,12 @@ import traceback
 from contextlib import redirect_stdout, redirect_stderr
 
 from config import PROJECTS_DIR
-from command_security import validate_command
+from command_security import validate_command, sanitize_env
 
 MAX_OUTPUT = 2000
+# Hard cap on command length — defends against absurd payloads that would slow
+# down the regex-based blocklist or exhaust shell argv limits.
+MAX_COMMAND_LENGTH = 16_384
 
 # Restricted builtins for Python exec — blocks dangerous functions
 _BLOCKED_BUILTINS = {"__import__", "exec", "eval", "compile", "open", "breakpoint", "input", "memoryview"}
@@ -60,19 +63,30 @@ def execute_python(code: str) -> str:
 
 
 def execute_shell(code: str) -> str:
-    # Validate command against security rules
+    if not code or not code.strip():
+        return "[blocked] Empty command"
+    if len(code) > MAX_COMMAND_LENGTH:
+        return f"[blocked] Command exceeds maximum length ({MAX_COMMAND_LENGTH} chars)"
+
+    # Validate command against security rules (blocklist + dangerous patterns).
     block_reason = validate_command(code)
     if block_reason:
         return f"[blocked] {block_reason}"
 
+    # Use the array form (`["bash", "-c", code]`) instead of `shell=True`. Both
+    # invoke a shell that interprets the command, but the array form does not
+    # spawn an extra `/bin/sh -c "bash -c '...'"` wrapper and avoids any chance
+    # of the parent shell expanding the command before bash sees it. Coupled
+    # with sanitize_env(), runner secrets (ANTHROPIC_API_KEY, JWT_SECRET, …)
+    # are not exported into the child's environment.
     try:
         result = subprocess.run(
-            code,
-            shell=True,
+            ["bash", "-c", code],
             capture_output=True,
             text=True,
             timeout=60,
             cwd=PROJECTS_DIR if os.path.isdir(PROJECTS_DIR) else None,
+            env=sanitize_env(os.environ),
         )
         out = result.stdout
         if result.stderr:

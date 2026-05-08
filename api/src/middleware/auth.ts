@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import {
   getUserByUsername, getUserById, createUser, countUsers,
   getUserByGoogleId, createGoogleUser, linkGoogleId,
@@ -55,30 +56,44 @@ export async function ensureAdminSeeded() {
     if (count > 0) return; // users already exist
 
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-    const adminPassword = readSecret('ADMIN_PASSWORD', 'swarm2026');
+    let adminPassword = readSecret('ADMIN_PASSWORD');
+    let generated = false;
 
-    if (!readSecret('ADMIN_PASSWORD')) {
+    if (!adminPassword) {
       if (process.env.NODE_ENV === 'production') {
         console.error('');
         console.error('================================================================');
         console.error('  FATAL: ADMIN_PASSWORD is not set in production!');
-        console.error('  Set ADMIN_PASSWORD env var before deploying.');
+        console.error('  Set ADMIN_PASSWORD as a Docker secret before deploying.');
         console.error('================================================================');
         console.error('');
         process.exit(1);
       }
-      console.warn('');
-      console.warn('================================================================');
-      console.warn('  WARNING: ADMIN_PASSWORD is not set!');
-      console.warn('  Using default credentials (admin / swarm2026).');
-      console.warn('  This is insecure. Set ADMIN_PASSWORD env var before deploying.');
-      console.warn('================================================================');
-      console.warn('');
+      // Dev: generate a random one-shot password and print it ONCE so the
+      // contributor can log in. No hardcoded fallback — operators that forget
+      // to set ADMIN_PASSWORD on deploy still get a unique, unguessable value.
+      adminPassword = randomBytes(18).toString('base64url');
+      generated = true;
     }
 
-    const hash = await bcrypt.hash(adminPassword, 10);
+    // bcrypt cost 12 — meaningfully stronger than the default 10, still fast
+    // enough on modern hardware (~250ms) for a single seeding call.
+    const hash = await bcrypt.hash(adminPassword, 12);
     await createUser(adminUsername, hash, 'admin', 'Admin');
-    console.log(`Admin user seeded: ${adminUsername}`);
+
+    if (generated) {
+      console.warn('');
+      console.warn('================================================================');
+      console.warn('  ADMIN_PASSWORD was not set — generated a random one-time value');
+      console.warn(`  Username: ${adminUsername}`);
+      console.warn(`  Password: ${adminPassword}`);
+      console.warn('  Save this now — it will NOT be shown again.');
+      console.warn('  Set ADMIN_PASSWORD in your env to control this value.');
+      console.warn('================================================================');
+      console.warn('');
+    } else {
+      console.log(`Admin user seeded: ${adminUsername}`);
+    }
   } catch (err) {
     console.error('Failed to seed admin user:', err.message);
   }
