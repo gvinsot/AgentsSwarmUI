@@ -269,8 +269,8 @@ export function agentRoutes(agentManager) {
   });
 
   // Clear conversation history
-  router.delete('/:id/history', requireAgentAccess, (req, res) => {
-    const success = agentManager.clearHistory(req.params.id);
+  router.delete('/:id/history', requireAgentAccess, async (req, res) => {
+    const success = await agentManager.clearHistory(req.params.id);
     if (!success) return res.status(404).json({ error: 'Agent not found' });
     res.json({ success: true });
   });

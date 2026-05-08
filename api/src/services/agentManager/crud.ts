@@ -86,7 +86,7 @@ export const crudMethods = {
     const llmChanged = llmFields.some(f => updates[f] !== undefined && updates[f] !== agent[f]);
 
     if (llmChanged) {
-      this._resetCoderSession(id, agent);
+      await this._resetCoderSession(id, agent);
       agent.conversationHistory = [];
       agent.currentThinking = '';
       delete agent._compactionArmed;

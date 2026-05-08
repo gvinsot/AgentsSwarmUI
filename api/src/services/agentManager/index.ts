@@ -60,9 +60,9 @@ export interface AgentManager {
   removeMcpServer(agentId: string, serverId: string): boolean;
 
   // ── conversation.ts ──
-  clearHistory(agentId: string): boolean;
+  clearHistory(agentId: string): Promise<boolean>;
   truncateHistory(agentId: string, afterIndex: number): any[] | null;
-  _resetCoderSession(agentId: string, agent: any): void;
+  _resetCoderSession(agentId: string, agent: any): Promise<void>;
   _switchProjectContext(agent: any, oldProject: string | null, newProject: string | null): void;
   buildVoiceInstructions(agentId: string): string;
 

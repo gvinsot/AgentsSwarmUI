@@ -5,7 +5,7 @@ import { readSecret } from '../../secrets.js';
 /** @this {import('./index.js').AgentManager} */
 export const conversationMethods = {
 
-  clearHistory(this: any, agentId: string): boolean {
+  async clearHistory(this: any, agentId: string): Promise<boolean> {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     agent.conversationHistory = [];
@@ -30,8 +30,10 @@ export const conversationMethods = {
     }
     // Persist the cleared execution flags to DB
     clearTaskExecutionFlags(agentId);
-    // Reset Claude Code CLI session if this is a claude-paid agent
-    this._resetCoderSession(agentId, agent);
+    // Reset runner CLI session so the next message starts a fresh session
+    // (otherwise the runner-service would --resume the cached session id and
+    // re-inject the conversation we just cleared on the API side).
+    await this._resetCoderSession(agentId, agent);
     saveAgent(agent);
     this._emit('agent:updated', this._sanitize(agent));
     return true;
@@ -51,13 +53,15 @@ export const conversationMethods = {
   },
 
   // ─── Session Reset ─────────────────────────────────────────────────
-  _resetCoderSession(this: any, agentId: string, agent: any): void {
+  async _resetCoderSession(this: any, agentId: string, agent: any): Promise<void> {
     if (this.executionManager) {
       const provider = this.executionManager._providerFor(agentId);
       if (provider?.resetSession) {
-        provider.resetSession(agentId).catch((err: any) => {
+        try {
+          await provider.resetSession(agentId);
+        } catch (err: any) {
           console.warn(`⚠️  [Session] Failed to reset runner session: ${err.message}`);
-        });
+        }
         return;
       }
     }
@@ -65,18 +69,19 @@ export const conversationMethods = {
     if (llmConfig.provider !== 'claude-paid') return;
     const endpoint = process.env.CLAUDECODE_SERVICE_URL || process.env.CODER_SERVICE_URL || 'http://claudecode-service:8000';
     const apiKey = llmConfig.apiKey || readSecret('CODER_API_KEY');
-    fetch(`${endpoint}/reset`, {
-      method: 'POST',
-      headers: {
-        'X-Api-Key': apiKey,
-        'X-Agent-Id': agentId,
-      },
-    }).then(res => {
+    try {
+      const res = await fetch(`${endpoint}/reset`, {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': apiKey,
+          'X-Agent-Id': agentId,
+        },
+      });
       if (res.ok) console.log(`🔄 [Session] Reset claudecode-service session for "${agent.name}"`);
       else console.warn(`⚠️  [Session] Failed to reset claudecode-service session: ${res.status}`);
-    }).catch((err: any) => {
+    } catch (err: any) {
       console.warn(`⚠️  [Session] Failed to reset claudecode-service session: ${err.message}`);
-    });
+    }
   },
 
   // ─── Project Context Switching ──────────────────────────────────────

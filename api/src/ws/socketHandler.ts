@@ -463,7 +463,7 @@ export function setupSocketHandlers(io, agentManager) {
           case 'clear_context': {
             const target = findAgent(args.agent_name);
             if (!target) { result = `Agent "${args.agent_name}" not found`; break; }
-            agentManager.clearHistory(target.id);
+            await agentManager.clearHistory(target.id);
             result = `Cleared conversation history for ${target.name}`;
             console.log(`🎙️ [Voice] clear_context: ${target.name}`);
             break;
@@ -496,7 +496,7 @@ export function setupSocketHandlers(io, agentManager) {
             let count = 0;
             for (const a of userAgents) {
               if (a.id !== agentId && a.enabled !== false) {
-                agentManager.clearHistory(a.id);
+                await agentManager.clearHistory(a.id);
                 count++;
               }
             }
