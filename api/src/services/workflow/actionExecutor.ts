@@ -80,12 +80,17 @@ ${instructions}`;
 
 function buildExecutePrompt(task) {
   const commits = formatCommitsContext(task);
+  // Note: the "explore the project structure first" hint used to live at the
+  // bottom of this prompt, but it was visible to the user as if it were part
+  // of the task description. The hint is now injected as a system-context
+  // note in chat.ts when messageMeta indicates execute mode (see
+  // _buildSystemPrompt / sendMessage), so it stays out of the user-facing
+  // prompt and out of the persisted conversation history.
   return `You have been assigned the following task to execute.
 
 Task ID: ${task.id}
 Task: ${task.text}
-${task.error ? `Previous error: ${task.error}\n` : ''}${commits}
-Start by exploring the project structure.`;
+${task.error ? `Previous error: ${task.error}\n` : ''}${commits}`;
 }
 
 /**

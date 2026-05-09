@@ -97,7 +97,14 @@ export const chatMethods = {
     }
 
     const messages: any[] = [];
-    const systemContent = await this._buildSystemPrompt(agent, id, delegationDepth);
+    let systemContent = await this._buildSystemPrompt(agent, id, delegationDepth);
+    // Workflow execute mode hint: kept out of the user-facing prompt so it
+    // doesn't appear as if it were part of the task description. It rides
+    // along on the system message for this single LLM call only and is never
+    // persisted to conversation history.
+    if (messageMeta?.type === 'workflow-action' && messageMeta?.mode === 'execute') {
+      systemContent += '\n\n--- Task Execution Note ---\nWhen starting a new task, begin by exploring the project structure to orient yourself before making changes.';
+    }
     messages.push({ role: 'system', content: systemContent });
 
     const { managesContext, isTaskExecution, activeTaskId } = await this._assembleMessages(agent, messages, systemContent, userMessage, delegationDepth, messageMeta, streamCallback, images);
