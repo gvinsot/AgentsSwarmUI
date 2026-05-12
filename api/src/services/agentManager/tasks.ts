@@ -518,7 +518,11 @@ export const tasksMethods = {
     console.log(`[Workflow] Triggering execution for "${task.text.slice(0, 80)}" (status=${task.status})`);
 
     clearTaskSignal(taskId, 'stopped');
+    clearTaskSignal(taskId, 'watching');
     await updateTaskExecutionStatus(taskId, null);
+
+    // Reset the failure circuit breaker so a manual resume always gets a fresh attempt
+    this._taskResumeFailures?.delete(taskId);
 
     // Update in-memory task and notify frontend so the yellow "Stopped" state clears
     const memTask = this._getAgentTasks(agentId).find((t: any) => t.id === taskId);
@@ -528,7 +532,35 @@ export const tasksMethods = {
     }
 
     if (this._isActiveTaskStatus(task.status)) {
-      this._checkAutoRefine({ ...task, agentId }, { by: 'resume' });
+      // Manual resume of an in-flight task: send the prompt directly so the
+      // agent actually picks up where it left off, instead of relying on the
+      // 5s task loop (which can skip resume if executionStatus="watching" or
+      // the workflow engine doesn't fire on_enter for the current column).
+      const executorId = task.assignee || agentId;
+      const executor = this.agents.get(executorId);
+
+      if (!executor) {
+        // Fall back to the workflow engine if the executor is gone
+        this._checkAutoRefine({ ...task, agentId }, { by: 'resume' });
+        return { taskId, response: null };
+      }
+
+      if (executor.status !== 'idle') {
+        throw new Error(`Agent "${executor.name}" is busy — stop it first before resuming`);
+      }
+
+      if (!this._loopProcessing) this._loopProcessing = new Set();
+      if (this._loopProcessing.has(executorId)) {
+        throw new Error(`Agent "${executor.name}" is already processing another task`);
+      }
+
+      this._loopProcessing.add(executorId);
+      // Fire-and-forget — caller (socket handler) doesn't await the agent run
+      this._resumeActiveTask(agentId, executor, task)
+        .catch((err: any) => console.error(`[Resume] _resumeActiveTask failed for "${task.text?.slice(0, 60)}":`, err.message))
+        .finally(() => {
+          this._loopProcessing.delete(executorId);
+        });
     } else {
       this._checkAutoRefine({ ...task, agentId }, { by: 'task-loop' });
     }
