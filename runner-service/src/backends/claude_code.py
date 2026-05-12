@@ -193,6 +193,98 @@ class ClaudeCodeBackend(RunnerBackend):
             return None
         return agent_user
 
+    def _apply_permissions_to_settings(
+        self, agent_user: Optional[dict], permissions: Optional[dict],
+    ) -> None:
+        """Translate the agent's permissions object into the native Claude Code
+        deny rules in `~/.claude/settings.json` so the CLI enforces them.
+
+        Mapping (only `False`/restrictive values produce deny rules; defaults
+        keep the toggle's ON state, i.e. no extra restriction):
+          - execution.shellAccess=False        → deny Bash
+          - filesystem.readAccess=False        → deny Read, Glob, Grep
+          - filesystem.writeAccess=False       → deny Write, Edit, NotebookEdit
+          - filesystem.restrictedPaths=[...]   → deny Read/Edit/Write under each path
+          - network.internetAccess=False       → deny WebFetch/WebSearch + curl/wget/git/etc.
+          - network.allowedDomains=[a, b, ...] → allow WebFetch(domain:a/b/...) + deny WebFetch
+
+        Skipped when there's no per-agent HOME (e.g. runAsRoot=true) — the CLI
+        will then read the server's global settings unchanged.
+        """
+        if not agent_user or not permissions:
+            return
+        home = agent_user.get("home")
+        if not home:
+            return
+        settings_path = os.path.join(home, ".claude", "settings.json")
+        try:
+            with open(settings_path) as f:
+                settings = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            settings = {}
+
+        deny: list[str] = []
+        allow: list[str] = []
+
+        fs = (permissions.get("filesystem") or {})
+        if fs.get("readAccess", True) is False:
+            deny.extend(["Read", "Glob", "Grep"])
+        if fs.get("writeAccess", True) is False:
+            deny.extend(["Write", "Edit", "NotebookEdit"])
+        for raw_path in (fs.get("restrictedPaths") or []):
+            path = (raw_path or "").rstrip("/")
+            if not path:
+                continue
+            for tool in ("Read", "Edit", "Write", "Glob", "Grep"):
+                deny.append(f"{tool}({path})")
+                deny.append(f"{tool}({path}/**)")
+
+        execn = (permissions.get("execution") or {})
+        if execn.get("shellAccess", True) is False:
+            deny.append("Bash")
+
+        net = (permissions.get("network") or {})
+        if net.get("internetAccess", True) is False:
+            deny.extend(["WebFetch", "WebSearch"])
+            # Block the common shell-level network ops as well so the CLI can't
+            # bypass WebFetch via Bash. Only effective when shellAccess is True
+            # (otherwise Bash is already fully denied above).
+            for cmd in ("curl", "wget", "git", "npm", "pnpm", "yarn", "pip",
+                        "apt", "apt-get", "ssh", "scp", "rsync"):
+                deny.append(f"Bash({cmd}:*)")
+        else:
+            domains = net.get("allowedDomains") or []
+            if domains:
+                for d in domains:
+                    d = (d or "").strip()
+                    if d:
+                        allow.append(f"WebFetch(domain:{d})")
+                # Catch-all deny for any other domain — allow rules win.
+                deny.append("WebFetch")
+
+        perms_block = settings.setdefault("permissions", {})
+        if deny:
+            existing = perms_block.get("deny") or []
+            perms_block["deny"] = list(dict.fromkeys(existing + deny))
+        if allow:
+            existing = perms_block.get("allow") or []
+            perms_block["allow"] = list(dict.fromkeys(existing + allow))
+
+        try:
+            os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+            with open(settings_path, "w") as f:
+                json.dump(settings, f, indent=2)
+            uid = agent_user.get("uid")
+            gid = agent_user.get("gid", uid)
+            if uid is not None:
+                try:
+                    os.chown(settings_path, uid, gid)
+                    os.chmod(settings_path, 0o600)
+                except OSError:
+                    pass
+        except OSError as e:
+            logger.warning(f"[Permissions] Failed to write {settings_path}: {e}")
+
     # ── Sessions ──────────────────────────────────────────────────────────
 
     def reset_agent_sessions(self, agent_id: str, task_id: Optional[str] = None) -> int:
@@ -406,6 +498,11 @@ class ClaudeCodeBackend(RunnerBackend):
         # run as the server's root UID. Off by default — when off, we keep the
         # dedicated agent UID resolved by ensure_agent_user.
         effective_user = self._resolve_effective_user(agent_id, agent_user)
+        # Translate permissions (network / filesystem / execution.shell) into
+        # native Claude Code deny rules in the per-agent settings.json. Done
+        # at every spawn so toggles take effect on the next message without
+        # having to recreate the agent's HOME.
+        self._apply_permissions_to_settings(effective_user, self._get_permissions(agent_id))
 
         pending_session: dict = {"key": None, "id": None, "is_new": False}
 
@@ -678,6 +775,7 @@ class ClaudeCodeBackend(RunnerBackend):
 
         agent_label = f" (user={agent_user['username']})" if agent_user else ""
         effective_user = self._resolve_effective_user(agent_id, agent_user)
+        self._apply_permissions_to_settings(effective_user, self._get_permissions(agent_id))
         pending_session: dict = {"key": None, "id": None, "is_new": False}
 
         async def _start_stream_proc(aid: Optional[str]):
