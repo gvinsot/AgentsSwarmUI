@@ -1021,3 +1021,58 @@ test('setTaskStatus clears startedAt even during workflow transitions', async ()
   assert.equal(task.startedAt, null);
   // processTransition would re-set it when the code on_enter run_agent starts
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 22. Stop agent during workflow action pauses the chain
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('stopAgent marks own active task with _executionStopped so chain breaks', async () => {
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Stop mid-action test', 'code');
+
+  task.actionRunning = true;
+  task.actionRunningAgentId = agentId;
+  task.startedAt = new Date().toISOString();
+
+  mgr.stopAgent(agentId);
+
+  assert.equal(task._executionStopped, true, 'own task should be marked stopped');
+  assert.equal(task.executionStatus, 'stopped', 'own task executionStatus should be stopped');
+  assert.equal(task.actionRunning, false, 'actionRunning should be cleared');
+});
+
+test('stopAgent marks delegated task (cross-agent run_agent) as stopped', async () => {
+  // Owner agent A schedules a run_agent action on agent B. User stops B.
+  // The task belongs to A but actionRunningAgentId points to B.
+  const mgr = await setup([
+    { name: 'Owner', role: 'lead' },
+    { name: 'Executor', role: 'developer' },
+  ]);
+  const owner = getAgent(mgr, 'Owner');
+  const executor = getAgent(mgr, 'Executor');
+
+  const task = addTaskToAgent(mgr, owner.id, 'Delegated work', 'code');
+  task.actionRunning = true;
+  task.actionRunningAgentId = executor.id;
+  task.actionRunningMode = 'execute';
+
+  mgr.stopAgent(executor.id);
+
+  assert.equal(task.actionRunning, false, 'actionRunning cleared on delegated task');
+  assert.equal(task._executionStopped, true, 'delegated task should be marked stopped');
+  assert.equal(task.executionStatus, 'stopped', 'delegated task executionStatus should be stopped');
+});
+
+test('setTaskStatus clears _executionStopped so resumed task is not paused forever', async () => {
+  const mgr = await setup([{ name: 'Dev', role: 'developer' }]);
+  const { task, agentId } = addTask(mgr, 'Resume after stop', 'code');
+
+  task._executionStopped = true;
+  task.executionStatus = 'stopped';
+
+  // User moves the task to another column — execution flags should reset
+  mgr.setTaskStatus(agentId, task.id, 'refine', { skipAutoRefine: true, by: 'user' });
+
+  assert.equal(task._executionStopped, undefined, '_executionStopped should be cleared on status change');
+  assert.equal(task.executionStatus, null, 'executionStatus should be cleared on status change');
+});

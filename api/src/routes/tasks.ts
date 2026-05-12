@@ -285,6 +285,7 @@ router.put('/:id', validateBody(updateTaskSchema), async (req, res) => {
     if (statusChanged) {
       task.startedAt = null;
       task.executionStatus = null;
+      delete (task as any)._executionStopped;
       task.actionRunning = false;
       delete task.actionRunningAgentId;
       delete task.actionRunningMode;
@@ -339,6 +340,7 @@ router.put('/:id', validateBody(updateTaskSchema), async (req, res) => {
         if (statusChanged) {
           memTask.startedAt = null;
           memTask.executionStatus = null;
+          delete memTask._executionStopped;
           delete memTask._pendingOnEnter;
           delete memTask._completedActionIdx;
           memTask.completedActionIdx = null;
@@ -451,6 +453,7 @@ router.post('/bulk-move', validateBody(bulkMoveSchema), async (req, res) => {
           memTask.updatedAt = now;
           memTask.startedAt = null;
           memTask.executionStatus = null;
+          delete memTask._executionStopped;
           delete memTask._pendingOnEnter;
           delete memTask._completedActionIdx;
           memTask.completedActionIdx = null;
@@ -508,8 +511,10 @@ router.patch('/:id/clear-stopped', async (req, res) => {
     const memTask = mgr._getAgentTasks(task.agentId)?.find(t => t.id === req.params.id);
     if (memTask) {
       memTask.executionStatus = null;
+      delete memTask._executionStopped;
     }
     task.executionStatus = null;
+    delete (task as any)._executionStopped;
 
     // If task is in 'error' status, restore it to the previous active status
     // so the task loop picks it up for re-execution

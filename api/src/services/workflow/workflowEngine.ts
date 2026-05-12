@@ -412,6 +412,16 @@ async function _executeActionChain(actions, task, { agentManager, io, ownerId, w
       }
     }
 
+    // Stop chain if the user stopped the executing agent mid-action. stopAgent
+    // marks the task with executionStatus='stopped' (and _executionStopped on
+    // in-memory tasks). The task should remain paused in its current column;
+    // the next action (e.g. change_status) must not fire automatically.
+    const taskAfterAction = agentManager._getAgentTasks(task.agentId).find(t => t.id === task.id);
+    if (taskAfterAction && (taskAfterAction.executionStatus === 'stopped' || taskAfterAction._executionStopped)) {
+      console.log(`[WorkflowEngine] Task "${task.id}" was stopped by user during action ${i} (${action.type}) — pausing chain`);
+      break;
+    }
+
     // Stop chain if task errored
     if (task.status === 'error') {
       console.log(`[WorkflowEngine] Task "${task.id}" in error — stopping chain`);

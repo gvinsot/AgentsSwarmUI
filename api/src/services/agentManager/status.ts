@@ -289,6 +289,23 @@ export const statusMethods = {
           t.actionRunning = false;
           delete t.actionRunningAgentId;
           delete t.actionRunningMode;
+          // Mark the task as stopped so the workflow chain loop pauses instead
+          // of firing the next action (e.g. change_status) right after the
+          // interrupted run_agent action. This covers the cross-agent case
+          // where the task's owner is not the stopped agent.
+          if (creatorId !== id && this._isActiveTaskStatus(t.status)) {
+            t._executionStopped = true;
+            t.executionStatus = 'stopped';
+            t.startedAt = null;
+            if (!t.history) t.history = [];
+            t.history.push({
+              status: t.status,
+              at: stopTimestamp,
+              by: 'user',
+              type: 'stopped',
+            });
+            saveTaskToDb({ ...t, agentId: (creatorAgent as any).id });
+          }
           // Signal any pending _waitForExecutionComplete loop so it unblocks
           // the workflow lock instead of waiting out the 10-min reminder cycle.
           setTaskSignal(t.id, 'stopped', true);

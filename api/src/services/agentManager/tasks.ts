@@ -166,6 +166,7 @@ export const tasksMethods = {
     // tasks that were manually moved (e.g. done → nextsprint).
     task.startedAt = null;
     task.executionStatus = null;
+    delete task._executionStopped;
     const now = new Date().toISOString();
     if (status === 'done') task.completedAt = now;
     if (status === 'error') {
