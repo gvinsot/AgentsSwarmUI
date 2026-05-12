@@ -102,7 +102,7 @@ if _is_weak(EFFECTIVE_API_KEY, 16):
     if not EFFECTIVE_API_KEY:
         # Provide *some* value so dev clients hitting the placeholder still work.
         API_KEY = "change-me-in-production"
-        VALID_API_KEYS = (API_KEY,)
+        VALID_API_KEYS = tuple(dict.fromkeys(v for v in (API_KEY, CODER_API_KEY) if v))
 
 
 PROJECTS_DIR = os.getenv("PROJECTS_DIR", "/projects")
