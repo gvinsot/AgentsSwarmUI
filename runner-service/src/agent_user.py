@@ -183,6 +183,30 @@ def _chown_recursive(path: str, uid: int, gid: int):
         logger.warning(f"[Agent User] chown {path} -> uid={uid} failed: {e}")
 
 
+def _ensure_project_parents(projects_base: str, project_dir: str,
+                            uid: int, gid: int) -> None:
+    """Pre-create every intermediate dir between `projects_base` (exclusive)
+    and `project_dir` (exclusive), then chown each to (uid, gid) with mode
+    0o700. Without this, a project name containing '/' would let `git clone`
+    create the intermediates under the parent UID — and the dropped agent UID
+    could not traverse them to reach its own cwd."""
+    project_parent = os.path.dirname(project_dir)
+    if project_parent == projects_base or project_parent == "":
+        return
+    os.makedirs(project_parent, exist_ok=True)
+    walk = project_parent
+    while walk and walk != projects_base:
+        try:
+            os.chown(walk, uid, gid)
+            os.chmod(walk, 0o700)
+        except OSError as e:
+            logger.warning(f"[Project] chown intermediate {walk} -> uid={uid} failed: {e}")
+        parent = os.path.dirname(walk)
+        if parent == walk:
+            break
+        walk = parent
+
+
 _SSH_GIT_RE = re.compile(r"^(?:ssh://)?(?:git@)?([^:/]+)[:/](.+?)(?:\.git)?/?$")
 
 
@@ -416,6 +440,12 @@ async def _ensure_agent_project_locked(
         os.chmod(projects_base, 0o700)
     except OSError as e:
         logger.warning(f"[Project] chown {projects_base} -> uid={agent_uid} failed: {e}")
+
+    # When `project` contains '/' (e.g. "gvinsot/cv"), pre-create every
+    # intermediate dir and hand it to the agent UID. Otherwise `git clone`
+    # would create them under the parent UID with umask 0077 (root:root 0700),
+    # leaving the agent UID unable to traverse its own cwd.
+    _ensure_project_parents(projects_base, project_dir, agent_uid, agent_gid)
 
     if os.path.exists(project_dir):
         shutil.rmtree(project_dir, ignore_errors=True)
