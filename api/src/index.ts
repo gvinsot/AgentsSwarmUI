@@ -167,7 +167,12 @@ app.use('/api/internal/claude-tokens', authenticateCoderApiKey, internalClaudeTo
 const onedriveMcpHandler = createOneDriveMcpHandler();
 app.all('/api/onedrive/mcp', authenticateToken, (req, res) => onedriveMcpHandler(req, res));
 
-const gmailMcpHandler = createGmailMcpHandler();
+// Pass the executionManager as the runner bridge so the Gmail MCP can read
+// agent-side attachment paths (which live in the runner container, not in
+// the API container's filesystem).
+const gmailMcpHandler = createGmailMcpHandler({
+  exec: (agentId, command, options) => executionManager.exec(agentId, command, options),
+});
 app.all('/api/gmail/mcp', authenticateToken, (req, res) => gmailMcpHandler(req, res));
 
 const slackMcpHandler = createSlackMcpHandler();

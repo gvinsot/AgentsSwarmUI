@@ -5,6 +5,20 @@ import path from 'node:path';
 import { z } from 'zod';
 import { getGmailAccessTokenForAgent } from '../routes/gmail.js';
 
+/**
+ * Minimal interface for the runner-service bridge used to read attachment
+ * files from an agent's container when the file is not present on the API
+ * container filesystem (which is the common case — agents live in separate
+ * containers with their own volumes).
+ */
+type RunnerExecBridge = {
+  exec: (
+    agentId: string,
+    command: string,
+    options?: { cwd?: string; timeout?: number },
+  ) => Promise<{ stdout: string; stderr: string }>;
+};
+
 const GMAIL_BASE = 'https://www.googleapis.com/gmail/v1';
 
 // Gmail's API limit is 25 MB total per message (incl. encoding overhead).
@@ -209,12 +223,82 @@ type AttachmentInput = {
   content?: string;
 };
 
+/** Shell-quote a string for safe inclusion in a bash command. */
+function shQuote(value: string): string {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Read a file from the agent's runner-service container via /exec-shell.
+ *
+ * The Gmail MCP runs in the API container, so file paths supplied by an
+ * agent (which live in a separate runner container with its own volumes
+ * and per-agent UID isolation) are not accessible via local fs. We delegate
+ * the read to the runner-service, which executes under the agent's UID and
+ * therefore enforces cross-agent isolation automatically.
+ */
+async function readAttachmentViaRunner(
+  bridge: RunnerExecBridge,
+  agentId: string,
+  filePath: string,
+): Promise<Buffer> {
+  // Probe size and file type first so we can fail fast with a useful message
+  // before transferring potentially large base64 payloads.
+  const probe = await bridge.exec(
+    agentId,
+    `if [ ! -e ${shQuote(filePath)} ]; then echo "MISSING"; elif [ ! -f ${shQuote(filePath)} ]; then echo "NOT_A_FILE"; elif [ ! -r ${shQuote(filePath)} ]; then echo "UNREADABLE"; else stat -c %s ${shQuote(filePath)}; fi`,
+    { timeout: 10000 },
+  );
+  const probeOut = (probe.stdout || '').trim();
+  if (probeOut === 'MISSING') {
+    throw new Error(`Cannot read attachment "${filePath}": file not found in agent workspace`);
+  }
+  if (probeOut === 'NOT_A_FILE') {
+    throw new Error(`Attachment path "${filePath}" is not a regular file`);
+  }
+  if (probeOut === 'UNREADABLE') {
+    throw new Error(`Cannot read attachment "${filePath}": permission denied (cross-agent access is blocked)`);
+  }
+  const size = parseInt(probeOut, 10);
+  if (!Number.isFinite(size) || size < 0) {
+    throw new Error(`Cannot stat attachment "${filePath}" via runner: ${probe.stderr || probeOut || 'unknown error'}`);
+  }
+  if (size > MAX_ATTACHMENT_BYTES) {
+    throw new Error(
+      `Attachment "${filePath}" is ${(size / 1024 / 1024).toFixed(1)} MB, ` +
+      `which exceeds the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit.`
+    );
+  }
+
+  const res = await bridge.exec(
+    agentId,
+    `base64 -w0 ${shQuote(filePath)}`,
+    { timeout: 120000 },
+  );
+  const b64 = (res.stdout || '').replace(/\s+/g, '');
+  if (!b64) {
+    throw new Error(`Empty content reading "${filePath}" via runner: ${res.stderr || 'no output'}`);
+  }
+  return Buffer.from(b64, 'base64');
+}
+
 /**
  * Resolve a user-provided attachment input into the form expected by
  * buildRawEmail: read from disk when `path` is supplied, infer filename and
  * MIME type from the path when not explicitly provided, and validate size.
+ *
+ * Reads happen in two tiers:
+ *   1. Try the API container's local filesystem (legacy / dev convenience).
+ *   2. If the file isn't on the API container (ENOENT/EACCES) and an agent
+ *      context is available, fall back to reading via the agent's runner
+ *      container. This is the normal path in production: agent workspaces
+ *      live in the runner-service container, not in the API container.
  */
-async function resolveAttachment(att: AttachmentInput): Promise<EmailAttachment> {
+async function resolveAttachment(
+  att: AttachmentInput,
+  agentId: string | null = null,
+  runnerBridge: RunnerExecBridge | null = null,
+): Promise<EmailAttachment> {
   if (!att || (typeof att !== 'object')) {
     throw new Error('Each attachment must be an object.');
   }
@@ -230,29 +314,53 @@ async function resolveAttachment(att: AttachmentInput): Promise<EmailAttachment>
   }
 
   if (hasPath) {
-    const absPath = path.resolve(att.path!);
-    let stat;
+    const userPath = att.path!;
+    let buf: Buffer | null = null;
+    let localErr: any = null;
+
+    // Tier 1: try local filesystem on the API container.
     try {
-      stat = await fs.stat(absPath);
+      const absPath = path.resolve(userPath);
+      const stat = await fs.stat(absPath);
+      if (!stat.isFile()) {
+        throw new Error(`Attachment path "${userPath}" is not a regular file.`);
+      }
+      if (stat.size > MAX_ATTACHMENT_BYTES) {
+        throw new Error(
+          `Attachment "${userPath}" is ${(stat.size / 1024 / 1024).toFixed(1)} MB, ` +
+          `which exceeds the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit.`
+        );
+      }
+      buf = await fs.readFile(absPath);
     } catch (err: any) {
-      throw new Error(`Cannot read attachment "${att.path}": ${err.message}`);
+      localErr = err;
     }
-    if (!stat.isFile()) {
-      throw new Error(`Attachment path "${att.path}" is not a regular file.`);
+
+    // Tier 2: fall back to the agent's runner container if the file isn't on
+    // the API container's filesystem. Most agent-supplied paths land here.
+    if (!buf) {
+      const shouldFallback =
+        agentId &&
+        runnerBridge &&
+        localErr &&
+        (localErr.code === 'ENOENT' || localErr.code === 'EACCES' || localErr.code === 'EPERM');
+      if (shouldFallback) {
+        try {
+          buf = await readAttachmentViaRunner(runnerBridge!, agentId!, userPath);
+        } catch (runnerErr: any) {
+          throw new Error(`Cannot read attachment "${userPath}": ${runnerErr.message}`);
+        }
+      } else if (localErr) {
+        throw new Error(`Cannot read attachment "${userPath}": ${localErr.message}`);
+      }
     }
-    if (stat.size > MAX_ATTACHMENT_BYTES) {
-      throw new Error(
-        `Attachment "${att.path}" is ${(stat.size / 1024 / 1024).toFixed(1)} MB, ` +
-        `which exceeds the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit.`
-      );
-    }
-    const buf = await fs.readFile(absPath);
-    const filename = att.filename || path.basename(absPath);
+
+    const filename = att.filename || path.basename(userPath);
     const mimeType = att.mimeType || guessMimeType(filename);
     return {
       filename,
       mimeType,
-      content: buf.toString('base64'),
+      content: buf!.toString('base64'),
     };
   }
 
@@ -401,9 +509,16 @@ const attachmentsSchema = z
 
 /**
  * Create the Gmail MCP server with all tools registered.
- * @param {string|null} agentId - When provided, tools use agent-specific tokens.
+ * @param agentId - When provided, tools use agent-specific tokens.
+ * @param boardId - Optional board context for token resolution.
+ * @param runnerBridge - Optional bridge to the runner-service used to read
+ *   attachment files from the agent's container when not present locally.
  */
-export function createGmailMcpServer(agentId = null, boardId = null) {
+export function createGmailMcpServer(
+  agentId: string | null = null,
+  boardId: string | null = null,
+  runnerBridge: RunnerExecBridge | null = null,
+) {
   const server = new McpServer({
     name: 'Gmail',
     version: '1.0.0',
@@ -587,7 +702,7 @@ export function createGmailMcpServer(agentId = null, boardId = null) {
     },
     async ({ to, subject, body, cc, bcc, attachments }) => {
       const resolved = attachments
-        ? await Promise.all(attachments.map(resolveAttachment))
+        ? await Promise.all(attachments.map(a => resolveAttachment(a, agentId, runnerBridge)))
         : undefined;
 
       const raw = buildRawEmail({ to, cc, bcc, subject, body, attachments: resolved });
@@ -622,7 +737,7 @@ export function createGmailMcpServer(agentId = null, boardId = null) {
     },
     async ({ messageId, body, replyAll, attachments }) => {
       const resolved = attachments
-        ? await Promise.all(attachments.map(resolveAttachment))
+        ? await Promise.all(attachments.map(a => resolveAttachment(a, agentId, runnerBridge)))
         : undefined;
       // Get the original message to extract headers
       const original = await gmailFetch(`/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References`, agentId, boardId);
@@ -689,7 +804,7 @@ export function createGmailMcpServer(agentId = null, boardId = null) {
     },
     async ({ to, subject, body, cc, bcc, attachments }) => {
       const resolved = attachments
-        ? await Promise.all(attachments.map(resolveAttachment))
+        ? await Promise.all(attachments.map(a => resolveAttachment(a, agentId, runnerBridge)))
         : undefined;
 
       const raw = buildRawEmail({ to, cc, bcc, subject, body, attachments: resolved });
@@ -864,8 +979,13 @@ export function createGmailMcpServer(agentId = null, boardId = null) {
  * Create an Express handler for the Gmail MCP endpoint.
  * This bridges HTTP requests to the MCP server.
  * Reads X-Agent-Id header to provide agent-specific token resolution.
+ *
+ * @param runnerBridge - Optional. When provided, attachment paths that don't
+ *   exist on the API container's filesystem are read via the agent's runner
+ *   container. Without it, only files local to the API container can be
+ *   attached (which is rarely useful in production).
  */
-export function createGmailMcpHandler() {
+export function createGmailMcpHandler(runnerBridge: RunnerExecBridge | null = null) {
   return async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });
@@ -877,7 +997,7 @@ export function createGmailMcpHandler() {
       const boardId = req.headers['x-board-id'] || null;
 
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const server = createGmailMcpServer(agentId, boardId);
+      const server = createGmailMcpServer(agentId, boardId, runnerBridge);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
