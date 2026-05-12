@@ -44,6 +44,10 @@ export class RunnerExecutionProvider extends ExecutionProvider {
   ownerIds: Map<string, string>;
   /** Git credentials per agent, forwarded to the runner on /projects/ensure. */
   gitCredentials: Map<string, GitCredentials>;
+  /** Per-agent permissions, forwarded as X-Agent-Permissions on every call so
+   *  the runner enforces shellAccess / internetAccess / restrictedPaths even
+   *  for backends with no LLM (sandbox) or no per-agent permission cache. */
+  permissions: Map<string, any>;
 
   constructor(options: RunnerOptions = {}) {
     super();
@@ -53,6 +57,7 @@ export class RunnerExecutionProvider extends ExecutionProvider {
     this._fileTreeCache = new Map();
     this.ownerIds = new Map();
     this.gitCredentials = new Map();
+    this.permissions = new Map();
   }
 
   /**
@@ -73,6 +78,20 @@ export class RunnerExecutionProvider extends ExecutionProvider {
       this.gitCredentials.set(agentId, creds);
     } else {
       this.gitCredentials.delete(agentId);
+    }
+  }
+
+  /**
+   * Associate (or clear) per-agent permissions. Forwarded to the runner on
+   * every HTTP call via X-Agent-Permissions so shellAccess / internetAccess /
+   * restrictedPaths are enforced even by the sandbox backend.
+   */
+  setPermissions(agentId: string, permissions: any | null): void {
+    if (!agentId) return;
+    if (permissions && typeof permissions === 'object') {
+      this.permissions.set(agentId, permissions);
+    } else {
+      this.permissions.delete(agentId);
     }
   }
 
@@ -294,6 +313,8 @@ export class RunnerExecutionProvider extends ExecutionProvider {
     };
     if (agentId) h['X-Agent-Id'] = agentId;
     if (resolvedOwner) h['X-Owner-Id'] = resolvedOwner;
+    const perms = agentId ? this.permissions.get(agentId) : null;
+    if (perms) h['X-Agent-Permissions'] = JSON.stringify(perms);
     return h;
   }
 

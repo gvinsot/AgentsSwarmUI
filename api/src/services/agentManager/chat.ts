@@ -79,7 +79,7 @@ export const chatMethods = {
           const earlyLlm = this.resolveLlmConfig(agent);
           const providerType = agent.runner || (earlyLlm.managesContext ? 'claudecode' : 'sandbox');
           const gitCreds = await getGitHubCredentialsForAgent(id, agent.boardId || null);
-          this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null, gitCredentials: gitCreds });
+          this.executionManager.bindAgent(id, providerType, { ownerId: agent.ownerId || null, gitCredentials: gitCreds, permissions: agent.permissions || null });
 
           const gitUrl = buildRepoCloneUrl(agent.project);
           if (gitUrl) {

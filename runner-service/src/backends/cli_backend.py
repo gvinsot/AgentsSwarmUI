@@ -127,6 +127,26 @@ class CliBackend(RunnerBackend):
     def _get_permissions(self, agent_id: Optional[str]) -> Optional[dict]:
         return self._permissions.get(agent_id) if agent_id else None
 
+    def _resolve_effective_user(
+        self, agent_id: Optional[str], agent_user: Optional[dict],
+    ) -> Optional[dict]:
+        """Honor the linuxUser.runAsRoot toggle.
+
+        When the toggle is on, return None so the spawn inherits the parent
+        process UID (root in our deployment). When off (default), keep the
+        dedicated per-agent UID resolved by ensure_agent_user.
+        """
+        perms = self._get_permissions(agent_id) or {}
+        run_as_root = bool((perms.get("linuxUser") or {}).get("runAsRoot", False))
+        if run_as_root:
+            if agent_user:
+                logger.info(
+                    f"[Agent {agent_id[:12] if agent_id else 'unknown'}] "
+                    "linuxUser.runAsRoot=true — spawning as root (UID drop disabled)"
+                )
+            return None
+        return agent_user
+
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     async def startup(self) -> None:
@@ -206,6 +226,7 @@ class CliBackend(RunnerBackend):
         agent_user = await ensure_agent_user(agent_id, owner_id=owner_id) if agent_id else None
         cwd = self._resolve_cwd(agent_id)
         permissions = self._get_permissions(agent_id)
+        effective_user = self._resolve_effective_user(agent_id, agent_user)
 
         cmd = self._build_command(prompt, stream=False, system_prompt=system_prompt, agent_id=agent_id, task_id=task_id, permissions=permissions)
         logger.info(f"Executing {self.cli_command}: {prompt[:100]}...")
@@ -218,8 +239,8 @@ class CliBackend(RunnerBackend):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                env=self._agent_env(agent_user),
-                **get_subprocess_kwargs(agent_user),
+                env=self._agent_env(effective_user),
+                **get_subprocess_kwargs(effective_user),
             )
             stdin_input = prompt.encode("utf-8") if self.pass_prompt_via_stdin else None
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -250,6 +271,7 @@ class CliBackend(RunnerBackend):
         agent_user = await ensure_agent_user(agent_id, owner_id=owner_id) if agent_id else None
         cwd = self._resolve_cwd(agent_id)
         permissions = self._get_permissions(agent_id)
+        effective_user = self._resolve_effective_user(agent_id, agent_user)
 
         cmd = self._build_command(prompt, stream=True, system_prompt=system_prompt, agent_id=agent_id, task_id=task_id, permissions=permissions)
         logger.info(f"Streaming {self.cli_command}: {prompt[:100]}...")
@@ -260,9 +282,9 @@ class CliBackend(RunnerBackend):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=self._agent_env(agent_user),
+            env=self._agent_env(effective_user),
             limit=10 * 1024 * 1024,
-            **get_subprocess_kwargs(agent_user),
+            **get_subprocess_kwargs(effective_user),
         )
         if self.pass_prompt_via_stdin:
             try:

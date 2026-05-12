@@ -37,6 +37,7 @@ interface ExecutionManagerOptions {
 interface BindAgentMeta {
   ownerId?: string;
   gitCredentials?: GitCredentials | null;
+  permissions?: any | null;
 }
 
 const DEFAULT_URLS: Record<ProviderType, string> = {
@@ -128,6 +129,9 @@ export class ExecutionManager {
     }
     if (meta.gitCredentials !== undefined) {
       this._getProvider(normalized).setGitCredentials(agentId, meta.gitCredentials);
+    }
+    if (meta.permissions !== undefined) {
+      this._getProvider(normalized).setPermissions(agentId, meta.permissions);
     }
   }
 

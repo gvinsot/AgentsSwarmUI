@@ -35,6 +35,47 @@ def _maybe_set_permissions(agent_id: Optional[str], header: Optional[str]) -> No
             pass
 
 
+def _resolve_permissions(agent_id: Optional[str], header: Optional[str]) -> dict:
+    """Permissions for this request: header takes precedence (most up-to-date),
+    fall back to whatever the backend has cached from the last /execute or
+    /v1/chat/completions call. Returns {} when nothing is set."""
+    if header:
+        try:
+            perms = json.loads(header)
+            if isinstance(perms, dict):
+                if agent_id:
+                    # Refresh the backend-side cache so subsequent runs see the
+                    # latest toggles without needing the header again.
+                    BACKEND.set_agent_permissions(agent_id, perms)
+                return perms
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if agent_id:
+        cached = getattr(BACKEND, "_permissions", {}).get(agent_id) if hasattr(BACKEND, "_permissions") else None
+        if isinstance(cached, dict):
+            return cached
+    return {}
+
+
+def _path_is_under_restricted(target: str, restricted: list) -> bool:
+    """True if `target` is inside any of the `restricted` paths."""
+    try:
+        target_abs = os.path.realpath(os.path.abspath(target))
+    except OSError:
+        target_abs = os.path.abspath(target)
+    for raw in restricted or []:
+        raw = (raw or "").strip()
+        if not raw:
+            continue
+        try:
+            base = os.path.realpath(os.path.abspath(os.path.expanduser(raw)))
+        except OSError:
+            base = os.path.abspath(os.path.expanduser(raw))
+        if target_abs == base or target_abs.startswith(base.rstrip("/") + "/"):
+            return True
+    return False
+
+
 def _agent_unsupported() -> HTTPException:
     return HTTPException(
         status_code=501,
@@ -88,10 +129,20 @@ async def execute_code(
     request: CodeRequest,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
+    x_agent_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     """Direct code execution endpoint (bypasses any LLM)."""
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    perms = _resolve_permissions(x_agent_id, x_agent_permissions)
+    exec_perms = perms.get("execution") or {}
+    if exec_perms.get("shellAccess", True) is False:
+        raise HTTPException(
+            status_code=403,
+            detail="execution.shellAccess is disabled for this agent",
+        )
 
     try:
         logger.info(f"Executing {request.language} code ({len(request.code)} chars)...")
@@ -113,6 +164,7 @@ async def ensure_project(
     authorization: Optional[str] = Header(None),
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     """Clone or update a project repo for a specific agent."""
     api_key = extract_api_key(x_api_key, authorization)
@@ -120,6 +172,14 @@ async def ensure_project(
 
     if not x_agent_id:
         raise HTTPException(status_code=400, detail="X-Agent-Id header required")
+
+    perms = _resolve_permissions(x_agent_id, x_agent_permissions)
+    net_perms = perms.get("network") or {}
+    if net_perms.get("internetAccess", True) is False:
+        raise HTTPException(
+            status_code=403,
+            detail="network.internetAccess is disabled — cannot clone/fetch remote repositories",
+        )
 
     try:
         creds = None
@@ -157,10 +217,19 @@ async def exec_shell(
     authorization: Optional[str] = Header(None),
     x_agent_id: Optional[str] = Header(None),
     x_owner_id: Optional[str] = Header(None),
+    x_agent_permissions: Optional[str] = Header(None),
 ):
     """Execute a shell command in the agent's project context."""
     api_key = extract_api_key(x_api_key, authorization)
     verify_api_key(api_key)
+
+    perms = _resolve_permissions(x_agent_id, x_agent_permissions)
+    exec_perms = perms.get("execution") or {}
+    if exec_perms.get("shellAccess", True) is False:
+        return ExecutionResponse(
+            status="error", output="",
+            error="🛡️ execution.shellAccess is disabled for this agent",
+        )
 
     # Security: validate command against blocklist
     block_reason = validate_command(request.command)
@@ -174,6 +243,15 @@ async def exec_shell(
         cwd = PROJECTS_DIR
     if not os.path.isdir(cwd):
         return ExecutionResponse(status="error", output="", error=f"Directory not found: {cwd}")
+
+    # Block cwd that falls under any restrictedPaths.
+    fs_perms = perms.get("filesystem") or {}
+    restricted = fs_perms.get("restrictedPaths") or []
+    if restricted and _path_is_under_restricted(cwd, restricted):
+        return ExecutionResponse(
+            status="error", output="",
+            error=f"🛡️ cwd '{cwd}' is under a restricted path",
+        )
 
     timeout = min(request.timeout, 120)
 
