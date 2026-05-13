@@ -128,7 +128,7 @@ export default function OutlookConnect({ agentId, boardId, onStatusChange }) {
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-400 border border-dark-600">not configured</span>
         </div>
         <p className="text-xs text-dark-500">
-          Set <code className="text-dark-400">MICROSOFT_CLIENT_ID</code>, <code className="text-dark-400">MICROSOFT_CLIENT_SECRET</code>, and <code className="text-dark-400">MICROSOFT_REDIRECT_URI</code> — one OAuth client serves OneDrive, Outlook, and Microsoft login.
+          Set <code className="text-dark-400">MICROSOFT_CLIENT_ID</code> and <code className="text-dark-400">MICROSOFT_CLIENT_SECRET</code> — one OAuth client serves OneDrive, Outlook, and Microsoft login.
         </p>
       </div>
     );

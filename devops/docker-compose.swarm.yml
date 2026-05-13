@@ -24,7 +24,6 @@ services:
       - GIT_USER_EMAIL=${GIT_USER_EMAIL}
       - GITHUB_OAUTH_CLIENT_ID=${GITHUB_OAUTH_CLIENT_ID}
       - GITHUB_OAUTH_CLIENT_SECRET=${GITHUB_OAUTH_CLIENT_SECRET}
-      - GITHUB_OAUTH_REDIRECT_URI=${GITHUB_OAUTH_REDIRECT_URI}
       # Google + Microsoft OAuth — the redirect_uri is auto-derived from each
       # request (host + fixed path), so no *_REDIRECT_URI env var is needed.
       # Register the public URIs in the OAuth client console (Google Cloud /

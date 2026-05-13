@@ -526,9 +526,11 @@ router.get('/github/status', (_req, res) => {
 });
 
 function resolveGitHubRedirectUri(frontendUri?: string): string {
-  // No env-var override here — the plugin's GITHUB_OAUTH_REDIRECT_URI points to
-  // a different (backend) callback, so we always trust the frontend-supplied
-  // URI as long as its origin is on the allow-list.
+  // Login lands on /auth/github/callback (frontend route); the GitHub plugin
+  // dispatcher lands on /api/github/oauth-redirect (backend). They share one
+  // OAuth App by registering both callback URLs in its settings, and never
+  // collide. The login URI comes from the frontend — accept it only when its
+  // origin is on the CORS allow-list to prevent open-redirect attacks.
   if (frontendUri && isAllowedRedirectUri(frontendUri)) return frontendUri;
   return '';
 }

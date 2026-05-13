@@ -40,9 +40,21 @@ function resolveScope(agentId, boardId, username): { scopeType: ScopeType; scope
 function getConfig() {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
   const clientSecret = readSecret('GITHUB_OAUTH_CLIENT_SECRET');
-  const redirectUri = process.env.GITHUB_OAUTH_REDIRECT_URI;
-  if (!clientId || !clientSecret || !redirectUri) return null;
-  return { clientId, clientSecret, redirectUri };
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+/**
+ * Path under which the GitHub OAuth plugin dispatcher is mounted. The
+ * auth-URL builder and the dispatcher itself must send GitHub the exact
+ * same redirect_uri at token-exchange time — both derive it from this
+ * constant plus req.protocol/host (so it always matches the public URL
+ * the user's browser hit, behind any proxy honoring X-Forwarded-*).
+ */
+const GITHUB_PLUGIN_REDIRECT_PATH = '/api/github/oauth-redirect';
+
+function pluginRedirectUri(req: express.Request): string {
+  return `${req.protocol}://${req.get('host')}${GITHUB_PLUGIN_REDIRECT_PATH}`;
 }
 
 // Retries `fetch` on transient socket errors (undici "terminated", ECONNRESET, ETIMEDOUT).
@@ -153,7 +165,7 @@ async function handleOAuthRedirect(req, res) {
         client_id: config.clientId,
         client_secret: config.clientSecret,
         code,
-        redirect_uri: config.redirectUri,
+        redirect_uri: pluginRedirectUri(req),
       }),
     });
 
@@ -226,7 +238,7 @@ export function githubRoutes() {
   router.get('/auth-url', (req, res) => {
     const config = getConfig();
     if (!config) {
-      return res.status(500).json({ error: 'GitHub OAuth not configured. Set GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_REDIRECT_URI.' });
+      return res.status(500).json({ error: 'GitHub OAuth not configured. Set GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET.' });
     }
 
     const agentId = req.query.agentId || null;
@@ -235,7 +247,7 @@ export function githubRoutes() {
 
     const params = new URLSearchParams({
       client_id: config.clientId,
-      redirect_uri: config.redirectUri,
+      redirect_uri: pluginRedirectUri(req),
       scope: 'repo read:org read:user',
       state,
     });
@@ -262,7 +274,7 @@ export function githubRoutes() {
           client_id: config.clientId,
           client_secret: config.clientSecret,
           code,
-          redirect_uri: config.redirectUri,
+          redirect_uri: pluginRedirectUri(req),
         }),
       });
 

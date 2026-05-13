@@ -117,7 +117,7 @@ export default function GitHubConnect({ agentId, boardId, onStatusChange }) {
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-400 border border-dark-600">not configured</span>
         </div>
         <p className="text-xs text-dark-500">
-          Set <code className="text-dark-400">GITHUB_OAUTH_CLIENT_ID</code>, <code className="text-dark-400">GITHUB_OAUTH_CLIENT_SECRET</code>, and <code className="text-dark-400">GITHUB_OAUTH_REDIRECT_URI</code> environment variables to enable.
+          Set <code className="text-dark-400">GITHUB_OAUTH_CLIENT_ID</code> and <code className="text-dark-400">GITHUB_OAUTH_CLIENT_SECRET</code> — one OAuth App serves GitHub login and the per-agent GitHub plugin.
         </p>
       </div>
     );
