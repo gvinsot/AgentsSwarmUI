@@ -136,12 +136,11 @@ MICROSOFT_REDIRECT_URI=https://your-domain.com/api/microsoft/oauth-redirect
 MICROSOFT_TENANT_ID=xxx
 ```
 
-> OneDrive today and any future Microsoft Graph plugin (Outlook, Teams,
-> SharePoint, ...) share **one** Azure App Registration and **one** redirect
-> URI — the originating plugin is encoded in the OAuth `state` parameter.
-> Register the redirect URI in your Azure App Registration → "Redirect URIs".
-> Legacy `ONEDRIVE_*` variable names and the `/api/onedrive/oauth-redirect`
-> path are still honored as backward-compat aliases.
+> The same `MICROSOFT_*` credentials power "Sign in with Microsoft" AND every
+> Microsoft Graph plugin (OneDrive today; Outlook, Teams, SharePoint later).
+> One Azure App Registration, one client ID/secret — the originating plugin is
+> encoded in the OAuth `state` parameter. Register every redirect URI you'll
+> use (login + plugin) in the Azure App Registration → "Redirect URIs".
 
 ### Google Integration — Gmail + Drive (Optional)
 
@@ -151,13 +150,12 @@ GOOGLE_CLIENT_SECRET=xxx
 GOOGLE_REDIRECT_URI=https://your-domain.com/api/google/oauth-redirect
 ```
 
-> Gmail and Drive share **one** OAuth client and **one** redirect URI —
-> the service is encoded in the OAuth `state` parameter, not the URL.
-> Enable both APIs (Gmail + Drive) in Google Cloud Console and register
-> a single redirect URI under Credentials → OAuth 2.0 Client →
-> "Authorized redirect URIs". The legacy `GMAIL_*` and `GDRIVE_*` env
-> vars (and the `/api/gmail/oauth-redirect`, `/api/gdrive/oauth-redirect`,
-> `/gmail-callback.html` paths) still work for backward compatibility.
+> The same `GOOGLE_*` credentials power "Sign in with Google" AND both the
+> Gmail and Drive plugins. One OAuth client, one redirect URI per use — the
+> service is encoded in the OAuth `state` parameter, not the URL. Enable
+> the APIs you need (Gmail, Drive) in Google Cloud Console and register
+> every redirect URI you'll use (login + plugin) under Credentials → OAuth
+> 2.0 Client → "Authorized redirect URIs".
 
 ---
 

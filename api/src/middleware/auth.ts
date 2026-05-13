@@ -212,9 +212,8 @@ router.post('/impersonate/:userId', authenticateToken, validateParams(impersonat
 });
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
-// Shares getGoogleOAuthConfig() with the Gmail and Drive plugins, so a single
-// set of env vars (GOOGLE_* preferred, GMAIL_* / GDRIVE_* honored as legacy
-// fallbacks) lights up login + both plugins.
+// Shares getGoogleOAuthConfig() with the Gmail and Drive plugins — one
+// GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI pair lights up login + both plugins.
 
 function isGoogleConfigured() {
   return getGoogleOAuthConfig() !== null;
@@ -241,10 +240,10 @@ function isAllowedRedirectUri(uri: string): boolean {
 }
 
 function resolveGoogleRedirectUri(frontendUri?: string): string {
-  // Trust the configured redirect URI unconditionally (deployment config —
-  // pulled from GOOGLE_REDIRECT_URI or its legacy GMAIL_*/GDRIVE_* aliases).
-  // Otherwise require the caller-supplied URI to belong to an allow-listed
-  // origin to prevent an open-redirect / code-stealing attack.
+  // Trust the configured redirect URI unconditionally (deployment config,
+  // GOOGLE_REDIRECT_URI). Otherwise require the caller-supplied URI to belong
+  // to an allow-listed origin to prevent an open-redirect / code-stealing
+  // attack.
   const cfg = getGoogleOAuthConfig();
   if (cfg?.redirectUri) return cfg.redirectUri;
   if (frontendUri && isAllowedRedirectUri(frontendUri)) return frontendUri;
@@ -370,10 +369,9 @@ router.post('/google/callback', validateBody(oauthCallbackSchema), async (req, r
 });
 
 // ── Microsoft / Live.com OAuth ────────────────────────────────────────────────
-// Reuses the shared Microsoft OAuth config (getMicrosoftOAuthConfig), which
-// accepts both MICROSOFT_* (preferred) and legacy ONEDRIVE_* env vars so a
-// deployment configured for the OneDrive plugin automatically lights up
-// Microsoft login as well.
+// Shares getMicrosoftOAuthConfig() with the OneDrive and Outlook plugins —
+// one MICROSOFT_CLIENT_ID/SECRET/REDIRECT_URI/TENANT_ID set lights up login
+// + both plugins.
 
 function getMicrosoftLoginConfig() {
   // For login we only need OIDC scopes — Graph scopes (Files.*, Mail.*) live

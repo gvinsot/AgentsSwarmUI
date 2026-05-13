@@ -1274,9 +1274,7 @@ OneDrive today, Outlook/Teams/SharePoint in the future):
 - `MICROSOFT_REDIRECT_URI`
 - `MICROSOFT_TENANT_ID` (optional, defaults to "common")
 
-Legacy `ONEDRIVE_*` names are still honored when `MICROSOFT_*` are unset. The
-OAuth callback is served at both `/api/microsoft/oauth-redirect` (preferred)
-and `/api/onedrive/oauth-redirect` (legacy alias).
+The OAuth callback is served at `/api/microsoft/oauth-redirect`.
 
 ### Connection Status
 
@@ -1679,4 +1677,3 @@ All responses include the following security headers:
 | `MICROSOFT_CLIENT_SECRET`         | Azure App client secret                         | —                   |
 | `MICROSOFT_REDIRECT_URI`          | OAuth redirect URI                              | —                   |
 | `MICROSOFT_TENANT_ID`             | Azure tenant ID                                 | `common`            |
-| `ONEDRIVE_*`                      | Legacy aliases — honored if `MICROSOFT_*` unset | —                   |
