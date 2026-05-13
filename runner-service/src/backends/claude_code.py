@@ -359,6 +359,15 @@ class ClaudeCodeBackend(RunnerBackend):
         if VERBOSE or output_format == "stream-json":
             cmd.append("--verbose")
 
+        # Real-time streaming: in stream-json mode without this flag, the CLI
+        # emits one `assistant` event per *complete* content block (so a pure
+        # text response shows up as a single chunk at the end). With
+        # --include-partial-messages it also emits Anthropic-style
+        # content_block_delta events as tokens arrive, which the loop below
+        # forwards as `text` chunks.
+        if output_format == "stream-json":
+            cmd.append("--include-partial-messages")
+
         if ALLOWED_TOOLS:
             for tool in ALLOWED_TOOLS.split(","):
                 tool = tool.strip()
@@ -853,6 +862,11 @@ class ClaudeCodeBackend(RunnerBackend):
         has_content = False
         last_event_types: list[str] = []
         last_result_event: Optional[dict] = None
+        # When --include-partial-messages is on, the CLI emits Anthropic-style
+        # content_block_delta events AND a final aggregated `assistant` event
+        # carrying the same text. Track which content_block indices we've
+        # already streamed so the trailing `assistant` event doesn't duplicate.
+        streamed_block_indices: set[int] = set()
 
         try:
             async for line in proc.stdout:
@@ -959,11 +973,61 @@ class ClaudeCodeBackend(RunnerBackend):
 
                 event_type = event.get("type", "")
 
+                # ── Partial-message streaming (--include-partial-messages) ──
+                # Claude CLI 2.x wraps Anthropic SSE events under either a
+                # `stream_event` envelope or emits them directly with their
+                # own `type`. Handle both forms.
+                inner_event = event
+                if event_type == "stream_event":
+                    inner_event = event.get("event", {}) or {}
+                    event_type = inner_event.get("type", "")
+
+                if event_type == "content_block_start":
+                    block = inner_event.get("content_block", {}) or {}
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        idx = inner_event.get("index")
+                        if isinstance(idx, int):
+                            streamed_block_indices.add(idx)
+                        has_content = True
+                        tool_name = block.get("name", "unknown")
+                        yield {"type": "status", "content": f"Using tool: {tool_name}"}
+                    continue
+
+                if event_type == "content_block_delta":
+                    delta = inner_event.get("delta", {}) or {}
+                    dtype = delta.get("type") if isinstance(delta, dict) else None
+                    idx = inner_event.get("index")
+                    if dtype == "text_delta":
+                        text = delta.get("text", "")
+                        if text:
+                            has_content = True
+                            if isinstance(idx, int):
+                                streamed_block_indices.add(idx)
+                            yield {"type": "text", "content": text}
+                    elif dtype == "thinking_delta":
+                        thinking = delta.get("thinking", "")
+                        if thinking:
+                            has_content = True
+                            if isinstance(idx, int):
+                                streamed_block_indices.add(idx)
+                            yield {"type": "thinking", "content": thinking}
+                    continue
+
+                if event_type in ("content_block_stop", "message_start", "message_delta", "message_stop"):
+                    continue
+
                 if event_type == "assistant":
                     message = event.get("message", {})
                     content = message.get("content", "")
                     if isinstance(content, list):
-                        for block in content:
+                        for i, block in enumerate(content):
+                            # Skip blocks already streamed via partial deltas
+                            # to avoid duplicating output. The CLI emits
+                            # content_block_delta with its own `index` but the
+                            # trailing `assistant` event re-lists the blocks
+                            # in the same order, so positional match is safe.
+                            if i in streamed_block_indices:
+                                continue
                             if isinstance(block, dict) and block.get("type") == "thinking":
                                 has_content = True
                                 yield {"type": "thinking", "content": block.get("thinking", "")}
@@ -975,8 +1039,9 @@ class ClaudeCodeBackend(RunnerBackend):
                                 tool_name = block.get("name", "unknown")
                                 yield {"type": "status", "content": f"Using tool: {tool_name}"}
                     elif isinstance(content, str) and content:
-                        has_content = True
-                        yield {"type": "text", "content": content}
+                        if not streamed_block_indices:
+                            has_content = True
+                            yield {"type": "text", "content": content}
 
                 elif event_type == "tool_use":
                     has_content = True
