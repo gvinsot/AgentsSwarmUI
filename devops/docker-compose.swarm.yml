@@ -53,6 +53,7 @@ services:
       - GDRIVE_REDIRECT_URI=${GDRIVE_REDIRECT_URI:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-}
       - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-}
       - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-}
       - SLACK_REDIRECT_URI=${SLACK_REDIRECT_URI:-}
@@ -126,13 +127,13 @@ services:
         - "traefik.http.routers.pulsarteam-api-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-api-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.pulsarteam-api-http.service=noop@internal"
-        - "traefik.http.routers.pulsarteam-oauth-cb.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && Path(`/gmail-callback.html`)"
+        - "traefik.http.routers.pulsarteam-oauth-cb.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (Path(`/gmail-callback.html`) || Path(`/gdrive-callback.html`) || Path(`/google-callback.html`))"
         - "traefik.http.routers.pulsarteam-oauth-cb.entrypoints=websecure"
         - "traefik.http.routers.pulsarteam-oauth-cb.tls.certresolver=letsencrypt"
         - "traefik.http.routers.pulsarteam-oauth-cb.middlewares=pulsarteam-sec-headers"
         - "traefik.http.routers.pulsarteam-oauth-cb.service=pulsarteam-api"
         - "traefik.http.routers.pulsarteam-oauth-cb.priority=200"
-        - "traefik.http.routers.pulsarteam-oauth-cb-http.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && Path(`/gmail-callback.html`)"
+        - "traefik.http.routers.pulsarteam-oauth-cb-http.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (Path(`/gmail-callback.html`) || Path(`/gdrive-callback.html`) || Path(`/google-callback.html`))"
         - "traefik.http.routers.pulsarteam-oauth-cb-http.entrypoints=web"
         - "traefik.http.routers.pulsarteam-oauth-cb-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.pulsarteam-oauth-cb-http.service=noop@internal"

@@ -141,19 +141,21 @@ ONEDRIVE_TENANT_ID=xxx
 > captures the auth code and forwards it to the API via `postMessage`.
 > Register the same URL in your Azure App Registration → "Redirect URIs".
 
-### Gmail Integration (Optional)
+### Google Integration — Gmail + Drive (Optional)
 
 ```env
-GMAIL_CLIENT_ID=xxx
-GMAIL_CLIENT_SECRET=xxx
-GMAIL_REDIRECT_URI=https://your-domain.com/api/gmail/oauth-redirect
+GOOGLE_CLIENT_ID=xxx
+GOOGLE_CLIENT_SECRET=xxx
+GOOGLE_REDIRECT_URI=https://your-domain.com/api/google/oauth-redirect
 ```
 
-> The redirect URI points to the API endpoint which handles the token
-> exchange server-side. Register it in Google Cloud Console →
-> Credentials → OAuth 2.0 Client → "Authorized redirect URIs".
-> For local dev use `http://localhost/gmail-callback.html` (frontend on
-> port 80) or `http://localhost:5173/gmail-callback.html` (Vite dev server).
+> Gmail and Drive share **one** OAuth client and **one** redirect URI —
+> the service is encoded in the OAuth `state` parameter, not the URL.
+> Enable both APIs (Gmail + Drive) in Google Cloud Console and register
+> a single redirect URI under Credentials → OAuth 2.0 Client →
+> "Authorized redirect URIs". The legacy `GMAIL_*` and `GDRIVE_*` env
+> vars (and the `/api/gmail/oauth-redirect`, `/api/gdrive/oauth-redirect`,
+> `/gmail-callback.html` paths) still work for backward compatibility.
 
 ---
 

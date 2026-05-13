@@ -29,9 +29,10 @@ import { BUILTIN_MCP_SERVERS } from './data/mcpServers.js';
 import { initDatabase, isDatabaseConnected } from './services/database.js';
 import { onedriveRoutes, onedriveOAuthRedirectRouter } from './routes/onedrive.js';
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
-import { gmailRoutes, gmailOAuthRedirectRouter, gmailCallbackHandler } from './routes/gmail.js';
+import { gmailRoutes } from './routes/gmail.js';
 import { createGmailMcpHandler } from './services/gmailMcp.js';
-import { gdriveRoutes, gdriveOAuthRedirectRouter } from './routes/gdrive.js';
+import { gdriveRoutes } from './routes/gdrive.js';
+import { googleOAuthRedirectRouter, handleGoogleOAuthCallback } from './routes/googleOAuth.js';
 import { createGdriveMcpHandler } from './services/gdriveMcp.js';
 import { slackRoutes, slackOAuthRedirectRouter } from './routes/slack.js';
 import { createSlackMcpHandler } from './services/slackMcp.js';
@@ -105,7 +106,12 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   // OAuth callback pages set their own CSP with a nonce for inline scripts
-  if (req.path !== '/gmail-callback.html' && !req.path.endsWith('/oauth-redirect')) {
+  const isOAuthCallback =
+    req.path.endsWith('/oauth-redirect') ||
+    req.path === '/gmail-callback.html' ||
+    req.path === '/gdrive-callback.html' ||
+    req.path === '/google-callback.html';
+  if (!isOAuthCallback) {
     res.setHeader('Content-Security-Policy', contentSecurityPolicy);
   }
   next();
@@ -133,13 +139,18 @@ app.use('/api/users', authenticateToken, requireRole('admin'), userRoutes());
 app.use('/api/contact', contactRoutes(agentManager));
 
 // Public OAuth redirect handlers — providers redirect here after consent (no auth needed)
-app.use('/api/gmail', gmailOAuthRedirectRouter());
-app.use('/api/gdrive', gdriveOAuthRedirectRouter());
+// Gmail and Drive share one OAuth client + one redirect URI; the service is
+// encoded in `state` so any of these paths invokes the same dispatcher.
+app.use('/api/google', googleOAuthRedirectRouter());
+app.get('/api/gmail/oauth-redirect', handleGoogleOAuthCallback);   // backward compat
+app.get('/api/gdrive/oauth-redirect', handleGoogleOAuthCallback);  // backward compat
 app.use('/api/github', githubOAuthRedirectRouter());
 app.use('/api/slack', slackOAuthRedirectRouter());
 app.use('/api/onedrive', onedriveOAuthRedirectRouter());
-// Legacy callback path — Traefik routes /gmail-callback.html to the API to bypass global@file middleware
-app.get('/gmail-callback.html', gmailCallbackHandler());
+// Legacy callback paths — Traefik routes these to the API to bypass global@file middleware
+app.get('/gmail-callback.html', handleGoogleOAuthCallback);
+app.get('/gdrive-callback.html', handleGoogleOAuthCallback);
+app.get('/google-callback.html', handleGoogleOAuthCallback);
 
 app.use('/api/agents', authenticateToken, agentRoutes(agentManager));
 app.use('/api/templates', authenticateToken, templateRoutes());
