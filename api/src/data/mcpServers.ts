@@ -60,6 +60,16 @@ export const BUILTIN_MCP_SERVERS = [
     enabled: true,
   },
   {
+    id: 'mcp-gdrive',
+    name: 'Google Drive',
+    url: '__internal__gdrive',
+    description: 'Google Drive — browse, search, read, upload, share, and manage files (per-agent OAuth)',
+    icon: '🗂️',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'mcp-gmail',
     name: 'Gmail',
     url: '__internal__gmail',

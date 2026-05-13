@@ -457,6 +457,29 @@ export const api = {
       body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) })
     }).then(handleResponse),
 
+  // Google Drive OAuth (supports agentId or boardId)
+  getGdriveStatus: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/gdrive/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
+
+  getGdriveAuthUrl: (agentId?, boardId?) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/gdrive/auth-url${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
+
+  disconnectGdrive: (agentId?, boardId?) =>
+    fetch(`${API_BASE}/gdrive/disconnect`, {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) })
+    }).then(handleResponse),
+
   // Slack OAuth (supports agentId or boardId)
   getSlackStatus: (agentId?, boardId?) => {
     const params = new URLSearchParams();

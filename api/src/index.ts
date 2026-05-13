@@ -31,6 +31,8 @@ import { onedriveRoutes, onedriveOAuthRedirectRouter } from './routes/onedrive.j
 import { createOneDriveMcpHandler } from './services/onedriveMcp.js';
 import { gmailRoutes, gmailOAuthRedirectRouter, gmailCallbackHandler } from './routes/gmail.js';
 import { createGmailMcpHandler } from './services/gmailMcp.js';
+import { gdriveRoutes, gdriveOAuthRedirectRouter } from './routes/gdrive.js';
+import { createGdriveMcpHandler } from './services/gdriveMcp.js';
 import { slackRoutes, slackOAuthRedirectRouter } from './routes/slack.js';
 import { createSlackMcpHandler } from './services/slackMcp.js';
 import { createAutoLearnMcpHandler } from './services/autoLearnMcp.js';
@@ -132,6 +134,7 @@ app.use('/api/contact', contactRoutes(agentManager));
 
 // Public OAuth redirect handlers — providers redirect here after consent (no auth needed)
 app.use('/api/gmail', gmailOAuthRedirectRouter());
+app.use('/api/gdrive', gdriveOAuthRedirectRouter());
 app.use('/api/github', githubOAuthRedirectRouter());
 app.use('/api/slack', slackOAuthRedirectRouter());
 app.use('/api/onedrive', onedriveOAuthRedirectRouter());
@@ -149,6 +152,7 @@ app.use('/api/agent-skills', authenticateToken, agentSkillRoutes());
 app.use('/api/mcp-servers', authenticateToken, mcpServerRoutes(mcpManager));
 app.use('/api/onedrive', authenticateToken, onedriveRoutes());
 app.use('/api/gmail', authenticateToken, gmailRoutes());
+app.use('/api/gdrive', authenticateToken, gdriveRoutes());
 app.use('/api/slack', authenticateToken, slackRoutes());
 app.use('/api/realtime', authenticateToken, realtimeRoutes(agentManager));
 app.use('/api/leader-tools', authenticateToken, leaderToolsRoutes(agentManager));
@@ -177,6 +181,9 @@ const gmailMcpHandler = createGmailMcpHandler({
   exec: (agentId, command, options) => executionManager.exec(agentId, command, options),
 });
 app.all('/api/gmail/mcp', authenticateToken, (req, res) => gmailMcpHandler(req, res));
+
+const gdriveMcpHandler = createGdriveMcpHandler();
+app.all('/api/gdrive/mcp', authenticateToken, (req, res) => gdriveMcpHandler(req, res));
 
 const slackMcpHandler = createSlackMcpHandler();
 app.all('/api/slack/mcp', authenticateToken, (req, res) => slackMcpHandler(req, res));

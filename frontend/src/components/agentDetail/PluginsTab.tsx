@@ -6,6 +6,7 @@ import {
 import { api } from '../../api';
 import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
+import GoogleDriveConnect from '../GoogleDriveConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
 import WordPressConnect from '../WordPressConnect';
@@ -66,6 +67,12 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasGmailMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === GMAIL_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(GMAIL_MCP_ID)
+  );
+
+  const GDRIVE_MCP_ID = 'mcp-gdrive';
+  const hasGdriveMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === GDRIVE_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(GDRIVE_MCP_ID)
   );
 
   // Detect if Slack MCP is among the assigned plugins' MCPs
@@ -277,6 +284,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasGmailMcp && (
           <div className="mt-3">
             <GmailConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasGdriveMcp && (
+          <div className="mt-3">
+            <GoogleDriveConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
         {hasSlackMcp && (

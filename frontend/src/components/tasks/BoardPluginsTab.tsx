@@ -6,6 +6,7 @@ import {
 import { api } from '../../api';
 import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
+import GoogleDriveConnect from '../GoogleDriveConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
 import WordPressConnect from '../WordPressConnect';
@@ -62,6 +63,7 @@ export default function BoardPluginsTab({ board, onClose }) {
 
   const ONEDRIVE_MCP_ID = 'mcp-onedrive';
   const GMAIL_MCP_ID = 'mcp-gmail';
+  const GDRIVE_MCP_ID = 'mcp-gdrive';
   const SLACK_MCP_ID = 'mcp-slack';
   const JIRA_MCP_ID = 'mcp-jira';
   const WORDPRESS_MCP_ID = 'mcp-wordpress';
@@ -294,6 +296,11 @@ export default function BoardPluginsTab({ board, onClose }) {
             {hasMcp(GMAIL_MCP_ID) && (
               <div className="mt-3">
                 <GmailConnect boardId={board.id} onStatusChange={() => loadData()} />
+              </div>
+            )}
+            {hasMcp(GDRIVE_MCP_ID) && (
+              <div className="mt-3">
+                <GoogleDriveConnect boardId={board.id} onStatusChange={() => loadData()} />
               </div>
             )}
             {hasMcp(SLACK_MCP_ID) && (

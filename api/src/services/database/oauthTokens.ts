@@ -6,14 +6,14 @@ import { encryptIfPlain, tryDecrypt } from '../../lib/crypto.js';
  *
  * Replaces the per-plugin in-memory Maps with a single DB-backed table.
  * Tokens are scoped by (provider, scope_type, scope_id):
- *   - provider:   'gmail' | 'onedrive' | 'slack' | 'github' | 'jira' | 's3'
+ *   - provider:   'gmail' | 'gdrive' | 'onedrive' | 'slack' | 'github' | 'jira' | 's3'
  *   - scope_type: 'agent' | 'board' | 'user'
  *   - scope_id:   agentId | boardId | userId
  *
  * In-memory cache for fast lookups (populated from DB on startup).
  */
 
-export type OAuthProvider = 'gmail' | 'onedrive' | 'slack' | 'github' | 'jira' | 's3' | 'wordpress' | 'claude_code';
+export type OAuthProvider = 'gmail' | 'gdrive' | 'onedrive' | 'slack' | 'github' | 'jira' | 's3' | 'wordpress' | 'claude_code';
 export type ScopeType = 'agent' | 'board' | 'user';
 
 export interface OAuthTokenRecord {
