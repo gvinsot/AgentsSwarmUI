@@ -8,6 +8,7 @@ import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
+import WordPressConnect from '../WordPressConnect';
 import GitHubConnect from '../GitHubConnect';
 import S3Connect from '../S3Connect';
 
@@ -63,6 +64,7 @@ export default function BoardPluginsTab({ board, onClose }) {
   const GMAIL_MCP_ID = 'mcp-gmail';
   const SLACK_MCP_ID = 'mcp-slack';
   const JIRA_MCP_ID = 'mcp-jira';
+  const WORDPRESS_MCP_ID = 'mcp-wordpress';
   const GITHUB_MCP_ID = 'mcp-github';
   const S3_MCP_ID = 'mcp-aws-s3';
 
@@ -302,6 +304,11 @@ export default function BoardPluginsTab({ board, onClose }) {
             {hasMcp(JIRA_MCP_ID) && (
               <div className="mt-3">
                 <JiraConnect boardId={board.id} onStatusChange={() => loadData()} />
+              </div>
+            )}
+            {hasMcp(WORDPRESS_MCP_ID) && (
+              <div className="mt-3">
+                <WordPressConnect boardId={board.id} onStatusChange={() => loadData()} />
               </div>
             )}
             {hasMcp(GITHUB_MCP_ID) && (

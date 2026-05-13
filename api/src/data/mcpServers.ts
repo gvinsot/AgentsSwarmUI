@@ -90,6 +90,16 @@ export const BUILTIN_MCP_SERVERS = [
     enabled: true,
   },
   {
+    id: 'mcp-wordpress',
+    name: 'WordPress',
+    url: '__internal__wordpress',
+    description: 'WordPress — list/create/update/publish/delete posts and pages, upload media from disk, manage categories and tags (per-agent or per-board Application Password)',
+    icon: '📝',
+    apiKey: '',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'mcp-github',
     name: 'GitHub',
     url: '__internal__github',

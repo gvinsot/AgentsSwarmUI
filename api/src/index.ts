@@ -44,6 +44,8 @@ import { internalClaudeTokenRoutes } from './routes/internalClaudeTokens.js';
 import { swarmApiRoutes } from './routes/swarmApi.js';
 import { jiraRoutes } from './routes/jira.js';
 import { createJiraMcpHandler } from './services/jiraMcp.js';
+import { wordpressRoutes } from './routes/wordpress.js';
+import { createWordPressMcpHandler } from './services/wordpressMcp.js';
 import { githubRoutes, githubOAuthRedirectRouter } from './routes/github.js';
 import { createGitHubMcpHandler } from './services/githubMcp.js';
 import { s3Routes } from './routes/s3.js';
@@ -155,6 +157,7 @@ app.use('/api/settings/api-key', authenticateToken, apiKeyRoutes);
 app.use('/api/llm-configs', authenticateToken, llmConfigRoutes(agentManager));
 app.use('/api/settings/general', authenticateToken, settingsRoutes());
 app.use('/api/jira', authenticateToken, jiraRoutes());
+app.use('/api/wordpress', authenticateToken, wordpressRoutes());
 app.use('/api/s3', authenticateToken, s3Routes());
 app.use('/api/github', authenticateToken, githubRoutes());
 app.use('/api/boards', authenticateToken, boardRoutes(agentManager));
@@ -180,6 +183,9 @@ app.all('/api/slack/mcp', authenticateToken, (req, res) => slackMcpHandler(req, 
 
 const jiraMcpHandler = createJiraMcpHandler();
 app.all('/api/jira/mcp', authenticateToken, (req, res) => jiraMcpHandler(req, res));
+
+const wordpressMcpHandler = createWordPressMcpHandler();
+app.all('/api/wordpress/mcp', authenticateToken, (req, res) => wordpressMcpHandler(req, res));
 
 const githubMcpHandler = createGitHubMcpHandler();
 app.all('/api/github/mcp', authenticateToken, (req, res) => githubMcpHandler(req, res));

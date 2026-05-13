@@ -763,6 +763,29 @@ export const api = {
       body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
     }).then(handleResponse),
 
+  // WordPress (per-agent / per-board)
+  getWordPressStatus: (agentId?: string, boardId?: string) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString();
+    return fetch(`${API_BASE}/wordpress/status${qs ? `?${qs}` : ''}`, { headers: getHeaders() }).then(handleResponse);
+  },
+
+  connectWordPress: (agentId: string, siteUrl: string, username: string, applicationPassword: string, boardId?: string) =>
+    fetch(`${API_BASE}/wordpress/connect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ agentId, siteUrl, username, applicationPassword, ...(boardId && { boardId }) }),
+    }).then(handleResponse),
+
+  disconnectWordPress: (agentId?: string, boardId?: string) =>
+    fetch(`${API_BASE}/wordpress/disconnect`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ ...(agentId && { agentId }), ...(boardId && { boardId }) }),
+    }).then(handleResponse),
+
   // AWS S3 (per-agent / per-board)
   getS3Status: (agentId?: string, boardId?: string) => {
     const params = new URLSearchParams();

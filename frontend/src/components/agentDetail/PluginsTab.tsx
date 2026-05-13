@@ -8,6 +8,7 @@ import OneDriveConnect from '../OneDriveConnect';
 import GmailConnect from '../GmailConnect';
 import SlackConnect from '../SlackConnect';
 import JiraConnect from '../JiraConnect';
+import WordPressConnect from '../WordPressConnect';
 import GitHubConnect from '../GitHubConnect';
 import S3Connect from '../S3Connect';
 
@@ -85,6 +86,12 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
   const hasGitHubMcp = assignedPlugins.some(plugin =>
     (plugin.mcps || []).some(m => m.id === GITHUB_MCP_ID) ||
     (plugin.mcpServerIds || []).includes(GITHUB_MCP_ID)
+  );
+
+  const WORDPRESS_MCP_ID = 'mcp-wordpress';
+  const hasWordPressMcp = assignedPlugins.some(plugin =>
+    (plugin.mcps || []).some(m => m.id === WORDPRESS_MCP_ID) ||
+    (plugin.mcpServerIds || []).includes(WORDPRESS_MCP_ID)
   );
 
   const S3_MCP_ID = 'mcp-aws-s3';
@@ -280,6 +287,11 @@ export default function PluginsTab({ agent, plugins, onRefresh }) {
         {hasJiraMcp && (
           <div className="mt-3">
             <JiraConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
+          </div>
+        )}
+        {hasWordPressMcp && (
+          <div className="mt-3">
+            <WordPressConnect agentId={agent.id} onStatusChange={() => onRefresh?.()} />
           </div>
         )}
         {hasGitHubMcp && (

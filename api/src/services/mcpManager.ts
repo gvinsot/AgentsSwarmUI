@@ -29,6 +29,7 @@ export function resolveInternalMcpConfig(serverUrl: string, {
     '__internal__gmail': `http://localhost:${port}/api/gmail/mcp`,
     '__internal__slack': `http://localhost:${port}/api/slack/mcp`,
     '__internal__jira': `http://localhost:${port}/api/jira/mcp`,
+    '__internal__wordpress': `http://localhost:${port}/api/wordpress/mcp`,
     '__internal__github': `http://localhost:${port}/api/github/mcp`,
     '__internal__aws_s3': `http://localhost:${port}/api/s3/mcp`,
     '__internal__auto_learn': `http://localhost:${port}/api/auto-learn/mcp`,
@@ -482,7 +483,7 @@ export class MCPManager {
 
     // For internal OAuth-based MCPs (OneDrive, Gmail): always use per-agent connection
     // to pass agentId context so the MCP handler can resolve agent-specific OAuth tokens
-    if (agentId && (server.url === '__internal__onedrive' || server.url === '__internal__gmail' || server.url === '__internal__slack' || server.url === '__internal__jira' || server.url === '__internal__github')) {
+    if (agentId && (server.url === '__internal__onedrive' || server.url === '__internal__gmail' || server.url === '__internal__slack' || server.url === '__internal__jira' || server.url === '__internal__wordpress' || server.url === '__internal__github')) {
       return this._callToolWithAgentContext(server, toolName, args, agentId, boardId);
     }
 
