@@ -209,6 +209,47 @@ code, pre, .font-mono {
   margin: 0.75rem 0;
 }
 
+.markdown-content table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  font-size: 0.85em;
+  border: 1px solid rgb(var(--dark-700));
+  border-radius: 0.375rem;
+}
+
+.markdown-content thead {
+  background: rgb(var(--dark-800));
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid rgb(var(--dark-700));
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  font-weight: 600;
+  color: rgb(var(--dark-100));
+}
+
+.markdown-content tbody tr:nth-child(even) {
+  background: rgb(var(--dark-800) / 0.4);
+}
+
+.markdown-content tbody tr:hover {
+  background: rgb(99 102 241 / 0.06);
+}
+
+.markdown-content td p,
+.markdown-content th p {
+  margin: 0;
+}
+
 /* Status indicator glow */
 .status-idle { @apply bg-emerald-500; }
 .status-busy { @apply bg-amber-500; animation: pulseGlow 1.5s infinite; }

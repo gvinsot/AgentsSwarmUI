@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   ChevronDown, ChevronRight, ArrowRight, Clock, Scissors,
 } from 'lucide-react';
+
+const markdownRemarkPlugins = [remarkGfm];
 import { cleanToolSyntax } from './cleanToolSyntax';
 import ToolResultMessage from './ToolResultMessage';
 import DelegationResultMessage from './DelegationResultMessage';
@@ -88,7 +91,7 @@ function DelegationCallBlock({ agent, task }) {
       </div>
       <div className="px-3 pb-2">
         <div className="markdown-content text-xs text-dark-300 leading-relaxed">
-          <ReactMarkdown>{expanded || !needsExpand ? task : preview}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>{expanded || !needsExpand ? task : preview}</ReactMarkdown>
         </div>
       </div>
     </div>
@@ -110,14 +113,14 @@ export function RichAssistantContent({ text }) {
   const segments = parseDelegationBlocks(cleaned);
   // If there are no delegation blocks, fast-path to plain markdown
   if (segments.length === 1 && segments[0].type === 'text') {
-    return <ReactMarkdown components={markdownLinkNewTab}>{linkifyRawUrls(segments[0].content)}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownLinkNewTab}>{linkifyRawUrls(segments[0].content)}</ReactMarkdown>;
   }
   return (
     <>
       {segments.map((seg, i) =>
         seg.type === 'delegation'
           ? <DelegationCallBlock key={i} agent={seg.agent} task={seg.task} />
-          : <ReactMarkdown key={i} components={markdownLinkNewTab}>{linkifyRawUrls(seg.content)}</ReactMarkdown>
+          : <ReactMarkdown key={i} remarkPlugins={markdownRemarkPlugins} components={markdownLinkNewTab}>{linkifyRawUrls(seg.content)}</ReactMarkdown>
       )}
     </>
   );
@@ -174,7 +177,7 @@ export default function ChatMessage({ message, index, isLast, onTruncate }) {
             Task from {fromAgent}
           </p>
           <div className="markdown-content text-sm text-dark-200">
-            <ReactMarkdown>{taskText}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>{taskText}</ReactMarkdown>
           </div>
           {message.timestamp && (
             <p className="text-[10px] text-dark-500 mt-2 flex items-center gap-1">
@@ -224,7 +227,7 @@ export default function ChatMessage({ message, index, isLast, onTruncate }) {
         )}
         <div className="markdown-content text-sm text-dark-200">
           {isUser
-            ? <ReactMarkdown>{message.content}</ReactMarkdown>
+            ? <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>{message.content}</ReactMarkdown>
             : <RichAssistantContent text={message.content} />
           }
         </div>
