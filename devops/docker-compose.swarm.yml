@@ -99,7 +99,12 @@ services:
         - "traefik.http.middlewares.pulsarteam-sec-headers.headers.browserXssFilter=true"
         - "traefik.http.middlewares.pulsarteam-sec-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
         - "traefik.http.middlewares.pulsarteam-sec-headers.headers.customResponseHeaders.Permissions-Policy=accelerometer=(),camera=(),geolocation=(),gyroscope=(),magnetometer=(),microphone=(),payment=(),usb=()"
-        - "traefik.http.middlewares.pulsarteam-sec-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin"
+        # same-origin-allow-popups (vs same-origin) preserves the window.opener
+        # link when the popup navigates cross-origin and back — required so the
+        # Google/Microsoft OAuth popups can postMessage back to the React app
+        # with the connection result. Without this, status badges only update
+        # after a manual page refresh.
+        - "traefik.http.middlewares.pulsarteam-sec-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin-allow-popups"
         - "traefik.http.middlewares.pulsarteam-sec-headers.headers.customResponseHeaders.X-Permitted-Cross-Domain-Policies=none"
         # ─── API routers ─────────────────────────────────────────────────────
         - "traefik.http.routers.pulsarteam-api.rule=(Host(`www.pulsarteam.io`) || Host(`pulsarteam.io`)) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
