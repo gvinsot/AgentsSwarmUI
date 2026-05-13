@@ -5,12 +5,18 @@ import {
 } from '../services/database.js';
 import type { OAuthTokenRecord, ScopeType } from '../services/database.js';
 import { sendOAuthResult } from './oauthHelper.js';
-import { readSecret } from '../secrets.js';
+import { getMicrosoftOAuthConfig } from '../services/microsoftOAuthConfig.js';
 
 /**
  * OneDrive OAuth2 routes — unified token store.
  * Resolution: agent → board → user → error
+ *
+ * The OAuth client credentials and redirect URI are shared across all
+ * Microsoft plugins via MICROSOFT_* environment variables (legacy ONEDRIVE_*
+ * aliases are still honored). See services/microsoftOAuthConfig.ts.
  */
+
+const OAUTH_CALLBACK_MESSAGE_TYPE = 'microsoft-oauth-callback';
 
 const stateStore = new Map();
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -38,12 +44,7 @@ function resolveScope(agentId, boardId, username): { scopeType: ScopeType; scope
 }
 
 function getConfig() {
-  const clientId = process.env.ONEDRIVE_CLIENT_ID;
-  const clientSecret = readSecret('ONEDRIVE_CLIENT_SECRET');
-  const redirectUri = process.env.ONEDRIVE_REDIRECT_URI;
-  const tenantId = process.env.ONEDRIVE_TENANT_ID || 'common';
-  if (!clientId || !clientSecret || !redirectUri) return null;
-  return { clientId, clientSecret, redirectUri, tenantId };
+  return getMicrosoftOAuthConfig();
 }
 
 export function hasOnedriveTokensForAgent(agentId) {
@@ -102,23 +103,23 @@ async function handleOAuthRedirect(req, res) {
   const error = req.query.error as string | undefined;
   if (error) {
     const desc = req.query.error_description || error;
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, String(desc));
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, String(desc));
   }
 
   const code = req.query.code as string | undefined;
   const state = req.query.state as string | undefined;
   if (!code || !state) {
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, 'Missing code or state parameter');
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, 'Missing code or state parameter');
   }
 
   const config = getConfig();
   if (!config) {
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, 'OneDrive not configured on server');
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, 'OneDrive not configured on server');
   }
 
   const stateData = consumeOAuthState(state);
   if (!stateData) {
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, 'Invalid or expired state. Please try again.');
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, 'Invalid or expired state. Please try again.');
   }
 
   try {
@@ -139,7 +140,7 @@ async function handleOAuthRedirect(req, res) {
     const data = await response.json();
     if (!response.ok) {
       console.error('[OneDrive] Token exchange failed:', data);
-      return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, 'Token exchange failed: ' + (data.error_description || data.error || 'unknown'));
+      return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, 'Token exchange failed: ' + (data.error_description || data.error || 'unknown'));
     }
 
     const { scopeType, scopeId } = resolveScope(stateData.agentId, stateData.boardId, stateData.username);
@@ -155,10 +156,10 @@ async function handleOAuthRedirect(req, res) {
     });
 
     console.log(`✅ [OneDrive] OAuth token stored for ${scopeType}:${scopeId} via redirect`);
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', true);
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, true);
   } catch (err) {
     console.error('[OneDrive] OAuth redirect error:', err);
-    return sendOAuthResult(res, 'OneDrive', 'onedrive-oauth-callback', false, 'Internal error during token exchange');
+    return sendOAuthResult(res, 'OneDrive', OAUTH_CALLBACK_MESSAGE_TYPE, false, 'Internal error during token exchange');
   }
 }
 
@@ -193,7 +194,7 @@ export function onedriveRoutes() {
   router.get('/auth-url', (req, res) => {
     const config = getConfig();
     if (!config) {
-      return res.status(500).json({ error: 'OneDrive not configured. Set ONEDRIVE_CLIENT_ID, ONEDRIVE_CLIENT_SECRET, and ONEDRIVE_REDIRECT_URI.' });
+      return res.status(500).json({ error: 'Microsoft OAuth not configured. Set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_REDIRECT_URI (legacy ONEDRIVE_* names are also accepted).' });
     }
 
     const agentId = req.query.agentId || null;

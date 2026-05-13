@@ -146,7 +146,11 @@ app.get('/api/gmail/oauth-redirect', handleGoogleOAuthCallback);   // backward c
 app.get('/api/gdrive/oauth-redirect', handleGoogleOAuthCallback);  // backward compat
 app.use('/api/github', githubOAuthRedirectRouter());
 app.use('/api/slack', slackOAuthRedirectRouter());
-app.use('/api/onedrive', onedriveOAuthRedirectRouter());
+// Microsoft Graph OAuth shares one client across all Microsoft plugins (OneDrive
+// today; Outlook/Teams/SharePoint in the future). The originating plugin is
+// encoded in `state` so a single redirect URI handles all of them.
+app.use('/api/microsoft', onedriveOAuthRedirectRouter());
+app.use('/api/onedrive', onedriveOAuthRedirectRouter()); // legacy alias
 // Legacy callback paths — Traefik routes these to the API to bypass global@file middleware
 app.get('/gmail-callback.html', handleGoogleOAuthCallback);
 app.get('/gdrive-callback.html', handleGoogleOAuthCallback);

@@ -127,19 +127,21 @@ CLAUDE_MAX_TURNS=50
 CODER_API_KEY=generate-a-secret-here
 ```
 
-### OneDrive Integration (Optional)
+### Microsoft Graph Integration — OneDrive + future Microsoft plugins (Optional)
 
 ```env
-ONEDRIVE_CLIENT_ID=xxx
-ONEDRIVE_CLIENT_SECRET=xxx
-ONEDRIVE_REDIRECT_URI=https://your-domain.com/onedrive-callback.html
-ONEDRIVE_TENANT_ID=xxx
+MICROSOFT_CLIENT_ID=xxx
+MICROSOFT_CLIENT_SECRET=xxx
+MICROSOFT_REDIRECT_URI=https://your-domain.com/api/microsoft/oauth-redirect
+MICROSOFT_TENANT_ID=xxx
 ```
 
-> The redirect URI must point to the static callback page served by the
-> frontend (`/onedrive-callback.html`), **not** the backend API. The page
-> captures the auth code and forwards it to the API via `postMessage`.
-> Register the same URL in your Azure App Registration → "Redirect URIs".
+> OneDrive today and any future Microsoft Graph plugin (Outlook, Teams,
+> SharePoint, ...) share **one** Azure App Registration and **one** redirect
+> URI — the originating plugin is encoded in the OAuth `state` parameter.
+> Register the redirect URI in your Azure App Registration → "Redirect URIs".
+> Legacy `ONEDRIVE_*` variable names and the `/api/onedrive/oauth-redirect`
+> path are still honored as backward-compat aliases.
 
 ### Google Integration — Gmail + Drive (Optional)
 

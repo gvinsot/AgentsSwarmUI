@@ -1267,11 +1267,16 @@ DELETE /api/settings/api-key
 
 OAuth2-based Microsoft OneDrive integration.
 
-**Required environment variables:**
-- `ONEDRIVE_CLIENT_ID`
-- `ONEDRIVE_CLIENT_SECRET`
-- `ONEDRIVE_REDIRECT_URI`
-- `ONEDRIVE_TENANT_ID` (optional, defaults to "common")
+**Required environment variables** (shared across all Microsoft Graph plugins —
+OneDrive today, Outlook/Teams/SharePoint in the future):
+- `MICROSOFT_CLIENT_ID`
+- `MICROSOFT_CLIENT_SECRET`
+- `MICROSOFT_REDIRECT_URI`
+- `MICROSOFT_TENANT_ID` (optional, defaults to "common")
+
+Legacy `ONEDRIVE_*` names are still honored when `MICROSOFT_*` are unset. The
+OAuth callback is served at both `/api/microsoft/oauth-redirect` (preferred)
+and `/api/onedrive/oauth-redirect` (legacy alias).
 
 ### Connection Status
 
@@ -1670,7 +1675,8 @@ All responses include the following security headers:
 | `OPENAI_REALTIME_MODEL`           | Realtime model                                  | `gpt-realtime-1.5`  |
 | `OPENAI_REALTIME_VOICE`           | Default voice                                   | `alloy`             |
 | `OPENAI_REALTIME_TRANSCRIBE_MODEL`| Transcription model                             | `gpt-4o-mini-transcribe` |
-| `ONEDRIVE_CLIENT_ID`              | Azure App client ID                             | —                   |
-| `ONEDRIVE_CLIENT_SECRET`          | Azure App client secret                         | —                   |
-| `ONEDRIVE_REDIRECT_URI`           | OAuth redirect URI                              | —                   |
-| `ONEDRIVE_TENANT_ID`              | Azure tenant ID                                 | `common`            |
+| `MICROSOFT_CLIENT_ID`             | Azure App client ID (shared across MS plugins)  | —                   |
+| `MICROSOFT_CLIENT_SECRET`         | Azure App client secret                         | —                   |
+| `MICROSOFT_REDIRECT_URI`          | OAuth redirect URI                              | —                   |
+| `MICROSOFT_TENANT_ID`             | Azure tenant ID                                 | `common`            |
+| `ONEDRIVE_*`                      | Legacy aliases — honored if `MICROSOFT_*` unset | —                   |
