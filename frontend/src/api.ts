@@ -137,6 +137,15 @@ export const api = {
       headers: getHeaders()
     }).then(handleResponse),
 
+  // Task-level stop: clears the actionRunning flag on a task without
+  // requiring the executor agent to still exist. Useful as a fallback when
+  // the executor has been recycled and stopAgent returns 404.
+  stopTask: (taskId) =>
+    fetch(`${API_BASE}/tasks/${taskId}/stop`, {
+      method: 'POST',
+      headers: getHeaders()
+    }).then(handleResponse),
+
   chatAgent: (id, message) =>
     fetch(`${API_BASE}/agents/${id}/chat`, {
       method: 'POST',

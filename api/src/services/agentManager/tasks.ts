@@ -170,6 +170,14 @@ export const tasksMethods = {
     if (status === 'done') task.completedAt = now;
     if (status === 'error') {
       task.errorFromStatus = prevStatus;
+      // An errored task is not running anymore — clear actionRunning so the
+      // UI can show recovery actions (Resume / Clear-stopped) instead of the
+      // Stop button. Without this, the task gets stuck: Stop appears but
+      // does nothing visible (the executor may already be idle), and no
+      // recovery button shows up.
+      task.actionRunning = false;
+      task.actionRunningAgentId = null;
+      task.actionRunningMode = null;
     }
     if (prevStatus === 'error' && status !== 'error') {
       task.errorFromStatus = null;

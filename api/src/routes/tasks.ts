@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireRole, checkBoardAccess } from '../middleware/auth.js';
 import { getPool, getBoardById, getBoardsByUser, rowToTask, getOAuthToken } from '../services/database.js';
 import { setTaskSignal, clearTaskSignal } from '../services/agentManager/tasks.js';
-import { updateTaskExecutionStatus } from '../services/database.js';
+import { updateTaskExecutionStatus, saveTaskToDb } from '../services/database.js';
 import { validateBody } from '../lib/validate.js';
 import {
   reorderTasksSchema,
@@ -483,6 +483,43 @@ router.post('/bulk-move', validateBody(bulkMoveSchema), async (req, res) => {
     });
 
     res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /tasks/:id/stop — task-level stop (clears stuck actionRunning) ────
+// Used as a fallback when the executor agent has been recycled and the
+// agent-level stop endpoint returns 404. Clears actionRunning flags and
+// signals any waiting workflow loop, but does NOT relaunch the task.
+router.post('/:id/stop', async (req, res) => {
+  try {
+    const mgr = req.app.get('agentManager');
+    const task = mgr.getTask(req.params.id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (!await requireTaskAccess(mgr, task, req.user)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Clear stuck flags in memory
+    const memTask = mgr._getAgentTasks(task.agentId)?.find(t => t.id === req.params.id);
+    const target = memTask || task;
+    target.actionRunning = false;
+    target.actionRunningAgentId = null;
+    target.actionRunningMode = null;
+    // Mark as stopped only for active-status tasks; error-status tasks keep
+    // their error state so the user sees the Resume button as recovery.
+    if (mgr._isActiveTaskStatus(target.status)) {
+      target.executionStatus = 'stopped';
+      target.startedAt = null;
+    }
+
+    // Signal any pending workflow lock so it unblocks immediately
+    setTaskSignal(req.params.id, 'stopped', true);
+
+    await saveTaskToDb({ ...target, agentId: task.agentId });
+    mgr._emit('task:updated', { agentId: task.agentId, task: { ...target, agentId: task.agentId } });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -390,10 +390,21 @@ export default function TasksBoard({ agents, onRefresh, user, onNavigateToAgent,
 
   const handleStopAction = useCallback(async (task) => {
     const agentId = task.actionRunningAgentId || task.assignee;
-    if (agentId) {
-      await api.stopAgent(agentId);
-      refreshAll();
+    try {
+      if (agentId) {
+        await api.stopAgent(agentId);
+      } else {
+        // No executor recorded — fall back to a direct task-level stop so
+        // the user isn't stuck staring at a Stop button that does nothing.
+        await api.stopTask(task.id);
+      }
+    } catch (err) {
+      // Executor may have been recycled (404) or permission denied — try
+      // the task-level stop as a fallback so the user can always unstick.
+      console.warn('stopAgent failed, falling back to stopTask:', err);
+      try { await api.stopTask(task.id); } catch (e) { console.warn('stopTask failed:', e); }
     }
+    refreshAll();
   }, [refreshAll]);
 
   const handleResumeTask = useCallback((task) => {
