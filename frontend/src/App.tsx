@@ -9,6 +9,7 @@ import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 const LoginPage = lazy(() => import('./components/LoginPage'));
 const TermsPage = lazy(() => import('./components/TermsPage'));
 const PrivacyPage = lazy(() => import('./components/PrivacyPage'));
+const WelcomeTutorialModal = lazy(() => import('./components/WelcomeTutorialModal'));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -337,6 +338,8 @@ export default function App() {
             role: u.role,
             userId: u.userId,
             displayName: u.displayName,
+            termsAcceptedAt: u.termsAcceptedAt || null,
+            tutorialCompletedAt: u.tutorialCompletedAt || null,
             ...(u.impersonatedBy ? { impersonatedBy: u.impersonatedBy } : {}),
           });
           await loadData();
@@ -401,7 +404,14 @@ export default function App() {
       apiCall
         .then(async (data) => {
           localStorage.setItem('token', data.token);
-          setUser({ username: data.username, role: data.role, userId: data.userId, displayName: data.displayName });
+          setUser({
+            username: data.username,
+            role: data.role,
+            userId: data.userId,
+            displayName: data.displayName,
+            termsAcceptedAt: data.termsAcceptedAt || null,
+            tutorialCompletedAt: data.tutorialCompletedAt || null,
+          });
           await loadData();
           initSocket(data.token);
           await checkDbHealth();
@@ -420,7 +430,14 @@ export default function App() {
   const handleLogin = async (username, password) => {
     const data = await api.login(username, password);
     localStorage.setItem('token', data.token);
-    setUser({ username: data.username, role: data.role, userId: data.userId, displayName: data.displayName });
+    setUser({
+      username: data.username,
+      role: data.role,
+      userId: data.userId,
+      displayName: data.displayName,
+      termsAcceptedAt: data.termsAcceptedAt || null,
+      tutorialCompletedAt: data.tutorialCompletedAt || null,
+    });
     await loadData();
     initSocket(data.token);
     checkDbHealth();
@@ -522,6 +539,19 @@ export default function App() {
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {(!user.impersonatedBy && (!user.termsAcceptedAt || !user.tutorialCompletedAt)) && (
+        <Suspense fallback={null}>
+          <WelcomeTutorialModal
+            needTerms={!user.termsAcceptedAt}
+            needTutorial={!user.tutorialCompletedAt}
+            onTermsAccepted={() => setUser(prev => prev ? { ...prev, termsAcceptedAt: new Date().toISOString() } : prev)}
+            onTutorialCompleted={() => setUser(prev => prev ? { ...prev, tutorialCompletedAt: new Date().toISOString() } : prev)}
+            onDeclineLogout={handleLogout}
+            showToast={showToast}
+          />
+        </Suspense>
       )}
 
       <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-md">

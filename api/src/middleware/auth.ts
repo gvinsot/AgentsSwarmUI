@@ -8,6 +8,7 @@ import {
   getUserByMicrosoftId, createMicrosoftUser, linkMicrosoftId,
   getUserByGitHubId, createGitHubUser, linkGitHubId,
   getBoardById, getBoardShare, getProjectById,
+  acceptTerms, completeTutorial,
 } from '../services/database.js';
 import { provisionNewUser } from '../services/userProvisioning.js';
 import { readSecret } from '../secrets.js';
@@ -136,7 +137,15 @@ router.post('/login', validateBody(loginSchema), async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    res.json({ token, username: user.username, role: user.role, userId: user.id, displayName: user.display_name });
+    res.json({
+      token,
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      displayName: user.display_name,
+      termsAcceptedAt: user.terms_accepted_at || null,
+      tutorialCompletedAt: user.tutorial_completed_at || null,
+    });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -160,6 +169,8 @@ router.get('/verify', async (req, res) => {
       username: user.username,
       role: user.role,
       displayName: user.display_name,
+      termsAcceptedAt: user.terms_accepted_at || null,
+      tutorialCompletedAt: user.tutorial_completed_at || null,
     };
 
     // If this token was issued via impersonation, include that info
@@ -360,6 +371,8 @@ router.post('/google/callback', validateBody(oauthCallbackSchema), async (req, r
       userId: user.id,
       displayName: user.display_name,
       avatarUrl: user.avatar_url || avatarUrl,
+      termsAcceptedAt: user.terms_accepted_at || null,
+      tutorialCompletedAt: user.tutorial_completed_at || null,
     });
   } catch (err) {
     console.error('Google OAuth error:', err.message);
@@ -503,6 +516,8 @@ router.post('/microsoft/callback', validateBody(oauthCallbackSchema), async (req
       userId: user.id,
       displayName: user.display_name,
       avatarUrl: user.avatar_url || avatarUrl,
+      termsAcceptedAt: user.terms_accepted_at || null,
+      tutorialCompletedAt: user.tutorial_completed_at || null,
     });
   } catch (err) {
     console.error('Microsoft OAuth error:', err.message);
@@ -657,9 +672,48 @@ router.post('/github/callback', validateBody(oauthCallbackSchema), async (req, r
       userId: user.id,
       displayName: user.display_name,
       avatarUrl: user.avatar_url || avatarUrl,
+      termsAcceptedAt: user.terms_accepted_at || null,
+      tutorialCompletedAt: user.tutorial_completed_at || null,
     });
   } catch (err) {
     console.error('GitHub OAuth error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Terms & onboarding ─────────────────────────────────────────────────────
+// Record terms acceptance for the current user. Required: a valid JWT.
+router.post('/accept-terms', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+  try {
+    const decoded = jwt.verify(authHeader.split(' ')[1], getJwtSecret()) as any;
+    const row = await acceptTerms(decoded.userId);
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    res.json({ termsAcceptedAt: row.terms_accepted_at });
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    console.error('Accept terms error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Record tutorial completion for the current user.
+router.post('/complete-tutorial', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+  try {
+    const decoded = jwt.verify(authHeader.split(' ')[1], getJwtSecret()) as any;
+    const row = await completeTutorial(decoded.userId);
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    res.json({ tutorialCompletedAt: row.tutorial_completed_at });
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    console.error('Complete tutorial error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

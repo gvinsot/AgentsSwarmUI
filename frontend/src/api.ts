@@ -30,6 +30,12 @@ export const api = {
   verify: () =>
     fetch(`${API_BASE}/auth/verify`, { headers: getHeaders() }).then(handleResponse),
 
+  acceptTerms: () =>
+    fetch(`${API_BASE}/auth/accept-terms`, { method: 'POST', headers: getHeaders() }).then(handleResponse),
+
+  completeTutorial: () =>
+    fetch(`${API_BASE}/auth/complete-tutorial`, { method: 'POST', headers: getHeaders() }).then(handleResponse),
+
   // Google OAuth
   googleStatus: () =>
     fetch(`${API_BASE}/auth/google/status`).then(handleResponse),

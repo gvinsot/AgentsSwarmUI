@@ -5,7 +5,7 @@ export async function getAllUsers() {
   if (!pool) return [];
   try {
     const result = await pool.query(
-      'SELECT id, username, role, display_name, google_id, microsoft_id, github_id, avatar_url, last_seen, created_at, updated_at FROM users ORDER BY created_at'
+      'SELECT id, username, role, display_name, google_id, microsoft_id, github_id, avatar_url, last_seen, terms_accepted_at, tutorial_completed_at, created_at, updated_at FROM users ORDER BY created_at'
     );
     return result.rows;
   } catch (err) {
@@ -232,6 +232,40 @@ export async function linkGitHubId(userId, githubId, avatarUrl) {
   } catch (err) {
     console.error('Failed to link github_id:', err.message);
     return null;
+  }
+}
+
+export async function acceptTerms(userId: string) {
+  const pool = getPool();
+  if (!pool) throw new Error('Database not connected');
+  try {
+    const result = await pool.query(
+      `UPDATE users SET terms_accepted_at = NOW(), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, terms_accepted_at`,
+      [userId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to accept terms:', err.message);
+    throw err;
+  }
+}
+
+export async function completeTutorial(userId: string) {
+  const pool = getPool();
+  if (!pool) throw new Error('Database not connected');
+  try {
+    const result = await pool.query(
+      `UPDATE users SET tutorial_completed_at = NOW(), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, tutorial_completed_at`,
+      [userId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('Failed to complete tutorial:', err.message);
+    throw err;
   }
 }
 

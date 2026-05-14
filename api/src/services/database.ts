@@ -31,7 +31,7 @@ export {
   getUserByGoogleId, createGoogleUser, linkGoogleId,
   getUserByMicrosoftId, createMicrosoftUser, linkMicrosoftId,
   getUserByGitHubId, createGitHubUser, linkGitHubId,
-  countUsers, updateLastSeen,
+  countUsers, updateLastSeen, acceptTerms, completeTutorial,
 } from './database/users.js';
 export { getAllLlmConfigs, getLlmConfig, saveLlmConfig, deleteLlmConfig } from './database/llmConfigs.js';
 export {
