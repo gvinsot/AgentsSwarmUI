@@ -375,25 +375,41 @@ export function createSwarmApiMcpServer(agentManager) {
         };
       }
 
-      // Validate status against the task's board workflow when provided. We
-      // intentionally fail loudly here — silently accepting an unknown
-      // status used to leave tasks stranded in a column the board could not
-      // render or transition out of.
-      if (status !== undefined && task.boardId) {
+      // Validate status against the task's board workflow when provided.
+      // We fail loudly — silently accepting an unknown status used to
+      // leave tasks stranded in a column the board could not render or
+      // transition out of.
+      if (status !== undefined) {
+        if (!task.boardId) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Cannot update status: task ${task_id} is not bound to a board.` }),
+            }],
+            isError: true,
+          };
+        }
         const board = await getBoardById(task.boardId);
         const columns = board?.workflow?.columns;
-        if (columns?.length) {
-          const match = columns.find((c: any) => c.id?.toLowerCase() === status.toLowerCase());
-          if (!match) {
-            const validIds = columns.map((c: any) => c.id).join(', ');
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify({ error: `Invalid status "${status}" for board "${board?.name || task.boardId}". Valid columns: ${validIds}` }),
-              }],
-              isError: true,
-            };
-          }
+        if (!columns?.length) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Cannot update status: board "${board?.name || task.boardId}" has no workflow columns configured.` }),
+            }],
+            isError: true,
+          };
+        }
+        const match = columns.find((c: any) => c.id?.toLowerCase() === status.toLowerCase());
+        if (!match) {
+          const validIds = columns.map((c: any) => c.id).join(', ');
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Invalid status "${status}" for board "${board?.name || task.boardId}". Valid columns: ${validIds}` }),
+            }],
+            isError: true,
+          };
         }
       }
 

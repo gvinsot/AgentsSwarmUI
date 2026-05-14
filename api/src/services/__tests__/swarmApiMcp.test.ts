@@ -357,6 +357,42 @@ test('update_task rejects unknown status not in the board workflow', async () =>
   assert.equal(am._calls.setTaskStatus.length, 0);
 });
 
+test('update_task rejects status update when task is not bound to a board', async () => {
+  const am = makeFakeAgentManager();
+  // Add a task with no boardId — simulates a legacy/orphan task.
+  am.addTask('agent-1', 'Orphan', { type: 'mcp' }, 'backlog', {});
+  const server = createSwarmApiMcpServer(am as any);
+  const handler = getToolHandler(server, 'update_task');
+
+  const result = await handler({
+    agent_id: 'agent-1',
+    task_id: 'task-1',
+    status: 'done',
+  });
+
+  assert.equal(result.isError, true);
+  const body = parseResult(result);
+  assert.match(body.error, /not bound to a board/);
+  assert.equal(am._calls.setTaskStatus.length, 0);
+});
+
+test('update_task accepts a valid status that exists in the board workflow', async () => {
+  const am = makeFakeAgentManager();
+  am.addTask('agent-1', 'Existing', { type: 'mcp' }, 'backlog', { boardId: 'board-1' });
+  const server = createSwarmApiMcpServer(am as any);
+  const handler = getToolHandler(server, 'update_task');
+
+  const result = await handler({
+    agent_id: 'agent-1',
+    task_id: 'task-1',
+    status: 'in_progress',
+  });
+
+  assert.notEqual(result.isError, true);
+  assert.equal(am._calls.setTaskStatus.length, 1);
+  assert.equal(am._calls.setTaskStatus[0].status, 'in_progress');
+});
+
 test('list_boards exposes repos in use on each board', async () => {
   const am = makeFakeAgentManager();
   const server = createSwarmApiMcpServer(am as any);

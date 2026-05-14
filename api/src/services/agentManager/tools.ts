@@ -469,35 +469,70 @@ export const toolsMethods = {
           continue;
         }
 
-        // Normalize status to match actual column IDs (case-insensitive).
-        // Agents often pass "Resolution" instead of "resolution". If the
-        // board has a known workflow and the requested status does not
-        // match any column, reject the update rather than letting the task
-        // drift into an unknown column.
+        // Validate status against the board workflow. Agents must move tasks
+        // only to columns that exist in the board — otherwise the task lands
+        // in an invisible/unreachable state. Case-insensitive match is used
+        // so "Resolution" still resolves to "resolution".
+        //
+        // Validation is strict: if we can't confirm the status is a valid
+        // column we reject. A silent fallback to the raw status (previous
+        // behavior) used to let bad statuses slip through when the board
+        // lookup failed or the task had no boardId.
         let newStatus = rawStatus;
-        if (task.boardId) {
-          try {
-            const wf = await getWorkflowForBoard(task.boardId);
-            if (wf?.columns?.length) {
-              const match = wf.columns.find((c: any) => c.id.toLowerCase() === (rawStatus || '').toLowerCase());
-              if (match) {
-                if (match.id !== rawStatus) {
-                  console.log(`[UpdateTask] Normalizing status "${rawStatus}" → "${match.id}"`);
-                }
-                newStatus = match.id;
-              } else {
-                const validIds = wf.columns.map((c: any) => c.id).join(', ');
-                results.push({
-                  tool: 'update_task',
-                  args: call.args,
-                  success: false,
-                  error: `Invalid status "${rawStatus}" for this task's board. Valid columns: ${validIds}.`,
-                });
-                continue;
-              }
-            }
-          } catch (_) { /* best-effort, use raw */ }
+        if (!rawStatus || !String(rawStatus).trim()) {
+          results.push({
+            tool: 'update_task',
+            args: call.args,
+            success: false,
+            error: 'Status is required. Use: @update_task(taskId, <new_status>)',
+          });
+          continue;
         }
+        if (!task.boardId) {
+          results.push({
+            tool: 'update_task',
+            args: call.args,
+            success: false,
+            error: `Cannot update status: task ${task.id} is not bound to a board.`,
+          });
+          continue;
+        }
+        let wf: any;
+        try {
+          wf = await getWorkflowForBoard(task.boardId);
+        } catch (err: any) {
+          results.push({
+            tool: 'update_task',
+            args: call.args,
+            success: false,
+            error: `Cannot validate status: failed to load workflow for board ${task.boardId} (${err?.message || 'unknown error'}).`,
+          });
+          continue;
+        }
+        if (!wf?.columns?.length) {
+          results.push({
+            tool: 'update_task',
+            args: call.args,
+            success: false,
+            error: `Cannot update status: board ${task.boardId} has no workflow columns configured.`,
+          });
+          continue;
+        }
+        const match = wf.columns.find((c: any) => c.id.toLowerCase() === String(rawStatus).toLowerCase());
+        if (!match) {
+          const validIds = wf.columns.map((c: any) => c.id).join(', ');
+          results.push({
+            tool: 'update_task',
+            args: call.args,
+            success: false,
+            error: `Invalid status "${rawStatus}" for this task's board. Valid columns: ${validIds}.`,
+          });
+          continue;
+        }
+        if (match.id !== rawStatus) {
+          console.log(`[UpdateTask] Normalizing status "${rawStatus}" → "${match.id}"`);
+        }
+        newStatus = match.id;
 
         if (details && details.trim()) {
           const separator = '\n\n---\n';

@@ -36,7 +36,7 @@ You can interact with project files using these commands. Use the exact format s
   Example: @list_my_tasks()
 
 @update_task(taskId, status, details) - Update the status of one of your tasks
-  The status can be any workflow column ID (e.g., backlog, pending, code, build, test, deploy, done) or a system status (error).
+  The status MUST be a workflow column ID that exists on the task's board (e.g., backlog, pending, code, build, test, deploy, done). Any other value is rejected with the list of valid columns.
   The details parameter is optional. When provided, the details text is appended to the task description.
   Use this to move a task between workflow columns, optionally adding context (e.g., error details, build output).
   Example: @update_task(abc-123, build)
