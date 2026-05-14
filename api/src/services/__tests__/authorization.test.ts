@@ -44,6 +44,8 @@ mock.module('../database.js', {
     getUserByGitHubId: async () => null,
     createGitHubUser: async () => ({}),
     linkGitHubId: async () => {},
+    acceptTerms: async () => {},
+    completeTutorial: async () => {},
   },
 });
 
