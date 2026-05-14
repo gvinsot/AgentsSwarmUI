@@ -1,7 +1,8 @@
 import {
-  Play, Clock, Zap, AlertCircle, Trash2, Activity, ListTodo,
+  Play, Clock, Zap, AlertCircle, Activity, ListTodo,
 } from 'lucide-react';
-import { api } from '../../api';
+
+const MAX_LOGS_DISPLAYED = 30;
 
 function formatDuration(ms) {
   if (ms == null) return null;
@@ -28,16 +29,10 @@ const typeConfig = {
   warning: { icon: AlertCircle,  color: 'text-orange-400',  bg: 'bg-orange-500/10',   border: 'border-orange-500/20',  label: 'Warning' },
 };
 
-export default function ActionLogsTab({ agent, onRefresh }) {
+export default function ActionLogsTab({ agent }) {
   const logs = agent.actionLogs || [];
 
-  const handleClear = async () => {
-    if (!confirm('Clear all action logs?')) return;
-    await api.clearActionLogs(agent.id);
-    onRefresh();
-  };
-
-  // Compute stats
+  // Compute stats over the full log set (logs are important for stats)
   const busyLogs = logs.filter(l => l.type === 'busy');
   const sessions = busyLogs.length;
   const totalWorkMs = busyLogs.reduce((sum, l) => sum + (l.durationMs || 0), 0);
@@ -77,18 +72,11 @@ export default function ActionLogsTab({ agent, onRefresh }) {
 
       <div className="flex items-center justify-between">
         <h3 className="font-medium text-dark-200 text-sm">Action Logs</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-dark-400">{logs.length} entries</span>
-          {logs.length > 0 && (
-            <button
-              onClick={handleClear}
-              className="flex items-center gap-1 px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-md text-xs font-medium transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-              Clear
-            </button>
-          )}
-        </div>
+        <span className="text-xs text-dark-400">
+          {logs.length > MAX_LOGS_DISPLAYED
+            ? `showing ${MAX_LOGS_DISPLAYED} of ${logs.length} entries`
+            : `${logs.length} entries`}
+        </span>
       </div>
 
       {logs.length === 0 ? (
@@ -99,7 +87,7 @@ export default function ActionLogsTab({ agent, onRefresh }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {[...logs].reverse().map(log => {
+          {[...logs].reverse().slice(0, MAX_LOGS_DISPLAYED).map(log => {
             const config = typeConfig[log.type] || typeConfig.idle;
             const Icon = config.icon;
             return (
