@@ -210,6 +210,22 @@ const translations = {
     fr: 'Nous vous recontacterons dès que possible.',
   },
   'contact.close': { en: 'Close', fr: 'Fermer' },
+
+  // Common
+  'common.delete': { en: 'Delete', fr: 'Supprimer' },
+  'common.confirmDeleteColumn': { en: 'Delete this column?', fr: 'Supprimer cette colonne ?' },
+
+  // Board settings — workflow columns
+  'boardSettings.loadingWorkflow': { en: 'Loading workflow…', fr: 'Chargement du workflow…' },
+  'boardSettings.workflowSection': { en: 'Workflow Columns', fr: 'Colonnes du workflow' },
+  'boardSettings.workflowSubtitle': {
+    en: 'Configure the columns that appear on this board.',
+    fr: 'Configurez les colonnes qui apparaissent sur ce tableau.',
+  },
+  'boardSettings.newColumnPlaceholder': { en: 'New column title', fr: 'Titre de la nouvelle colonne' },
+  'boardSettings.addColumn': { en: 'Add column', fr: 'Ajouter une colonne' },
+  'boardSettings.newColumnColorAria': { en: 'New column color', fr: 'Couleur de la nouvelle colonne' },
+  'boardSettings.columnColorAriaPrefix': { en: 'Color for', fr: 'Couleur pour' },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

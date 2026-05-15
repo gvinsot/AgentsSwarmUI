@@ -159,7 +159,7 @@ export default function AdminWorkflows() {
   };
 
   const onRemove = async (id: string) => {
-    if (!confirm('Delete this column?')) return;
+    if (!confirm(t('common.confirmDeleteColumn'))) return;
     try {
       await api.deleteWorkflowColumn(id);
       await loadColumns();
@@ -184,7 +184,7 @@ export default function AdminWorkflows() {
           onChange={(e) => setNewTitle(e.target.value)}
           className="input"
         />
-        <ColumnColorSelect value={newColor} onChange={setNewColor} ariaLabel="New column color" />
+        <ColumnColorSelect value={newColor} onChange={setNewColor} ariaLabel={t('boardSettings.newColumnColorAria')} />
         <button onClick={onAdd} className="btn primary">{t('boardSettings.addColumn')}</button>
       </div>
 
@@ -202,7 +202,7 @@ export default function AdminWorkflows() {
               className="input"
               disabled={savingId === c.id}
             />
-            <ColumnColorSelect value={c.color || ''} onChange={(v) => onChangeColor(c.id, v)} ariaLabel={`Color for ${c.title}`} />
+            <ColumnColorSelect value={c.color || ''} onChange={(v) => onChangeColor(c.id, v)} ariaLabel={`${t('boardSettings.columnColorAriaPrefix')} ${c.title}`} />
             <button onClick={() => onMove(c.id, -1)} disabled={idx === 0} className="btn">↑</button>
             <button onClick={() => onMove(c.id, 1)} disabled={idx === columns.length - 1} className="btn">↓</button>
             <button onClick={() => onRemove(c.id)} className="btn danger">{t('common.delete')}</button>
