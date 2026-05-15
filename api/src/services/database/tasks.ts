@@ -561,6 +561,118 @@ export async function getRecurringTasks() {
 }
 
 /**
+ * Free-text + faceted search across the task history.
+ *
+ * All filters are optional. `query` matches title/text/error case-insensitively.
+ * Date filters use ISO timestamps. By default soft-deleted tasks are excluded.
+ * Returns up to `limit` rows (default 50, hard cap 200) ordered newest-first.
+ */
+export async function searchTasks(opts: {
+  query?: string | null;
+  agentId?: string | null;
+  project?: string | null;
+  boardId?: string | null;
+  status?: string | null;
+  repoFullName?: string | null;
+  createdAfter?: string | Date | null;
+  createdBefore?: string | Date | null;
+  completedAfter?: string | Date | null;
+  completedBefore?: string | Date | null;
+  onlyCompleted?: boolean | null;
+  includeDeleted?: boolean | null;
+  limit?: number | null;
+  offset?: number | null;
+} = {}) {
+  const pool = getPool();
+  if (!pool) return { total: 0, returned: 0, tasks: [] };
+  try {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (!opts.includeDeleted) conditions.push('t.deleted_at IS NULL');
+
+    if (opts.query && opts.query.trim()) {
+      conditions.push(`(t.text ILIKE $${idx} OR t.title ILIKE $${idx} OR t.error ILIKE $${idx})`);
+      params.push(`%${opts.query.trim()}%`);
+      idx++;
+    }
+    if (opts.agentId) {
+      conditions.push(`(t.agent_id = $${idx} OR t.assignee = $${idx})`);
+      params.push(opts.agentId);
+      idx++;
+    }
+    if (opts.project) {
+      conditions.push(`p.name ILIKE $${idx}`);
+      params.push(opts.project);
+      idx++;
+    }
+    if (opts.boardId) {
+      conditions.push(`t.board_id = $${idx}`);
+      params.push(opts.boardId);
+      idx++;
+    }
+    if (opts.status) {
+      conditions.push(`t.status = $${idx}`);
+      params.push(opts.status);
+      idx++;
+    }
+    if (opts.repoFullName) {
+      conditions.push(`t.repo_full_name ILIKE $${idx}`);
+      params.push(opts.repoFullName);
+      idx++;
+    }
+    if (opts.createdAfter) {
+      conditions.push(`t.created_at >= $${idx}`);
+      params.push(opts.createdAfter);
+      idx++;
+    }
+    if (opts.createdBefore) {
+      conditions.push(`t.created_at <= $${idx}`);
+      params.push(opts.createdBefore);
+      idx++;
+    }
+    if (opts.completedAfter) {
+      conditions.push(`t.completed_at >= $${idx}`);
+      params.push(opts.completedAfter);
+      idx++;
+    }
+    if (opts.completedBefore) {
+      conditions.push(`t.completed_at <= $${idx}`);
+      params.push(opts.completedBefore);
+      idx++;
+    }
+    if (opts.onlyCompleted) {
+      conditions.push(`t.completed_at IS NOT NULL`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.max(1, Math.min(opts.limit || 50, 200));
+    const offset = Math.max(0, opts.offset || 0);
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM tasks t
+       LEFT JOIN boards   b ON t.board_id = b.id
+       LEFT JOIN projects p ON b.project_id = p.id
+       ${where}`,
+      params
+    );
+    const total = countResult.rows[0]?.total || 0;
+
+    const result = await pool.query(
+      `${TASK_SELECT} ${where} ORDER BY t.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    const tasks = result.rows.map(rowToTask);
+    return { total, returned: tasks.length, tasks };
+  } catch (err) {
+    console.error('Failed to search tasks:', err.message);
+    return { total: 0, returned: 0, tasks: [] };
+  }
+}
+
+/**
  * Get tasks filtered by status and/or board.
  * Both parameters are optional — pass null to skip a filter.
  */

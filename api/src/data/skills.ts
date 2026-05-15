@@ -231,6 +231,14 @@ Call them using the @mcp_call(Swarm API, tool_name, {"param": "value"}) syntax s
   — Add a task to an agent's queue. The agent will pick it up and execute it autonomously.
   Optional: project, status (workflow column), board_id.
 
+@mcp_call(Swarm API, search_tasks, {"query": "password reset", "only_completed": true, "limit": 20})
+  — Search the task history with optional free-text query and filters.
+  Optional filters: agent_id, agent_name, project, board_id, status, repo_full_name,
+    created_after / created_before, completed_after / completed_before (ISO timestamps),
+    only_completed (bool), include_deleted (bool), limit (default 50, max 200), offset.
+  Use to dig up past work, check whether something has already been done, audit an agent's
+  history, or find tasks similar to the one you are about to delegate.
+
 ## DELEGATION WORKFLOW
 
 1. First, check available agents:

@@ -22,6 +22,9 @@ const BOARD_WORKFLOW = {
     { id: 'done', label: 'Done' },
   ],
 };
+let searchTasksCalls: any[] = [];
+let searchTasksResponse: any = { total: 0, returned: 0, tasks: [] };
+
 mock.module('../database.js', {
   namedExports: {
     getAllBoards: async () => [
@@ -29,6 +32,10 @@ mock.module('../database.js', {
     ],
     getBoardById: async (id: string) => (id === 'board-1' ? { id: 'board-1', name: 'Default', workflow: BOARD_WORKFLOW } : null),
     getBoardWithMostTasksForProject: async () => null,
+    searchTasks: async (opts: any) => {
+      searchTasksCalls.push(opts);
+      return searchTasksResponse;
+    },
   },
 });
 
@@ -391,6 +398,72 @@ test('update_task accepts a valid status that exists in the board workflow', asy
   assert.notEqual(result.isError, true);
   assert.equal(am._calls.setTaskStatus.length, 1);
   assert.equal(am._calls.setTaskStatus[0].status, 'in_progress');
+});
+
+test('search_tasks forwards filters and returns a slim payload', async () => {
+  searchTasksCalls = [];
+  searchTasksResponse = {
+    total: 2,
+    returned: 2,
+    tasks: [
+      {
+        id: 't1', title: 'Reset password flow', text: 'Implement reset endpoint',
+        status: 'done', agentId: 'agent-1', assignee: null, project: 'acme',
+        boardId: 'board-1', repoFullName: 'acme/widgets',
+        repoHtmlUrl: 'https://github.com/acme/widgets',
+        storagePath: null, commits: ['a', 'b'], history: [{}, {}, {}],
+        error: null, createdAt: '2026-05-10T00:00:00Z',
+        startedAt: '2026-05-10T01:00:00Z', completedAt: '2026-05-10T02:00:00Z',
+      },
+      {
+        id: 't2', title: null, text: 'Fix old password reset bug',
+        status: 'done', agentId: 'agent-1', assignee: null, project: 'acme',
+        boardId: 'board-1', repoFullName: null, repoHtmlUrl: null,
+        storagePath: null, commits: [], history: [], error: null,
+        createdAt: '2026-04-01T00:00:00Z', startedAt: null,
+        completedAt: '2026-04-02T00:00:00Z',
+      },
+    ],
+  };
+
+  const am = makeFakeAgentManager();
+  const server = createSwarmApiMcpServer(am as any);
+  const handler = getToolHandler(server, 'search_tasks');
+
+  const result = await handler({
+    query: 'password reset',
+    agent_name: 'Builder',
+    only_completed: true,
+    limit: 10,
+  });
+
+  // Filters were forwarded with agent_name → agent_id resolution
+  assert.equal(searchTasksCalls.length, 1);
+  assert.equal(searchTasksCalls[0].query, 'password reset');
+  assert.equal(searchTasksCalls[0].agentId, 'agent-1');
+  assert.equal(searchTasksCalls[0].onlyCompleted, true);
+  assert.equal(searchTasksCalls[0].limit, 10);
+
+  const body = parseResult(result);
+  assert.equal(body.total, 2);
+  assert.equal(body.returned, 2);
+  assert.equal(body.tasks[0].id, 't1');
+  assert.equal(body.tasks[0].agent_name, 'Builder');
+  assert.equal(body.tasks[0].commit_count, 2);
+  assert.equal(body.tasks[0].history_count, 3);
+  // When no title is set we fall back to a slice of text
+  assert.equal(body.tasks[1].title, 'Fix old password reset bug');
+});
+
+test('search_tasks rejects unknown agent_name', async () => {
+  const am = makeFakeAgentManager();
+  const server = createSwarmApiMcpServer(am as any);
+  const handler = getToolHandler(server, 'search_tasks');
+
+  const result = await handler({ agent_name: 'GhostAgent' });
+  assert.equal(result.isError, true);
+  const body = parseResult(result);
+  assert.match(body.error, /Agent not found/);
 });
 
 test('list_boards exposes repos in use on each board', async () => {

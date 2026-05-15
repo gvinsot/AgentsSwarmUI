@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
-import { getAllBoards, getBoardById, getBoardWithMostTasksForProject } from './database.js';
+import { getAllBoards, getBoardById, getBoardWithMostTasksForProject, searchTasks } from './database.js';
 import { getReposForBoard } from './database/boardRepos.js';
 
 // Format of "owner/repo" — same regex used by the REST endpoint.
@@ -467,6 +467,102 @@ export function createSwarmApiMcpServer(agentManager) {
             task: updated,
             agent: { id: agent.id, name: agent.name },
           }, null, 2),
+        }],
+      };
+    }
+  );
+
+  // ── search_tasks ────────────────────────────────────────────────────────
+  server.tool(
+    'search_tasks',
+    'Search the task history with optional free-text query and filters (agent, project, board, status, repo, date ranges). Returns up to `limit` tasks (default 50, max 200) ordered newest-first, with a `total` count of matches. Use to find what an agent has done, dig up similar past tasks, audit completion, or trace a bug across history.',
+    {
+      query: z.string().optional().describe('Free-text search applied case-insensitively to task title, body, and error message.'),
+      agent_id: z.string().optional().describe('Restrict to tasks owned by or assigned to this agent UUID.'),
+      agent_name: z.string().optional().describe('Agent name (alternative to agent_id).'),
+      project: z.string().optional().describe('Filter by project name (case-insensitive exact match).'),
+      board_id: z.string().optional().describe('Filter by board UUID.'),
+      status: z.string().optional().describe('Filter by workflow column ID (e.g. "done", "in_progress").'),
+      repo_full_name: z.string().optional().describe('Filter by repository in "owner/repo" form.'),
+      created_after: z.string().optional().describe('ISO timestamp — only tasks created at or after this moment.'),
+      created_before: z.string().optional().describe('ISO timestamp — only tasks created at or before this moment.'),
+      completed_after: z.string().optional().describe('ISO timestamp — only tasks completed at or after this moment.'),
+      completed_before: z.string().optional().describe('ISO timestamp — only tasks completed at or before this moment.'),
+      only_completed: z.boolean().optional().describe('If true, only return tasks that have a completion timestamp.'),
+      include_deleted: z.boolean().optional().describe('If true, also include soft-deleted tasks (default: false).'),
+      limit: z.number().optional().describe('Max rows returned (1–200, default 50).'),
+      offset: z.number().optional().describe('Skip first N rows for pagination (default 0).'),
+    },
+    async ({
+      query, agent_id, agent_name, project, board_id, status, repo_full_name,
+      created_after, created_before, completed_after, completed_before,
+      only_completed, include_deleted, limit, offset,
+    }) => {
+      // Resolve agent_name → agent_id when only the name was given.
+      let resolvedAgentId = agent_id || null;
+      if (!resolvedAgentId && agent_name) {
+        const agent = (Array.from(agentManager.agents.values()) as any[]).find(
+          (a: any) => a.name.toLowerCase() === agent_name.toLowerCase()
+        );
+        if (!agent) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: `Agent not found: ${agent_name}` }) }],
+            isError: true,
+          };
+        }
+        resolvedAgentId = agent.id;
+      }
+
+      const { total, returned, tasks } = await searchTasks({
+        query: query || null,
+        agentId: resolvedAgentId,
+        project: project || null,
+        boardId: board_id || null,
+        status: status || null,
+        repoFullName: repo_full_name || null,
+        createdAfter: created_after || null,
+        createdBefore: created_before || null,
+        completedAfter: completed_after || null,
+        completedBefore: completed_before || null,
+        onlyCompleted: only_completed ?? null,
+        includeDeleted: include_deleted ?? null,
+        limit: limit ?? null,
+        offset: offset ?? null,
+      });
+
+      // Build a name lookup so callers can read agent_name without a second hop.
+      const agentNameById = new Map<string, string>();
+      for (const a of agentManager.agents.values()) {
+        agentNameById.set((a as any).id, (a as any).name);
+      }
+
+      const slim = tasks.map((t: any) => ({
+        id: t.id,
+        title: t.title || (t.text ? t.text.slice(0, 120) : null),
+        text: t.text || '',
+        status: t.status,
+        agent_id: t.agentId,
+        agent_name: agentNameById.get(t.agentId) || null,
+        assignee_id: t.assignee || null,
+        assignee_name: t.assignee ? (agentNameById.get(t.assignee) || null) : null,
+        project: t.project || null,
+        board_id: t.boardId || null,
+        repo_full_name: t.repoFullName || null,
+        repo_html_url: t.repoHtmlUrl || null,
+        storage_path: t.storagePath || null,
+        commit_count: Array.isArray(t.commits) ? t.commits.length : 0,
+        history_count: Array.isArray(t.history) ? t.history.length : 0,
+        error: t.error || null,
+        created_at: t.createdAt,
+        started_at: t.startedAt || null,
+        completed_at: t.completedAt || null,
+        deleted_at: t.deletedAt || null,
+      }));
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ total, returned, tasks: slim }, null, 2),
         }],
       };
     }

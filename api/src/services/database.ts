@@ -58,5 +58,5 @@ export {
   getActiveTasksByAgent, getTasksByBoard, getBoardWithMostTasksForProject,
   getTasksByAssignee, getActiveTaskForExecutor, hasActiveTask,
   countActiveTasksForAgent, getRecurringTasks, getTaskByJiraKey,
-  updateTaskFields, getTasksByStatusAndBoard,
+  updateTaskFields, getTasksByStatusAndBoard, searchTasks,
 } from './database/tasks.js';
