@@ -565,7 +565,8 @@ export default function LoginPage({ onLogin, onGoogleLogin, googleLoading }: {
   useEffect(() => {
     api.googleStatus().then(data => setGoogleEnabled(!!data.enabled)).catch(() => {});
     api.microsoftStatus().then(data => setMicrosoftEnabled(!!data.enabled)).catch(() => {});
-    api.githubAuthStatus().then(data => setGithubEnabled(!!data.enabled)).catch(() => {});
+    // GitHub authentication is temporarily hidden.
+    setGithubEnabled(false);
   }, []);
 
   const handleGoogleLogin = async () => {
