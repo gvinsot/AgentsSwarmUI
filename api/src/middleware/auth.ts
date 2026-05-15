@@ -532,7 +532,13 @@ router.post('/microsoft/callback', validateBody(oauthCallbackSchema), async (req
 // — so a single GitHub OAuth App can serve both flows by registering both
 // callback URLs in its settings.
 
+// GitHub login is temporarily disabled. Flip GITHUB_LOGIN_ENABLED=true to re-enable.
+function isGitHubLoginEnabled() {
+  return process.env.GITHUB_LOGIN_ENABLED === 'true';
+}
+
 function isGitHubConfigured() {
+  if (!isGitHubLoginEnabled()) return false;
   return !!(process.env.GITHUB_OAUTH_CLIENT_ID && readSecret('GITHUB_OAUTH_CLIENT_SECRET'));
 }
 
