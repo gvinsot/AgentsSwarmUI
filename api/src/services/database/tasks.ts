@@ -118,7 +118,26 @@ export async function saveTaskToDb(task) {
   return current;
 }
 
-async function _doSaveTask(task) {
+// Live deployments may be missing the `environment` column if the
+// initDatabase ALTER silently failed at boot (the migration's .catch
+// swallowed the error). When a save trips Postgres' 42703 undefined_column
+// for `environment`, run the ADD COLUMN ourselves and retry once. After the
+// first successful retry every subsequent save hits the fast path.
+let _envColumnEnsured = false;
+async function _ensureEnvironmentColumn(pool: any): Promise<boolean> {
+  if (_envColumnEnsured) return true;
+  try {
+    await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS environment TEXT');
+    _envColumnEnsured = true;
+    console.log('[saveTaskToDb] Self-healed: added missing `environment` column on tasks');
+    return true;
+  } catch (e: any) {
+    console.error('[saveTaskToDb] Self-heal ALTER TABLE failed:', e.message);
+    return false;
+  }
+}
+
+async function _doSaveTask(task, _isRetry = false) {
   const pool = getPool();
   try {
     await pool.query(
@@ -173,7 +192,21 @@ async function _doSaveTask(task) {
         task.environment || null,
       ]
     );
-  } catch (err) {
+    // Fast path succeeded — flip the cached flag so we skip the probe forever.
+    if (!_envColumnEnsured) _envColumnEnsured = true;
+  } catch (err: any) {
+    // Postgres SQLSTATE 42703 = undefined_column. Self-heal only on the
+    // 'environment' column to avoid masking unrelated schema drift.
+    const isMissingEnvCol =
+      !_isRetry &&
+      (err?.code === '42703' || /column "?environment"? .* does not exist/i.test(err?.message || ''));
+    if (isMissingEnvCol) {
+      const healed = await _ensureEnvironmentColumn(pool);
+      if (healed) {
+        await _doSaveTask(task, true);
+        return;
+      }
+    }
     console.error('Failed to save task:', err.message);
   }
 }

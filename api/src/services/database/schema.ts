@@ -216,7 +216,10 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Environment column — captures the subdomain of the host that created the task
       // ("prod" for apex/www, otherwise the leading subdomain like "qa", "staging", …).
       // Lets a single DB serve multiple deployments and lets the UI badge non-prod tasks.
-      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS environment TEXT').catch(() => {});
+      // No silent swallow here — if this migration ever fails the badge stays missing
+      // until a save self-heals it, and we want the failure visible in the logs.
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS environment TEXT')
+        .catch((e: any) => console.error('[initDatabase] ADD COLUMN environment failed:', e.message));
       console.log('✅ Tasks table ready');
 
       // ── Task Audit Logs table ─────────────────────────────────────────────
