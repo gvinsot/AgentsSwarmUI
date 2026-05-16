@@ -335,6 +335,14 @@ export default function TaskCard({ task, agents, onDelete, onStop, onResume, onC
             {task.repoFullName.split('/').pop()}
           </span>
         )}
+        {task.environment && task.environment !== 'prod' && (
+          <span
+            className="text-xs px-1.5 py-0.5 rounded font-medium bg-orange-500/10 text-orange-400 ring-1 ring-orange-500/20 uppercase tracking-wide"
+            title={`Created on ${task.environment} environment`}
+          >
+            {task.environment}
+          </span>
+        )}
         {task.storagePath && (
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20" title={`Storage: ${task.storagePath}`}>
             {task.storagePath.split('/').filter(Boolean).pop() || task.storagePath}

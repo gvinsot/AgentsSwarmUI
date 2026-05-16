@@ -6,6 +6,7 @@ import { getAllBoards, getBoardsByUser, saveTaskToDb } from '../services/databas
 import { stripToolCalls } from '../services/workflow/index.js';
 import { setTaskSignal } from '../services/agentManager/tasks.js';
 import { checkBoardAccess } from '../middleware/auth.js';
+import { detectEnvironment } from '../lib/environment.js';
 
 // Schema for creating a new agent
 const createAgentSchema = z.object({
@@ -389,7 +390,8 @@ export function agentRoutes(agentManager) {
         : null;
       const resolvedStorageProvider = resolvedStoragePath ? (storageProvider || 'onedrive') : null;
 
-      console.log(`[CreateTask] POST /:id/tasks — status="${status}", boardId="${boardId}", repo="${resolvedRepoFullName || ''}", storage="${resolvedStoragePath || ''}" text="${(text || '').slice(0, 60)}"`);
+      const environment = detectEnvironment(req.hostname);
+      console.log(`[CreateTask] POST /:id/tasks — status="${status}", boardId="${boardId}", repo="${resolvedRepoFullName || ''}", storage="${resolvedStoragePath || ''}" env="${environment}" text="${(text || '').slice(0, 60)}"`);
       const task = agentManager.addTask(req.params.id, text, resolvedSource, resolvedStatus, {
         boardId: resolvedBoardId,
         repoFullName: resolvedRepoFullName,
@@ -399,6 +401,7 @@ export function agentRoutes(agentManager) {
         recurrence: recurrence || undefined,
         taskType: taskType || undefined,
         isManual: isManual || false,
+        environment,
       });
       if (!task) return res.status(404).json({ error: 'Agent not found' });
       console.log(`[CreateTask] Task created: id=${task.id} status="${task.status}" boardId="${task.boardId}"`);

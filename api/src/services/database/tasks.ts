@@ -54,6 +54,7 @@ export function rowToTask(row) {
     errorFromStatus: row.error_from_status || undefined,
     isManual: row.is_manual || false,
     position: parseInt(row.position, 10) || 0,
+    environment: row.environment || null,
   };
 }
 
@@ -126,8 +127,8 @@ async function _doSaveTask(task) {
                           task_type, priority, due_date, source, recurrence, commits, history,
                           error, created_at, updated_at, completed_at, started_at,
                           execution_status, completed_action_idx, action_running, action_running_agent_id,
-                          action_running_mode, error_from_status, is_manual, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+                          action_running_mode, error_from_status, is_manual, position, environment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
        ON CONFLICT (id) DO UPDATE SET
          text = $3, title = $4, status = $5, repo_provider = $6, repo_full_name = $7,
          storage_provider = $8, storage_path = $9,
@@ -136,7 +137,8 @@ async function _doSaveTask(task) {
          commits = $17, history = $18, error = $19, updated_at = NOW(),
          completed_at = $21, started_at = $22,
          execution_status = $23, completed_action_idx = $24, action_running = $25, action_running_agent_id = $26,
-         action_running_mode = $27, error_from_status = $28, is_manual = $29, position = $30`,
+         action_running_mode = $27, error_from_status = $28, is_manual = $29, position = $30,
+         environment = COALESCE(tasks.environment, $31)`,
       [
         task.id,
         task.agentId,
@@ -168,6 +170,7 @@ async function _doSaveTask(task) {
         task.errorFromStatus || null,
         task.isManual || false,
         task.position ?? 0,
+        task.environment || null,
       ]
     );
   } catch (err) {

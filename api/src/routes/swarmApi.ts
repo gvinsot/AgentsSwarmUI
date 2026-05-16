@@ -1,6 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { getAllBoards, getBoardById, getBoardWithMostTasksForProject } from '../services/database.js';
+import { detectEnvironment } from '../lib/environment.js';
 
 const createTaskSchema = z.object({
   task: z.string().min(1).max(5000),
@@ -162,7 +163,8 @@ export function swarmApiRoutes(agentManager: any) {
       }
     }
 
-    const newTask = agentManager.addTask(agent.id, task, { type: 'api' }, status, { boardId: resolvedBoardId });
+    const environment = detectEnvironment(req.hostname);
+    const newTask = agentManager.addTask(agent.id, task, { type: 'api' }, status, { boardId: resolvedBoardId, environment });
     console.log(`\u2705 [SwarmAPI] Task created for agent "${agent.name}" (${agent.id}) \u2014 task: ${newTask?.id}, project: ${project}, board: ${resolvedBoardId || '(none)'}`);
 
     res.status(201).json({

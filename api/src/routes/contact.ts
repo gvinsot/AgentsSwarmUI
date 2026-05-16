@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { getAllBoards, getAgentsByBoard } from '../services/database.js';
 import { validateBody } from '../lib/validate.js';
 import { contactSubmitSchema } from '../schemas/contact.js';
+import { detectEnvironment } from '../lib/environment.js';
 
 export function contactRoutes(agentManager: any) {
   const router = Router();
@@ -94,12 +95,13 @@ export function contactRoutes(agentManager: any) {
       }
 
       const source = { type: 'website', name: sName };
+      const environment = detectEnvironment(req.hostname);
       const task = agentManager.addTask(
         targetAgentId,
         taskText,
         source,
         targetColumn,
-        { boardId: targetBoardId, skipAutoRefine: true, taskType: type === 'contact' ? 'feature' : 'bug' }
+        { boardId: targetBoardId, skipAutoRefine: true, taskType: type === 'contact' ? 'feature' : 'bug', environment }
       );
 
       if (!task) {

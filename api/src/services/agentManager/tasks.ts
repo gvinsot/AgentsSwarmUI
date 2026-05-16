@@ -76,7 +76,7 @@ function pruneByDate<T extends { at?: string; date?: string }>(
 /** @this {import('./index.js').AgentManager} */
 export const tasksMethods = {
 
-  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoFullName, repoProvider, storagePath, storageProvider, skipAutoRefine = false, recurrence, taskType, isManual }: { boardId?: string; repoFullName?: string | null; repoProvider?: string | null; storagePath?: string | null; storageProvider?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean } = {}): any {
+  addTask(this: any, agentId: string, text: string, source: any, initialStatus?: string, { boardId, repoFullName, repoProvider, storagePath, storageProvider, skipAutoRefine = false, recurrence, taskType, isManual, environment }: { boardId?: string; repoFullName?: string | null; repoProvider?: string | null; storagePath?: string | null; storageProvider?: string | null; skipAutoRefine?: boolean; recurrence?: any; taskType?: string; isManual?: boolean; environment?: string | null } = {}): any {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
     const defaultStatus = 'backlog';
@@ -94,6 +94,7 @@ export const tasksMethods = {
       source: source || null,
       boardId: boardId || null,
       isManual: isManual || false,
+      environment: environment || null,
       position: Date.now(),
       createdAt: now,
       history: [{ status, at: now, by: source?.name || source?.type || 'user' }],

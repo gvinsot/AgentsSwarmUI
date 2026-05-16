@@ -213,6 +213,10 @@ export async function initDatabase(retries = 5, delayMs = 3000) {
       // Position column for manual ordering within columns
       await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS position BIGINT NOT NULL DEFAULT 0').catch(() => {});
       await pool.query('CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(board_id, status, position)').catch(() => {});
+      // Environment column — captures the subdomain of the host that created the task
+      // ("prod" for apex/www, otherwise the leading subdomain like "qa", "staging", …).
+      // Lets a single DB serve multiple deployments and lets the UI badge non-prod tasks.
+      await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS environment TEXT').catch(() => {});
       console.log('✅ Tasks table ready');
 
       // ── Task Audit Logs table ─────────────────────────────────────────────
