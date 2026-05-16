@@ -21,6 +21,7 @@ import { getWorkflowForBoard, getAllBoardWorkflows } from '../configManager.js';
 import { saveTaskToDb } from '../database.js';
 import { executeAction } from './actionExecutor.js';
 import { getTaskSignal } from '../agentManager/tasks.js';
+import { getCurrentEnvironment } from '../../lib/environment.js';
 import {
   isValidTransition,
   evaluateAllConditions,
@@ -223,6 +224,11 @@ export async function recheckPendingTransitions(agentManager) {
 
   if (boardTransMap.size === 0) return;
 
+  // Skip tasks created by a sibling replica when several deployments share
+  // the DB. NULL environment is treated as "prod" so legacy tasks keep
+  // running on the prod replica.
+  const ownEnv = getCurrentEnvironment();
+
   // Iterate all tasks across all agents
   for (const [agentId, agent] of agentManager.agents) {
     const agentTasks = agentManager._getAgentTasks(agentId);
@@ -234,6 +240,9 @@ export async function recheckPendingTransitions(agentManager) {
       // the user has stopped; otherwise the periodic recheck would relaunch
       // the agent on the very next tick after a Stop click.
       if (task.executionStatus === 'stopped' || getTaskSignal(task.id, 'stopped')) continue;
+      // Environment isolation: ignore tasks tagged for another deployment.
+      const taskEnv = task.environment || 'prod';
+      if (taskEnv !== ownEnv) continue;
 
       const transitions = boardTransMap.get(task.boardId)
         || (boardTransMap.size === 1 ? [...boardTransMap.values()][0] : []);

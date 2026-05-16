@@ -263,11 +263,23 @@ export async function deleteTasksByAgent(agentId) {
 /**
  * Find tasks that need agent resume: active status, started, not currently watched,
  * with their assignee agent idle and enabled.
+ *
+ * When `environment` is provided, only tasks tagged with that environment are
+ * returned. Tasks created before this column existed (environment IS NULL)
+ * are processed by the "prod" instance so legacy behavior is preserved.
  */
-export async function getTasksForResume() {
+export async function getTasksForResume(environment?: string | null) {
   const pool = getPool();
   if (!pool) return [];
   try {
+    const params: any[] = [];
+    let envFilter = '';
+    if (environment) {
+      params.push(environment);
+      envFilter = environment === 'prod'
+        ? `AND (t.environment = $1 OR t.environment IS NULL)`
+        : `AND t.environment = $1`;
+    }
     const result = await pool.query(`
       SELECT t.*,
              p.id   AS _project_id,
@@ -282,8 +294,9 @@ export async function getTasksForResume() {
         AND t.status NOT IN ('done', 'backlog', 'error')
         AND (t.execution_status IS NULL OR t.execution_status NOT IN ('watching', 'stopped'))
         AND (t.is_manual IS NULL OR t.is_manual = FALSE)
+        ${envFilter}
       ORDER BY t.started_at ASC
-    `);
+    `, params);
     return result.rows.map(row => ({
       ...rowToTask(row),
       _agentStatus: row.agent_data?.status || 'idle',
@@ -358,20 +371,33 @@ export async function clearActionRunningForAgent(agentId) {
 }
 
 /**
- * Clear action_running flags for ALL tasks on startup (service restart recovery).
+ * Clear action_running flags for tasks on startup (service restart recovery).
  * After a crash, no actions are actually running — the flags are stale.
+ *
+ * When `environment` is provided, only tasks tagged for that environment are
+ * cleared, so a sibling replica's locks aren't wiped on restart. NULL env is
+ * treated as "prod" so legacy tasks still recover on the prod replica.
  */
-export async function clearAllStaleActionRunning() {
+export async function clearAllStaleActionRunning(environment?: string | null) {
   const pool = getPool();
   if (!pool) return 0;
   try {
+    const params: any[] = [];
+    let envFilter = '';
+    if (environment) {
+      params.push(environment);
+      envFilter = environment === 'prod'
+        ? `AND (environment = $1 OR environment IS NULL)`
+        : `AND environment = $1`;
+    }
     const result = await pool.query(`
       UPDATE tasks SET
         action_running = FALSE,
         action_running_agent_id = NULL,
         updated_at = NOW()
       WHERE action_running = TRUE AND deleted_at IS NULL
-    `);
+      ${envFilter}
+    `, params);
     return result.rowCount || 0;
   } catch (err) {
     console.error('Failed to clear stale action_running flags:', err.message);

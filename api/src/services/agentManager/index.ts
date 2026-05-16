@@ -1,5 +1,5 @@
 // ─── AgentManager: class shell + constructor + mixin assembly ─────────────────
-import { getAllAgents, saveAgent, setAgentOwner, setAgentBoard, getAllLlmConfigs, recordTokenUsage, getTasksByAgent, getTaskById, clearAllStaleActionRunning } from '../database.js';
+import { getAllAgents, saveAgent, setAgentOwner, setAgentBoard, getAllLlmConfigs, recordTokenUsage, getTasksByAgent, getTaskById } from '../database.js';
 import { WsEmitter } from '../../ws/emitter.js';
 
 import { lifecycleMethods } from './lifecycle.js';
@@ -163,6 +163,7 @@ export class AgentManager {
   _loopProcessing: Set<string> | undefined;
   _taskResumeFailures: Map<string, { count: number; lastFailedAt: number }> | undefined;
   _workflowManagedStatuses: Set<string> | undefined;
+  _staleActionCleanupDone: boolean | undefined;
 
   constructor(io: any, skillManager: any, executionManager: any, mcpManager: any = null, codeIndexService: any = null) {
     this.agents = new Map();
@@ -234,9 +235,10 @@ export class AgentManager {
       }
       console.log(`📂 Loaded ${llmConfigs.length} LLM configurations`);
 
-      // Service restart recovery: clear stale action_running flags from crashed executions.
-      const cleared = await clearAllStaleActionRunning();
-      if (cleared > 0) console.log(`🔄 Cleared ${cleared} stale action_running flags from previous session`);
+      // Service restart recovery: stale action_running flag cleanup is deferred
+      // to the first task loop tick (see _processNextPendingTasks), so the
+      // current environment is known and we don't clear a sibling replica's
+      // locks when several deployments share the database.
     } catch (err: any) {
       console.error('Failed to load agents from database:', err.message);
     }

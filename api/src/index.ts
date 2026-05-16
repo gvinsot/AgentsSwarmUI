@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import { setCurrentEnvironmentFromHost } from './lib/environment.js';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { authRouter, authenticateToken, requireRole, getJwtSecret, ensureAdminSeeded } from './middleware/auth.js';
@@ -124,6 +125,15 @@ app.use((req, res, next) => {
   if (!isOAuthCallback) {
     res.setHeader('Content-Security-Policy', contentSecurityPolicy);
   }
+  next();
+});
+
+// Lock this replica's environment on the first public hostname we observe,
+// so the workflow engine only picks up tasks tagged for our deployment when
+// several replicas share the same database. Internal/healthcheck hosts are
+// ignored by setCurrentEnvironmentFromHost.
+app.use((req, _res, next) => {
+  setCurrentEnvironmentFromHost(req.hostname);
   next();
 });
 

@@ -1,8 +1,9 @@
 // ─── Tasks: CRUD, execution, task loop, queue, wait, resume ──────────────────
 import { v4 as uuidv4 } from 'uuid';
-import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus, getTaskById, getTasksByAgent, getActiveTasksByAgent, getActiveTaskForExecutor, getRecurringTasks, hasActiveTask, updateTaskFields } from '../database.js';
+import { saveTaskToDb, deleteTaskFromDb, deleteTasksByAgent, hardDeleteTaskFromDb, restoreTaskFromDb, getDeletedTasks, getDeletedTaskById, getTasksForResume, updateTaskExecutionStatus, getTaskById, getTasksByAgent, getActiveTasksByAgent, getActiveTaskForExecutor, getRecurringTasks, hasActiveTask, updateTaskFields, clearAllStaleActionRunning } from '../database.js';
 import { getWorkflowForBoard, getAllBoardWorkflows, getReminderConfig } from '../configManager.js';
 import { isActiveStatus, getWorkflowManagedStatuses } from '../workflow/index.js';
+import { getCurrentEnvironment } from '../../lib/environment.js';
 
 // ── Ephemeral task signals ──────────────────────────────────────────────────
 // Transient coordination flags between async coroutines (NOT persisted).
@@ -94,7 +95,11 @@ export const tasksMethods = {
       source: source || null,
       boardId: boardId || null,
       isManual: isManual || false,
-      environment: environment || null,
+      // Fall back to the instance's locked environment when the caller (e.g.
+      // recurring task reset, jira sync, MCP-triggered task) has no request
+      // hostname to derive one from. Ensures the workflow engine of the same
+      // replica still picks the task up.
+      environment: environment || getCurrentEnvironment(),
       position: Date.now(),
       createdAt: now,
       history: [{ status, at: now, by: source?.name || source?.type || 'user' }],
@@ -686,9 +691,14 @@ export const tasksMethods = {
   async _processRecurringTasks(this: any): Promise<void> {
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
+    const ownEnv = getCurrentEnvironment();
     const recurringTasks = await getRecurringTasks();
     for (const t of recurringTasks) {
       const task: any = t;
+      // Environment isolation: only the matching replica resets the task.
+      // NULL env is treated as "prod" to preserve legacy behavior.
+      const taskEnv = task.environment || 'prod';
+      if (taskEnv !== ownEnv) continue;
       const rec = task.recurrence || {};
       const intervalMs = (rec.intervalMinutes || 1440) * 60 * 1000;
 
@@ -767,6 +777,20 @@ export const tasksMethods = {
   },
 
   _processNextPendingTasks(this: any): void {
+    // One-shot startup cleanup of stale action_running flags. Deferred until
+    // here so the instance's environment is known (locked by the first HTTP
+    // request, or set via APP_ENVIRONMENT) and we don't clear a sibling
+    // replica's locks when several deployments share the database.
+    if (!this._staleActionCleanupDone) {
+      this._staleActionCleanupDone = true;
+      const env = getCurrentEnvironment();
+      clearAllStaleActionRunning(env)
+        .then((cleared: number) => {
+          if (cleared > 0) console.log(`🔄 Cleared ${cleared} stale action_running flags for env="${env}"`);
+        })
+        .catch((err: any) => console.error('[TaskLoop] stale action cleanup failed:', err.message));
+    }
+
     this._recheckConditionalTransitions();
 
     // Periodically purge stale task signals to prevent unbounded Map growth
@@ -776,8 +800,9 @@ export const tasksMethods = {
     }
     purgeStaleTaskSignals(allTaskIds);
 
-    // Use DB query to find tasks that need resume
-    getTasksForResume().then(async (dbTasks: any[]) => {
+    // Use DB query to find tasks that need resume — filtered to our environment
+    // so a sibling replica sharing the DB doesn't steal each other's tasks.
+    getTasksForResume(getCurrentEnvironment()).then(async (dbTasks: any[]) => {
       for (const dbTask of dbTasks) {
         const executorId = dbTask.assignee || dbTask.agentId;
         const executor = this.agents.get(executorId);
