@@ -316,6 +316,26 @@ export const toolsMethods = {
           setTaskSignal(inProgressTask.id, 'completed', true);
           setTaskSignal(inProgressTask.id, 'comment', comment);
 
+          // Append the completion comment to the task description, same convention as
+          // @update_task(taskId, status, details). This makes the agent's summary visible
+          // on the task itself (kanban card) instead of being only relayed to the leader.
+          if (comment && comment.trim()) {
+            const separator = '\n\n---\n';
+            const detailBlock = `**[${agent.name}]** ${comment.trim()}`;
+            inProgressTask.text = (inProgressTask.text || '') + separator + detailBlock;
+            if (!inProgressTask.history) inProgressTask.history = [];
+            inProgressTask.history.push({
+              status: inProgressTask.status,
+              at: new Date().toISOString(),
+              by: agent.name,
+              type: 'edit',
+              field: 'text',
+              oldValue: null,
+              newValue: detailBlock,
+            });
+            inProgressTask.updatedAt = new Date().toISOString();
+          }
+
           // Find ownerAgentId for this task
           let ownerAgentId: string | null = null;
           for (const [ownerId, tasks] of this._tasks) {
@@ -408,6 +428,27 @@ export const toolsMethods = {
 
           const ownerAgent = this.agents.get(ownerAgentId);
           if (ownerAgent) saveAgent(ownerAgent);
+
+          // Persist the description change (text + history) so the appended comment
+          // survives a restart and is visible to other clients in real time. Without
+          // this, the mutation lives only in memory until the workflow engine later
+          // calls setTaskStatus — and if that step is skipped/delayed, the comment
+          // would never reach the DB.
+          if (comment && comment.trim()) {
+            try {
+              await saveTaskToDb({ ...inProgressTask, agentId: ownerAgentId });
+            } catch (err: any) {
+              console.warn(`⚠️ [TaskComplete] Failed to persist appended comment for task ${inProgressTask.id}: ${err?.message || err}`);
+            }
+            const taskPayload: any = { ...inProgressTask, agentId: ownerAgentId };
+            if (inProgressTask.assignee) {
+              const assigneeAgent = this.agents.get(inProgressTask.assignee);
+              taskPayload.assigneeName = assigneeAgent?.name || null;
+              taskPayload.assigneeIcon = assigneeAgent?.icon || null;
+            }
+            this._emit('task:updated', { agentId: ownerAgentId, task: taskPayload });
+          }
+
           console.log(`✅ [TaskComplete] Agent "${agent.name}" signaled completion for task ${inProgressTask.id} (status="${inProgressTask.status}", assignee="${inProgressTask.assignee || 'none'}"): "${comment.slice(0, 120)}"`);
           if (streamCallback) {
             streamCallback(`\n✅ Task execution complete: ${comment.slice(0, 200)}\n`);
