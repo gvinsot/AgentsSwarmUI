@@ -45,6 +45,14 @@ from .claude_oauth import (
 
 MAX_AUTH_RETRIES = 2
 
+# Sentinel printed by the Claude CLI on stdout (as plain text, NOT a stream-json
+# event) when `--resume <uuid>` cannot find a matching session JSONL on disk.
+# Happens when the session was minted by a different runner container/node and
+# the local volume (per-node, not shared) doesn't have it. Detecting this lets
+# us fall back to a fresh session + full history replay instead of surfacing
+# the raw CLI error to the user and keeping the stale UUID persisted.
+RESUME_MISS_SENTINEL = "No conversation found with session ID"
+
 
 def _spawn_diagnostic(proc_cwd: str, agent_user: Optional[dict]) -> str:
     """One-line diagnostic printed before each `claude` subprocess spawn so
@@ -646,6 +654,22 @@ class ClaudeCodeBackend(RunnerBackend):
             else:
                 return {"status": "error", "output": "", "error": "Empty response from Claude CLI", "session_id": current_session_id}
 
+        if is_resume and RESUME_MISS_SENTINEL in stdout:
+            logger.warning(
+                f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                f"('{RESUME_MISS_SENTINEL}') — retrying with fresh session + full history replay"
+            )
+            current_session_id = str(uuid.uuid4())
+            try:
+                proc, stdout_bytes, stderr_bytes = await _run_sync_proc(current_session_id, False, replay_prompt)
+                stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+                stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+                if not stdout or RESUME_MISS_SENTINEL in stdout:
+                    return {"status": "error", "output": "", "error": "Replay fallback produced no usable output", "session_id": current_session_id}
+                is_resume = False
+            except (BrokenPipeError, asyncio.TimeoutError) as e:
+                return {"status": "error", "output": "", "error": f"Fallback replay failed: {e}", "session_id": current_session_id}
+
         try:
             parsed = json.loads(stdout)
             output_text = parsed.get("result", stdout)
@@ -967,6 +991,39 @@ class ClaudeCodeBackend(RunnerBackend):
                         return
 
                 if not is_json_event:
+                    # The CLI prints `No conversation found with session ID: <uuid>`
+                    # as plain text (not stream-json) when --resume can't find the
+                    # JSONL. Treating it as content would surface raw CLI noise to
+                    # the user AND mark has_content=True, defeating the fresh-session
+                    # fallback below. Intercept here and trigger the replay path.
+                    if is_resume and RESUME_MISS_SENTINEL in line:
+                        logger.warning(
+                            f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                            f"('{RESUME_MISS_SENTINEL}') — falling back to fresh session + full history replay"
+                        )
+                        try:
+                            proc.terminate()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await proc.wait()
+                        except Exception:
+                            pass
+                        if _auth_retry < 1:
+                            async for ev in self.stream_events(
+                                prompt, system_prompt,
+                                agent_id=agent_id, owner_id=owner_id, task_id=task_id,
+                                session_id=None, messages=messages,
+                                _auth_retry=_auth_retry + 1,
+                            ):
+                                yield ev
+                        else:
+                            yield {
+                                "type": "error",
+                                "content": "Claude CLI lost session and replay fallback already attempted.",
+                            }
+                        return
+
                     has_content = True
                     yield {"type": "text", "content": line}
                     continue
