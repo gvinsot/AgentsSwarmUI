@@ -626,6 +626,26 @@ class ClaudeCodeBackend(RunnerBackend):
                 "error": "Not authenticated. Call POST /auth/login to start, or POST a token to /auth/token.",
             }
 
+        # The CLI sometimes emits the resume-miss sentinel on stderr (instead of
+        # stdout) and exits non-zero. Catch that BEFORE the generic rc!=0 path
+        # so we transparently fall back to a fresh session + replay instead of
+        # surfacing the raw "No conversation found with session ID" to the user.
+        if is_resume and (RESUME_MISS_SENTINEL in stdout or RESUME_MISS_SENTINEL in stderr):
+            logger.warning(
+                f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                f"('{RESUME_MISS_SENTINEL}') — retrying with fresh session + full history replay"
+            )
+            current_session_id = str(uuid.uuid4())
+            try:
+                proc, stdout_bytes, stderr_bytes = await _run_sync_proc(current_session_id, False, replay_prompt)
+                stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+                stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+                if not stdout or RESUME_MISS_SENTINEL in stdout or RESUME_MISS_SENTINEL in stderr:
+                    return {"status": "error", "output": "", "error": "Replay fallback produced no usable output", "session_id": current_session_id}
+                is_resume = False
+            except (BrokenPipeError, asyncio.TimeoutError) as e:
+                return {"status": "error", "output": "", "error": f"Fallback replay failed: {e}", "session_id": current_session_id}
+
         if proc.returncode != 0 and not stdout:
             error_msg = stderr if stderr else f"Claude Code exited with code {proc.returncode}"
             logger.error(f"Claude Code error: {error_msg}")
@@ -653,22 +673,6 @@ class ClaudeCodeBackend(RunnerBackend):
                     return {"status": "error", "output": "", "error": f"Fallback replay failed: {e}", "session_id": current_session_id}
             else:
                 return {"status": "error", "output": "", "error": "Empty response from Claude CLI", "session_id": current_session_id}
-
-        if is_resume and RESUME_MISS_SENTINEL in stdout:
-            logger.warning(
-                f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
-                f"('{RESUME_MISS_SENTINEL}') — retrying with fresh session + full history replay"
-            )
-            current_session_id = str(uuid.uuid4())
-            try:
-                proc, stdout_bytes, stderr_bytes = await _run_sync_proc(current_session_id, False, replay_prompt)
-                stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
-                stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-                if not stdout or RESUME_MISS_SENTINEL in stdout:
-                    return {"status": "error", "output": "", "error": "Replay fallback produced no usable output", "session_id": current_session_id}
-                is_resume = False
-            except (BrokenPipeError, asyncio.TimeoutError) as e:
-                return {"status": "error", "output": "", "error": f"Fallback replay failed: {e}", "session_id": current_session_id}
 
         try:
             parsed = json.loads(stdout)
@@ -1110,6 +1114,38 @@ class ClaudeCodeBackend(RunnerBackend):
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
+                    # If --resume reported a missing JSONL via a stream-json
+                    # result event (instead of the plain-text line caught
+                    # earlier), trigger the same fresh-session + replay fallback
+                    # so the user never sees the raw "No conversation found ..."
+                    # noise.
+                    if is_resume and isinstance(result_text, str) and RESUME_MISS_SENTINEL in result_text:
+                        logger.warning(
+                            f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                            f"via result event — falling back to fresh session + full history replay"
+                        )
+                        try:
+                            proc.terminate()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await proc.wait()
+                        except Exception:
+                            pass
+                        if _auth_retry < 1:
+                            async for ev in self.stream_events(
+                                prompt, system_prompt,
+                                agent_id=agent_id, owner_id=owner_id, task_id=task_id,
+                                session_id=None, messages=messages,
+                                _auth_retry=_auth_retry + 1,
+                            ):
+                                yield ev
+                        else:
+                            yield {
+                                "type": "error",
+                                "content": "Claude CLI lost session and replay fallback already attempted.",
+                            }
+                        return
                     cost = event.get("cost_usd", 0)
                     duration = event.get("duration_ms", 0)
                     usage = event.get("usage", {}) or {}
@@ -1125,6 +1161,34 @@ class ClaudeCodeBackend(RunnerBackend):
                     if isinstance(error_msg, dict):
                         error_msg = error_msg.get("message", str(error_msg))
                     error_str = str(error_msg)
+                    # Same fallback for error events carrying the resume-miss text.
+                    if is_resume and RESUME_MISS_SENTINEL in error_str:
+                        logger.warning(
+                            f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                            f"via error event — falling back to fresh session + full history replay"
+                        )
+                        try:
+                            proc.terminate()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await proc.wait()
+                        except Exception:
+                            pass
+                        if _auth_retry < 1:
+                            async for ev in self.stream_events(
+                                prompt, system_prompt,
+                                agent_id=agent_id, owner_id=owner_id, task_id=task_id,
+                                session_id=None, messages=messages,
+                                _auth_retry=_auth_retry + 1,
+                            ):
+                                yield ev
+                        else:
+                            yield {
+                                "type": "error",
+                                "content": "Claude CLI lost session and replay fallback already attempted.",
+                            }
+                        return
                     if "token has expired" in error_str.lower() or "oauth token" in error_str.lower():
                         try:
                             proc.terminate()
@@ -1169,6 +1233,23 @@ class ClaudeCodeBackend(RunnerBackend):
             stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace").strip()
         except Exception:
             stderr_text = ""
+
+        # If the CLI dumped the resume-miss sentinel to stderr (instead of
+        # stdout) and exited, replay once with a fresh session before surfacing
+        # any raw stderr to the client.
+        if is_resume and stderr_text and RESUME_MISS_SENTINEL in stderr_text and _auth_retry < 1:
+            logger.warning(
+                f"[Session] --resume {current_session_id[:12]} reported missing JSONL "
+                f"via stderr — falling back to fresh session + full history replay"
+            )
+            async for ev in self.stream_events(
+                prompt, system_prompt,
+                agent_id=agent_id, owner_id=owner_id, task_id=task_id,
+                session_id=None, messages=messages,
+                _auth_retry=_auth_retry + 1,
+            ):
+                yield ev
+            return
 
         if proc.returncode != 0:
             if stderr_text:
